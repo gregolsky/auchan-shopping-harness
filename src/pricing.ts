@@ -19,13 +19,13 @@ export function parseOffer(text: string | null): Offer | null {
 export function lineCost(priceGrosze: number, offer: Offer | null, quantity: number): number {
   if (offer?.kind === 'free') {
     const free = Math.floor(quantity / (offer.paid + 1));
-    return (quantity - free) * priceGrosze + free;
+    return Math.round((quantity - free) * priceGrosze + free);
   }
   if (offer?.kind === 'bundle' && offer.count > 0) {
     const bundles = Math.floor(quantity / offer.count);
-    return bundles * offer.totalGrosze + (quantity - bundles * offer.count) * priceGrosze;
+    return Math.round(bundles * offer.totalGrosze + (quantity - bundles * offer.count) * priceGrosze);
   }
-  return quantity * priceGrosze;
+  return Math.round(quantity * priceGrosze);
 }
 
 export function parseSize(size: string | null): { amount: number; unit: 'kg' | 'L' } | null {

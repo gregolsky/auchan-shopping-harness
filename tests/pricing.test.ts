@@ -38,3 +38,9 @@ test('unit price needs a real size', () => {
   assert.equal(unitPriceGrosze(798, 2, '0.5kg'), 798);
   assert.equal(unitPriceGrosze(399, 1, null), null);
 });
+
+test('a fractional quantity still costs whole grosze', () => {
+  assert.equal(lineCost(399, null, 0.33), 132);
+  assert.equal(lineCost(399, parseOffer('2+1 za grosz'), 0.33), 132);
+  assert.equal(lineCost(899, parseOffer('2  za 15,70 zł'), 2.5), 2020);
+});
