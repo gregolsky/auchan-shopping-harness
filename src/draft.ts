@@ -68,13 +68,14 @@ export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: Inte
   const unmatched: string[] = [];
 
   for (const { term, quantity } of input.items) {
-    const ranked = rankCandidates(term, quantity, facts, ruleByTerm.get(normaliseTerm(term)) ?? null).filter((c) => !used.has(c.productId));
+    const capped = (f: ProductFacts) => capQuantity(f, quantity).quantity;
+    const ranked = rankCandidates(term, capped, facts, ruleByTerm.get(normaliseTerm(term)) ?? null).filter((c) => !used.has(c.productId));
     const top = ranked[0];
     if (!top || !buyable(top)) { unmatched.push(term); continue; }
     const cap = capQuantity(top, quantity);
     let reason = basisReason(top, term);
     if (cap.capped) reason += `; capped at ${cap.quantity} because it is perishable`;
-    const alternatives = ranked.slice(1, 4).filter(buyable).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, quantity) }));
+    const alternatives = ranked.slice(1, 4).filter(buyable).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, capped(c)) }));
     used.add(top.productId);
     items.push(line(top, { term, quantity: cap.quantity, reason, guess: top.guess, capped: cap.capped, alternatives }, now));
   }
@@ -103,6 +104,7 @@ export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: Inte
 
   const promotions = facts
     .filter((f): f is Buyable => buyable(f) && f.offerText !== null && f.timesBought >= 1 && !used.has(f.productId))
+    .filter((f) => !capQuantity(f, f.requiredQuantity ?? 1).capped)
     .map((f) => {
       const quantity = f.requiredQuantity ?? 1;
       const offer = parseOffer(f.offerText);

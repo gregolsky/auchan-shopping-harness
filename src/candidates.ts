@@ -23,8 +23,10 @@ export function matchesTerm(term: string, f: Pick<ProductFacts, 'name' | 'brand'
   return words.length > 0 && words.every(matches);
 }
 
-export function rankCandidates(term: string, quantity: number, facts: ProductFacts[], rule: IntentRule | null): Candidate[] {
+/** quantity may depend on the product, as a perishable cap does; costs and unit prices use that quantity. */
+export function rankCandidates(term: string, quantity: number | ((f: ProductFacts) => number), facts: ProductFacts[], rule: IntentRule | null): Candidate[] {
   const brand = rule?.brand ? normaliseTerm(rule.brand) : null;
+  const quantityFor = typeof quantity === 'function' ? quantity : () => quantity;
   const accepted = new Set(rule?.acceptedProductIds ?? []);
   const learned = new Set(rule?.learnedProductIds ?? []);
   // Only a product chosen at least twice leads. One chosen once stays an alternative behind what was bought.
@@ -40,10 +42,11 @@ export function rankCandidates(term: string, quantity: number, facts: ProductFac
     if (!isPreferred && !isAccepted && !matchesTerm(term, f)) continue;
     const basis = isPreferred ? 'preferred' : learned.has(f.productId) ? 'accepted' : f.timesBought > 0 ? 'history' : isAccepted ? 'accepted' : 'value';
     // An offer applies only once the quantity reaches what it requires.
-    const reached = f.requiredQuantity === null || quantity >= f.requiredQuantity;
-    const cost = lineCost(f.latestPriceGrosze, reached ? parseOffer(f.offerText) : null, quantity);
+    const q = quantityFor(f);
+    const reached = f.requiredQuantity === null || q >= f.requiredQuantity;
+    const cost = lineCost(f.latestPriceGrosze, reached ? parseOffer(f.offerText) : null, q);
     out.push({
-      ...f, lineCostGrosze: cost, unitPriceGrosze: unitPriceGrosze(cost, quantity, f.size), basis, guess: basis === 'value',
+      ...f, lineCostGrosze: cost, unitPriceGrosze: unitPriceGrosze(cost, q, f.size), basis, guess: basis === 'value',
     });
   }
 

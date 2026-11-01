@@ -109,3 +109,37 @@ test('over budget is a warning number and all lines stay', () => {
   assert.equal(buildDraft(input(its, false, 2000), facts, [], now).overBudgetGrosze, null);
   assert.equal(buildDraft(input(its), facts, [], now).overBudgetGrosze, null);
 });
+
+const CHEESE = ['Produkty', 'Sery'];
+
+test('a multibuy the cap cannot reach does not win the ranking', () => {
+  const facts = [
+    fact('offer', { name: 'Ser gouda', categoryPath: CHEESE, latestPriceGrosze: 1000, offerText: '3 za 15 zł', requiredQuantity: 3 }),
+    fact('plain', { name: 'Ser edam', categoryPath: CHEESE, latestPriceGrosze: 700 }),
+  ];
+  const d = buildDraft(input([{ term: 'ser', quantity: 3 }]), facts, [], now);
+  assert.equal(d.items[0].productId, 'plain');
+  assert.equal(d.items[0].quantity, 1);
+  assert.equal(d.items[0].lineCostGrosze, 700);
+});
+
+test('a candidate ranks and costs at its own cap', () => {
+  const facts = [
+    fact('often', { name: 'Ser gouda', categoryPath: CHEESE, timesBought: 5, usualQuantity: 2, latestPriceGrosze: 900 }),
+    fact('rare', { name: 'Ser edam', categoryPath: CHEESE, timesBought: 1, usualQuantity: 1, latestPriceGrosze: 700, offerText: '3 za 15 zł', requiredQuantity: 3 }),
+    fact('tin', { name: 'Ser w puszce', timesBought: 1, latestPriceGrosze: 1000, offerText: '3 za 15 zł', requiredQuantity: 3 }),
+  ];
+  const d = buildDraft(input([{ term: 'ser', quantity: 3 }]), facts, [], now);
+  assert.equal(d.items[0].productId, 'often');
+  assert.equal(d.items[0].lineCostGrosze, 1800);
+  assert.deepEqual(d.items[0].alternatives.map((a) => [a.productId, a.lineCostGrosze]), [['tin', 1500], ['rare', 700]]);
+});
+
+test('a perishable promotion is skipped when the cap cannot reach the offer', () => {
+  const facts = [
+    fact('out', { name: 'Ser gouda', categoryPath: CHEESE, timesBought: 1, usualQuantity: 1, offerText: '3 za 15 zł', requiredQuantity: 3 }),
+    fact('in', { name: 'Ser edam', categoryPath: CHEESE, timesBought: 1, usualQuantity: 3, offerText: '3 za 15 zł', requiredQuantity: 3 }),
+    fact('pantry', { name: 'Kawa', timesBought: 1, usualQuantity: 1, offerText: '3 za 15 zł', requiredQuantity: 3 }),
+  ];
+  assert.deepEqual(buildDraft(input([]), facts, [], now).promotions.map((l) => l.productId).sort(), ['in', 'pantry']);
+});
