@@ -2,7 +2,7 @@
   "mcpServers": {
     "chrome-devtools": {
       "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@latest", "--user-data-dir=/home/gregolsky/.cache/chrome-devtools-mcp/zakupy"],
+      "args": ["-y", "chrome-devtools-mcp@latest", "--user-data-dir=/home/gregolsky/.cache/chrome-devtools-mcp/zakupy", "--executable-path=/usr/sbin/chromium"],
       "allowedTools": [
         "navigate_page",
         "evaluate_script",
@@ -13,6 +13,10 @@
         "list_pages",
         "select_page"
       ]
+    },
+    "auchan-data": {
+      "command": "node",
+      "args": ["src/mcp.ts"]
     }
   }
 }

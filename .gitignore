@@ -37,3 +37,6 @@ yarn-debug.log*
 *.pem
 *.key
 credentials.json
+
+# Raw captured Auchan responses (personal data)
+tests/fixtures/raw/

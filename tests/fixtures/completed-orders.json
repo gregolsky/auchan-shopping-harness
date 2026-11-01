@@ -1,0 +1,159 @@
+{
+  "data": {
+    "customer": {
+      "ordersCompleted": {
+        "retentionPeriod": "P2Y",
+        "pageInfo": {
+          "endCursor": "cursor-3",
+          "hasNextPage": true,
+          "__typename": "PageInfo"
+        },
+        "edges": [
+          {
+            "cursor": "cursor-1",
+            "node": {
+              "__typename": "InternalOrder",
+              "orderId": "1000000001",
+              "status": "DELIVERED",
+              "region": {
+                "retailerRegionId": "PL_00012_MAG",
+                "regionId": "00000000-0000-4000-8000-000000000010",
+                "__typename": "Region"
+              },
+              "prices": {
+                "total": {
+                  "currency": "PLN",
+                  "amount": "46.44",
+                  "__typename": "Money"
+                },
+                "__typename": "OrderPricing"
+              },
+              "slot": {
+                "timeWindow": {
+                  "start": "2026-04-11T11:00:00.000Z",
+                  "end": "2026-04-11T15:00:00.000Z",
+                  "timeZone": "Europe/Warsaw",
+                  "__typename": "SlotTimeWindow"
+                },
+                "__typename": "ConfirmedSlot",
+                "type": "STANDARD",
+                "shippingGroupType": "Auchan Vans"
+              },
+              "delivery": {
+                "__typename": "HomeDelivery",
+                "deliveryMethod": "HOME_DELIVERY",
+                "destination": {
+                  "name": "Destination placeholder",
+                  "__typename": "HomeAddressOrderDestination"
+                },
+                "carrier": {
+                  "carrierId": "carrier-placeholder",
+                  "__typename": "Carrier"
+                },
+                "externalLocker": null
+              },
+              "recurringOrderDefinition": null
+            },
+            "__typename": "CompletedOrderEdge"
+          },
+          {
+            "cursor": "cursor-2",
+            "node": {
+              "__typename": "InternalOrder",
+              "orderId": "1000000002",
+              "status": "DELIVERED",
+              "region": {
+                "retailerRegionId": "PL_00012_MAG",
+                "regionId": "00000000-0000-4000-8000-000000000010",
+                "__typename": "Region"
+              },
+              "prices": {
+                "total": {
+                  "currency": "PLN",
+                  "amount": "123.45",
+                  "__typename": "Money"
+                },
+                "__typename": "OrderPricing"
+              },
+              "slot": {
+                "timeWindow": {
+                  "start": "2026-03-21T08:00:00.000Z",
+                  "end": "2026-03-21T12:00:00.000Z",
+                  "timeZone": "Europe/Warsaw",
+                  "__typename": "SlotTimeWindow"
+                },
+                "__typename": "ConfirmedSlot",
+                "type": "STANDARD",
+                "shippingGroupType": "Auchan Vans"
+              },
+              "delivery": {
+                "__typename": "HomeDelivery",
+                "deliveryMethod": "HOME_DELIVERY",
+                "destination": {
+                  "name": "Destination placeholder",
+                  "__typename": "HomeAddressOrderDestination"
+                },
+                "carrier": {
+                  "carrierId": "carrier-placeholder",
+                  "__typename": "Carrier"
+                },
+                "externalLocker": null
+              },
+              "recurringOrderDefinition": null
+            },
+            "__typename": "CompletedOrderEdge"
+          },
+          {
+            "cursor": "cursor-3",
+            "node": {
+              "__typename": "InternalOrder",
+              "orderId": "1000000003",
+              "status": "DELIVERED",
+              "region": {
+                "retailerRegionId": "PL_00012_MAG",
+                "regionId": "00000000-0000-4000-8000-000000000010",
+                "__typename": "Region"
+              },
+              "prices": {
+                "total": {
+                  "currency": "PLN",
+                  "amount": "98.76",
+                  "__typename": "Money"
+                },
+                "__typename": "OrderPricing"
+              },
+              "slot": {
+                "timeWindow": {
+                  "start": "2026-02-26T18:00:00.000Z",
+                  "end": "2026-02-26T22:00:00.000Z",
+                  "timeZone": "Europe/Warsaw",
+                  "__typename": "SlotTimeWindow"
+                },
+                "__typename": "ConfirmedSlot",
+                "type": "STANDARD",
+                "shippingGroupType": "Auchan Vans"
+              },
+              "delivery": {
+                "__typename": "HomeDelivery",
+                "deliveryMethod": "HOME_DELIVERY",
+                "destination": {
+                  "name": "Destination placeholder",
+                  "__typename": "HomeAddressOrderDestination"
+                },
+                "carrier": {
+                  "carrierId": "carrier-placeholder",
+                  "__typename": "Carrier"
+                },
+                "externalLocker": null
+              },
+              "recurringOrderDefinition": null
+            },
+            "__typename": "CompletedOrderEdge"
+          }
+        ],
+        "__typename": "OrderConnection"
+      },
+      "__typename": "Customer"
+    }
+  }
+}

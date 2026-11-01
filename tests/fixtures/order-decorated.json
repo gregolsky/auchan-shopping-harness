@@ -1,0 +1,519 @@
+{
+  "result": "1000000001",
+  "entities": {
+    "order": {
+      "1000000001": {
+        "orderId": "1000000001",
+        "regionId": "00000000-0000-4000-8000-000000000010",
+        "retailerRegionId": "PL_00012_MAG",
+        "status": "DELIVERED",
+        "orderTotals": {
+          "finalPrice": {
+            "amount": "46.44",
+            "currency": "PLN"
+          },
+          "retailPrice": {
+            "amount": "50.95",
+            "currency": "PLN"
+          },
+          "totalSavings": {
+            "amount": "4.51",
+            "currency": "PLN"
+          }
+        },
+        "dates": {
+          "deliveryStartDate": "2026-04-11T12:00:00+01:00",
+          "deliveryEndDate": "2026-04-11T16:00:00+01:00",
+          "deliveryLatestUpdateTime": "2026-04-11T07:40:00+01:00",
+          "timeZoneId": "Europe/Warsaw"
+        },
+        "groupedProducts": {
+          "products": [
+            {
+              "productId": "95bba835-bad9-40df-a7ec-7766ac0d3354",
+              "type": "REGULAR",
+              "retailerProductId": "00307822",
+              "name": "Złote paluszki rybne FRoSTA 450 g",
+              "quantity": 1,
+              "prices": {
+                "retail": {
+                  "amount": "22.58",
+                  "currency": "PLN"
+                },
+                "offered": {
+                  "amount": "18.07",
+                  "currency": "PLN"
+                },
+                "grossOffered": null,
+                "netOffered": null,
+                "pricePerItem": {
+                  "amount": "18.07",
+                  "currency": "PLN"
+                },
+                "pricePerUnit": {
+                  "value": {
+                    "amount": "40.15",
+                    "currency": "PLN"
+                  },
+                  "valueInCurrencySubunit": null,
+                  "unit": "PER_1KG",
+                  "unitLabel": "fop.price.per.kg",
+                  "suffix": null
+                }
+              },
+              "packInfo": {
+                "packSizeDescription": "0.45kg",
+                "weight": null,
+                "typicalWeight": null,
+                "subtext": null
+              },
+              "isInCurrentCatalog": true,
+              "promotions": [
+                {
+                  "promotionId": "1bd61d5c-9918-4e63-904f-d835f54ca5c0",
+                  "name": "20% taniej",
+                  "presentationMode": "DEFAULT",
+                  "image": null
+                }
+              ],
+              "isAlcohol": false,
+              "expirationDate": null,
+              "storageType": "FREEZER",
+              "isSample": false
+            },
+            {
+              "productId": "d6f34376-6a75-4335-83ba-ac4f7478bb71",
+              "type": "CATCHWEIGHT",
+              "retailerProductId": "00034041",
+              "name": "Banany Premium Owoce  Auchan na wagę kiść 4-6 szt ok. 1 kg",
+              "quantity": 1,
+              "prices": {
+                "retail": {
+                  "amount": "7.64",
+                  "currency": "PLN"
+                },
+                "offered": {
+                  "amount": "7.64",
+                  "currency": "PLN"
+                },
+                "grossOffered": null,
+                "netOffered": null,
+                "pricePerItem": {
+                  "amount": "7.64",
+                  "currency": "PLN"
+                },
+                "pricePerUnit": {
+                  "value": {
+                    "amount": "7.64",
+                    "currency": "PLN"
+                  },
+                  "valueInCurrencySubunit": null,
+                  "unit": "PER_1KG",
+                  "unitLabel": "fop.price.per.kg",
+                  "suffix": null
+                }
+              },
+              "packInfo": {
+                "packSizeDescription": "950g - 99999g",
+                "weight": "968g",
+                "typicalWeight": "1kg",
+                "subtext": null
+              },
+              "isInCurrentCatalog": true,
+              "promotions": [],
+              "isAlcohol": false,
+              "expirationDate": null,
+              "storageType": "CUPBOARD",
+              "isSample": false
+            },
+            {
+              "productId": "4d99971b-6c8f-4f61-8082-b4feb76ef9d0",
+              "type": "REGULAR",
+              "retailerProductId": "00930375",
+              "name": "Proszek do pieczenia Balviten  70 g",
+              "quantity": 1,
+              "prices": {
+                "retail": {
+                  "amount": "3.60",
+                  "currency": "PLN"
+                },
+                "offered": {
+                  "amount": "3.60",
+                  "currency": "PLN"
+                },
+                "grossOffered": null,
+                "netOffered": null,
+                "pricePerItem": {
+                  "amount": "3.60",
+                  "currency": "PLN"
+                },
+                "pricePerUnit": {
+                  "value": {
+                    "amount": "51.49",
+                    "currency": "PLN"
+                  },
+                  "valueInCurrencySubunit": null,
+                  "unit": "PER_1KG",
+                  "unitLabel": "fop.price.per.kg",
+                  "suffix": null
+                }
+              },
+              "packInfo": {
+                "packSizeDescription": "0.07kg",
+                "weight": null,
+                "typicalWeight": null,
+                "subtext": null
+              },
+              "isInCurrentCatalog": true,
+              "promotions": [],
+              "isAlcohol": false,
+              "expirationDate": null,
+              "storageType": "CUPBOARD",
+              "isSample": false
+            },
+            {
+              "productId": "c59cec16-22af-4baa-bd13-6dc8a3b9dbd8",
+              "type": "REGULAR",
+              "retailerProductId": "00710384",
+              "name": "Napój migdałowy z wapniem i witaminami Alpro 1 l",
+              "quantity": 1,
+              "prices": {
+                "retail": {
+                  "amount": "13.54",
+                  "currency": "PLN"
+                },
+                "offered": {
+                  "amount": "13.54",
+                  "currency": "PLN"
+                },
+                "grossOffered": null,
+                "netOffered": null,
+                "pricePerItem": {
+                  "amount": "13.54",
+                  "currency": "PLN"
+                },
+                "pricePerUnit": {
+                  "value": {
+                    "amount": "13.54",
+                    "currency": "PLN"
+                  },
+                  "valueInCurrencySubunit": null,
+                  "unit": "PER_LITRE",
+                  "unitLabel": "fop.price.per.litre",
+                  "suffix": null
+                }
+              },
+              "packInfo": {
+                "packSizeDescription": "1L",
+                "weight": null,
+                "typicalWeight": null,
+                "subtext": null
+              },
+              "isInCurrentCatalog": true,
+              "promotions": [],
+              "isAlcohol": false,
+              "expirationDate": null,
+              "storageType": "CUPBOARD",
+              "isSample": false
+            },
+            {
+              "productId": "7866c30c-0b4e-402b-a90c-f292bca0ef6b",
+              "type": "REGULAR",
+              "retailerProductId": "00303971",
+              "name": "Chleb tostowy pszenny pełnoziarnisty krojony Auchan 500 g",
+              "quantity": 1,
+              "prices": {
+                "retail": {
+                  "amount": "3.59",
+                  "currency": "PLN"
+                },
+                "offered": {
+                  "amount": "3.59",
+                  "currency": "PLN"
+                },
+                "grossOffered": null,
+                "netOffered": null,
+                "pricePerItem": {
+                  "amount": "3.59",
+                  "currency": "PLN"
+                },
+                "pricePerUnit": {
+                  "value": {
+                    "amount": "7.19",
+                    "currency": "PLN"
+                  },
+                  "valueInCurrencySubunit": null,
+                  "unit": "PER_1KG",
+                  "unitLabel": "fop.price.per.kg",
+                  "suffix": null
+                }
+              },
+              "packInfo": {
+                "packSizeDescription": "0.5kg",
+                "weight": null,
+                "typicalWeight": null,
+                "subtext": null
+              },
+              "isInCurrentCatalog": true,
+              "promotions": [],
+              "isAlcohol": false,
+              "expirationDate": null,
+              "storageType": "CUPBOARD",
+              "isSample": false
+            }
+          ]
+        }
+      }
+    },
+    "product": {
+      "95bba835-bad9-40df-a7ec-7766ac0d3354": {
+        "productId": "95bba835-bad9-40df-a7ec-7766ac0d3354",
+        "retailerProductId": "00307822",
+        "name": "Złote paluszki rybne FRoSTA 450 g",
+        "available": true,
+        "maxQuantityReached": false,
+        "isInCurrentCatalog": true,
+        "isInProductList": false,
+        "categoryPath": [
+          "Artykuły spożywcze",
+          "Mrożonki",
+          "Ryby mrożone",
+          "Ryby panierowane mrożone"
+        ],
+        "timeRestricted": false,
+        "favorite": {
+          "lastBought": "2026-04-10T20:41:00.000Z"
+        },
+        "isVerifiedPurchase": false,
+        "brand": "FRoSTA",
+        "price": {
+          "original": {
+            "amount": "22.58",
+            "currency": "PLN"
+          },
+          "current": {
+            "amount": "18.07",
+            "currency": "PLN"
+          },
+          "unit": {
+            "label": "fop.price.per.kg",
+            "original": {
+              "amount": "50.17",
+              "currency": "PLN"
+            },
+            "current": {
+              "amount": "40.15",
+              "currency": "PLN"
+            }
+          },
+          "reference": {
+            "amount": "22.58",
+            "currency": "PLN",
+            "type": "FRESH"
+          }
+        },
+        "offer": {
+          "id": "1bd61d5c-9918-4e63-904f-d835f54ca5c0",
+          "retailerPromotionId": "PC0000002978326070270030782200015990000000000001_202610280032",
+          "description": "20% taniej",
+          "type": "OFFER",
+          "presentationMode": "DEFAULT"
+        },
+        "offers": [
+          {
+            "id": "1bd61d5c-9918-4e63-904f-d835f54ca5c0",
+            "retailerPromotionId": "PC0000002978326070270030782200015990000000000001_202610280032",
+            "description": "20% taniej",
+            "type": "OFFER",
+            "presentationMode": "DEFAULT"
+          }
+        ],
+        "size": {
+          "value": "0.45kg",
+          "catchWeight": false
+        },
+        "featured": "false",
+        "isNew": false
+      },
+      "d6f34376-6a75-4335-83ba-ac4f7478bb71": {
+        "productId": "d6f34376-6a75-4335-83ba-ac4f7478bb71",
+        "retailerProductId": "00034041",
+        "name": "Banany Premium Owoce  Auchan na wagę kiść 4-6 szt ok. 1 kg",
+        "available": true,
+        "maxQuantityReached": false,
+        "isInCurrentCatalog": true,
+        "isInProductList": true,
+        "categoryPath": [
+          "Artykuły spożywcze",
+          "Owoce, warzywa i zioła",
+          "Owoce",
+          "Banany"
+        ],
+        "timeRestricted": false,
+        "favorite": {
+          "lastBought": "2026-04-10T20:41:00.000Z"
+        },
+        "isVerifiedPurchase": false,
+        "brand": "Owoce  Auchan",
+        "price": {
+          "current": {
+            "amount": "7.89",
+            "currency": "PLN"
+          },
+          "unit": {
+            "label": "fop.price.per.kg",
+            "current": {
+              "amount": "7.89",
+              "currency": "PLN"
+            }
+          }
+        },
+        "offers": [],
+        "size": {
+          "value": "1",
+          "uom": "KG",
+          "catchWeight": true
+        },
+        "catchweight": {
+          "minQuantity": {
+            "value": "950",
+            "uom": "G"
+          },
+          "typicalQuantity": {
+            "value": "1",
+            "uom": "KG"
+          },
+          "maxQuantity": {
+            "value": "99999",
+            "uom": "G"
+          }
+        },
+        "featured": "false",
+        "isNew": false
+      },
+      "4d99971b-6c8f-4f61-8082-b4feb76ef9d0": {
+        "productId": "4d99971b-6c8f-4f61-8082-b4feb76ef9d0",
+        "retailerProductId": "00930375",
+        "name": "Proszek do pieczenia Balviten  70 g",
+        "available": true,
+        "maxQuantityReached": false,
+        "isInCurrentCatalog": true,
+        "isInProductList": false,
+        "categoryPath": [
+          "Zdrowa żywność",
+          "Bez glutenu",
+          "Mąka i produkty do pieczenia bezglutenowe",
+          "Dodatki cukiernicze bezglutenowe"
+        ],
+        "timeRestricted": false,
+        "favorite": {
+          "lastBought": "2026-04-10T20:41:00.000Z"
+        },
+        "isVerifiedPurchase": false,
+        "brand": "Balviten ",
+        "price": {
+          "current": {
+            "amount": "3.60",
+            "currency": "PLN"
+          },
+          "unit": {
+            "label": "fop.price.per.kg",
+            "current": {
+              "amount": "51.49",
+              "currency": "PLN"
+            }
+          }
+        },
+        "offers": [],
+        "size": {
+          "value": "0.07kg",
+          "catchWeight": false
+        },
+        "featured": "false",
+        "isNew": false
+      },
+      "c59cec16-22af-4baa-bd13-6dc8a3b9dbd8": {
+        "productId": "c59cec16-22af-4baa-bd13-6dc8a3b9dbd8",
+        "retailerProductId": "00710384",
+        "name": "Napój migdałowy z wapniem i witaminami Alpro 1 l",
+        "available": true,
+        "maxQuantityReached": false,
+        "isInCurrentCatalog": true,
+        "isInProductList": false,
+        "categoryPath": [
+          "Zdrowa żywność",
+          "Produkty vege",
+          "Zamienniki nabiału",
+          "Napoje migdałowe vege"
+        ],
+        "timeRestricted": false,
+        "favorite": {
+          "lastBought": "2026-04-10T20:41:00.000Z"
+        },
+        "isVerifiedPurchase": false,
+        "brand": "Alpro",
+        "price": {
+          "current": {
+            "amount": "13.54",
+            "currency": "PLN"
+          },
+          "unit": {
+            "label": "fop.price.per.litre",
+            "current": {
+              "amount": "13.54",
+              "currency": "PLN"
+            }
+          }
+        },
+        "offers": [],
+        "size": {
+          "value": "1L",
+          "catchWeight": false
+        },
+        "featured": "false",
+        "isNew": false
+      },
+      "7866c30c-0b4e-402b-a90c-f292bca0ef6b": {
+        "productId": "7866c30c-0b4e-402b-a90c-f292bca0ef6b",
+        "retailerProductId": "00303971",
+        "name": "Chleb tostowy pszenny pełnoziarnisty krojony Auchan 500 g",
+        "available": true,
+        "maxQuantityReached": false,
+        "isInCurrentCatalog": true,
+        "isInProductList": false,
+        "categoryPath": [
+          "Artykuły spożywcze",
+          "Pieczywo i wyroby cukiernicze",
+          "Chleb",
+          "Chleb tostowy"
+        ],
+        "timeRestricted": false,
+        "favorite": {
+          "lastBought": "2026-04-10T20:41:00.000Z"
+        },
+        "isVerifiedPurchase": false,
+        "brand": "Auchan",
+        "price": {
+          "current": {
+            "amount": "3.59",
+            "currency": "PLN"
+          },
+          "unit": {
+            "label": "fop.price.per.kg",
+            "current": {
+              "amount": "7.19",
+              "currency": "PLN"
+            }
+          }
+        },
+        "offers": [],
+        "size": {
+          "value": "0.5kg",
+          "catchWeight": false
+        },
+        "featured": "false",
+        "isNew": false
+      }
+    }
+  }
+}

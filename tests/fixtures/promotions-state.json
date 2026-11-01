@@ -1,0 +1,465 @@
+{
+  "session": {
+    "metadata": {
+      "regionId": "00000000-0000-4000-8000-000000000010"
+    }
+  },
+  "data": {
+    "products": {
+      "productEntities": {
+        "0fac88ce-0b85-4090-a380-bebc4e456df0": {
+          "additionalProductCharge": null,
+          "ageRestriction": null,
+          "alcohol": false,
+          "available": true,
+          "brand": "Kubuś",
+          "categoryPath": [
+            "Artykuły spożywcze",
+            "Soki, nektary",
+            "Musy",
+            "Musy owocowe"
+          ],
+          "checkoutTimeRestricted": null,
+          "checkoutTimeRestriction": null,
+          "checkoutTimeRestrictionMessage": null,
+          "countryOfOrigin": null,
+          "deliveryTimeRestrictionMessage": null,
+          "depositPrice": null,
+          "favorite": {
+            "lastBought": "2025-09-28T16:47:00.000Z"
+          },
+          "guaranteedProductLife": null,
+          "hfssDisplayRestrictionGroup": null,
+          "isInCurrentCatalog": true,
+          "isVerifiedPurchase": false,
+          "maxAvailableQuantity": 105,
+          "maxQuantityReached": false,
+          "medicalQuestionnaireRequired": null,
+          "productId": "0fac88ce-0b85-4090-a380-bebc4e456df0",
+          "quantityInBasket": 0,
+          "quantityRestrictionGroup": null,
+          "regular": null,
+          "restrictedVisibility": null,
+          "retailerProductId": "00199022",
+          "temperatureRegime": null,
+          "timeRestricted": false,
+          "timeRestriction": null,
+          "verifyMode": null,
+          "name": "Immuno odporność mus malina dzika róża Kubuś 100 g",
+          "price": {
+            "current": {
+              "amount": 2.54,
+              "currency": "PLN"
+            },
+            "unit": {
+              "label": "fop.price.per.kg",
+              "current": {
+                "amount": 25.4,
+                "currency": "PLN"
+              }
+            }
+          },
+          "isInProductList": false,
+          "isNew": false,
+          "offers": [
+            {
+              "id": "e3024a08-09ce-4c7d-8459-aff361f70f40",
+              "description": "2  za 3,94 zł",
+              "presentationMode": "DEFAULT",
+              "requiredProductQuantity": 2,
+              "retailerPromotionId": "PCM002978325858900602za0000394_202610280032",
+              "type": "OFFER",
+              "limitReached": false
+            }
+          ],
+          "offer": {
+            "id": "e3024a08-09ce-4c7d-8459-aff361f70f40",
+            "description": "2  za 3,94 zł",
+            "type": "OFFER",
+            "retailerPromotionId": "PCM002978325858900602za0000394_202610280032",
+            "limitReached": false,
+            "requiredProductQuantity": 2,
+            "presentationMode": "DEFAULT"
+          },
+          "size": {
+            "value": "0.1kg"
+          }
+        },
+        "95bba835-bad9-40df-a7ec-7766ac0d3354": {
+          "additionalProductCharge": null,
+          "ageRestriction": null,
+          "alcohol": false,
+          "available": true,
+          "brand": "FRoSTA",
+          "categoryPath": [
+            "Artykuły spożywcze",
+            "Mrożonki",
+            "Ryby mrożone",
+            "Ryby panierowane mrożone"
+          ],
+          "checkoutTimeRestricted": null,
+          "checkoutTimeRestriction": null,
+          "checkoutTimeRestrictionMessage": null,
+          "countryOfOrigin": null,
+          "deliveryTimeRestrictionMessage": null,
+          "depositPrice": null,
+          "favorite": {
+            "lastBought": "2026-04-10T20:41:00.000Z"
+          },
+          "guaranteedProductLife": null,
+          "hfssDisplayRestrictionGroup": null,
+          "isInCurrentCatalog": true,
+          "isVerifiedPurchase": false,
+          "maxAvailableQuantity": 164,
+          "maxQuantityReached": false,
+          "medicalQuestionnaireRequired": null,
+          "productId": "95bba835-bad9-40df-a7ec-7766ac0d3354",
+          "quantityInBasket": 0,
+          "quantityRestrictionGroup": null,
+          "regular": null,
+          "restrictedVisibility": null,
+          "retailerProductId": "00307822",
+          "temperatureRegime": null,
+          "timeRestricted": false,
+          "timeRestriction": null,
+          "verifyMode": null,
+          "name": "Złote paluszki rybne FRoSTA 450 g",
+          "price": {
+            "original": {
+              "amount": 19.98,
+              "currency": "PLN"
+            },
+            "current": {
+              "amount": 15.99,
+              "currency": "PLN"
+            },
+            "unit": {
+              "label": "fop.price.per.kg",
+              "original": {
+                "amount": 44.4,
+                "currency": "PLN"
+              },
+              "current": {
+                "amount": 35.53,
+                "currency": "PLN"
+              }
+            },
+            "reference": {
+              "amount": 19.98,
+              "currency": "PLN",
+              "type": "FRESH"
+            }
+          },
+          "isInProductList": false,
+          "isNew": false,
+          "offers": [
+            {
+              "id": "1bd61d5c-9918-4e63-904f-d835f54ca5c0",
+              "description": "20% taniej",
+              "presentationMode": "DEFAULT",
+              "requiredProductQuantity": null,
+              "retailerPromotionId": "PC0000002978326070270030782200015990000000000001_202610280032",
+              "type": "OFFER",
+              "limitReached": false
+            }
+          ],
+          "offer": {
+            "id": "1bd61d5c-9918-4e63-904f-d835f54ca5c0",
+            "description": "20% taniej",
+            "type": "OFFER",
+            "retailerPromotionId": "PC0000002978326070270030782200015990000000000001_202610280032",
+            "limitReached": false,
+            "presentationMode": "DEFAULT"
+          },
+          "size": {
+            "value": "0.45kg"
+          }
+        },
+        "7cfe67c6-7802-49e3-b53a-6fa223423947": {
+          "additionalProductCharge": null,
+          "ageRestriction": null,
+          "alcohol": false,
+          "available": true,
+          "brand": "Auchan",
+          "categoryPath": [
+            "Artykuły spożywcze",
+            "Mięso i drób",
+            "Mięso wieprzowe",
+            "Polędwiczki wieprzowe"
+          ],
+          "checkoutTimeRestricted": null,
+          "checkoutTimeRestriction": null,
+          "checkoutTimeRestrictionMessage": null,
+          "countryOfOrigin": null,
+          "deliveryTimeRestrictionMessage": null,
+          "depositPrice": null,
+          "favorite": null,
+          "guaranteedProductLife": null,
+          "hfssDisplayRestrictionGroup": null,
+          "isInCurrentCatalog": true,
+          "isVerifiedPurchase": false,
+          "maxAvailableQuantity": 185,
+          "maxQuantityReached": false,
+          "medicalQuestionnaireRequired": null,
+          "productId": "7cfe67c6-7802-49e3-b53a-6fa223423947",
+          "quantityInBasket": 0,
+          "quantityRestrictionGroup": null,
+          "regular": null,
+          "restrictedVisibility": null,
+          "retailerProductId": "00571502",
+          "temperatureRegime": null,
+          "timeRestricted": false,
+          "timeRestriction": null,
+          "verifyMode": null,
+          "name": "Polędwiczka wieprzowa tacka  Auchan na wagę ok. 600 g",
+          "price": {
+            "original": {
+              "amount": 19.79,
+              "currency": "PLN"
+            },
+            "current": {
+              "amount": 15.53,
+              "currency": "PLN"
+            },
+            "unit": {
+              "label": "fop.price.per.kg",
+              "original": {
+                "amount": 32.98,
+                "currency": "PLN"
+              },
+              "current": {
+                "amount": 25.89,
+                "currency": "PLN"
+              }
+            },
+            "reference": {
+              "amount": 19.79,
+              "currency": "PLN",
+              "type": "FRESH"
+            }
+          },
+          "isInProductList": false,
+          "isNew": false,
+          "offers": [
+            {
+              "id": "d94df9a9-1e4b-4f98-85b6-502f7c02aea3",
+              "description": "21% taniej",
+              "presentationMode": "DEFAULT",
+              "requiredProductQuantity": null,
+              "retailerPromotionId": "PC0000002987326056760057150200025890000000000001_202610280032",
+              "type": "OFFER",
+              "limitReached": false
+            }
+          ],
+          "offer": {
+            "id": "d94df9a9-1e4b-4f98-85b6-502f7c02aea3",
+            "description": "21% taniej",
+            "type": "OFFER",
+            "retailerPromotionId": "PC0000002987326056760057150200025890000000000001_202610280032",
+            "limitReached": false,
+            "presentationMode": "DEFAULT"
+          },
+          "size": {
+            "value": "0.6",
+            "uom": "KG",
+            "catchWeight": true
+          },
+          "catchweight": {
+            "maxQuantity": {
+              "uom": "G",
+              "value": "99999"
+            },
+            "minQuantity": {
+              "uom": "G",
+              "value": "550"
+            },
+            "typicalQuantity": {
+              "uom": "KG",
+              "value": "0.6"
+            }
+          }
+        },
+        "ea770b17-22c3-4eff-9905-0011a83995e9": {
+          "additionalProductCharge": null,
+          "ageRestriction": null,
+          "alcohol": false,
+          "available": true,
+          "brand": "Tartare",
+          "categoryPath": [
+            "Artykuły spożywcze",
+            "Sery",
+            "Serki kanapkowe",
+            "Białe do smarowania"
+          ],
+          "checkoutTimeRestricted": null,
+          "checkoutTimeRestriction": null,
+          "checkoutTimeRestrictionMessage": null,
+          "countryOfOrigin": null,
+          "deliveryTimeRestrictionMessage": null,
+          "depositPrice": null,
+          "favorite": {
+            "lastBought": "2025-11-22T00:25:00.000Z"
+          },
+          "guaranteedProductLife": null,
+          "hfssDisplayRestrictionGroup": null,
+          "isInCurrentCatalog": true,
+          "isVerifiedPurchase": false,
+          "maxAvailableQuantity": 31,
+          "maxQuantityReached": false,
+          "medicalQuestionnaireRequired": null,
+          "productId": "ea770b17-22c3-4eff-9905-0011a83995e9",
+          "quantityInBasket": 0,
+          "quantityRestrictionGroup": null,
+          "regular": null,
+          "restrictedVisibility": null,
+          "retailerProductId": "00939437",
+          "temperatureRegime": null,
+          "timeRestricted": false,
+          "timeRestriction": null,
+          "verifyMode": null,
+          "name": "Serek puszysty Łososiowa Zatoka Tartare 140 g",
+          "price": {
+            "original": {
+              "amount": 7.98,
+              "currency": "PLN"
+            },
+            "current": {
+              "amount": 4.99,
+              "currency": "PLN"
+            },
+            "unit": {
+              "label": "fop.price.per.kg",
+              "original": {
+                "amount": 57,
+                "currency": "PLN"
+              },
+              "current": {
+                "amount": 35.64,
+                "currency": "PLN"
+              }
+            },
+            "reference": {
+              "amount": 7.98,
+              "currency": "PLN",
+              "type": "FRESH"
+            }
+          },
+          "isInProductList": false,
+          "isNew": false,
+          "offers": [
+            {
+              "id": "31299416-21ce-4a28-b91e-5fc137969716",
+              "description": "37% taniej",
+              "presentationMode": "DEFAULT",
+              "requiredProductQuantity": null,
+              "retailerPromotionId": "PC0000002978325939140093943700004990000000000001_202610280032",
+              "type": "OFFER",
+              "limitReached": false
+            }
+          ],
+          "offer": {
+            "id": "31299416-21ce-4a28-b91e-5fc137969716",
+            "description": "37% taniej",
+            "type": "OFFER",
+            "retailerPromotionId": "PC0000002978325939140093943700004990000000000001_202610280032",
+            "limitReached": false,
+            "presentationMode": "DEFAULT"
+          },
+          "size": {
+            "value": "0.14kg"
+          }
+        },
+        "16296dbb-f9f3-44a9-9aae-67728e77a14d": {
+          "additionalProductCharge": null,
+          "ageRestriction": null,
+          "alcohol": false,
+          "available": true,
+          "brand": "Tartare",
+          "categoryPath": [
+            "Artykuły spożywcze",
+            "Sery",
+            "Serki kanapkowe",
+            "Białe do smarowania"
+          ],
+          "checkoutTimeRestricted": null,
+          "checkoutTimeRestriction": null,
+          "checkoutTimeRestrictionMessage": null,
+          "countryOfOrigin": null,
+          "deliveryTimeRestrictionMessage": null,
+          "depositPrice": null,
+          "favorite": {
+            "lastBought": "2026-04-10T20:41:00.000Z"
+          },
+          "guaranteedProductLife": null,
+          "hfssDisplayRestrictionGroup": null,
+          "isInCurrentCatalog": true,
+          "isVerifiedPurchase": false,
+          "maxAvailableQuantity": 27,
+          "maxQuantityReached": false,
+          "medicalQuestionnaireRequired": null,
+          "productId": "16296dbb-f9f3-44a9-9aae-67728e77a14d",
+          "quantityInBasket": 0,
+          "quantityRestrictionGroup": null,
+          "regular": null,
+          "restrictedVisibility": null,
+          "retailerProductId": "00939436",
+          "temperatureRegime": null,
+          "timeRestricted": false,
+          "timeRestriction": null,
+          "verifyMode": null,
+          "name": "Serek puszysty Cebulowe Pole Tartare 140 g",
+          "price": {
+            "original": {
+              "amount": 7.98,
+              "currency": "PLN"
+            },
+            "current": {
+              "amount": 4.99,
+              "currency": "PLN"
+            },
+            "unit": {
+              "label": "fop.price.per.kg",
+              "original": {
+                "amount": 57,
+                "currency": "PLN"
+              },
+              "current": {
+                "amount": 35.64,
+                "currency": "PLN"
+              }
+            },
+            "reference": {
+              "amount": 7.98,
+              "currency": "PLN",
+              "type": "FRESH"
+            }
+          },
+          "isInProductList": false,
+          "isNew": false,
+          "offers": [
+            {
+              "id": "fbea82af-276a-47ec-aedd-ddd476c4c10b",
+              "description": "37% taniej",
+              "presentationMode": "DEFAULT",
+              "requiredProductQuantity": null,
+              "retailerPromotionId": "PC0000002978325939140093943600004990000000000001_202610280032",
+              "type": "OFFER",
+              "limitReached": false
+            }
+          ],
+          "offer": {
+            "id": "fbea82af-276a-47ec-aedd-ddd476c4c10b",
+            "description": "37% taniej",
+            "type": "OFFER",
+            "retailerPromotionId": "PC0000002978325939140093943600004990000000000001_202610280032",
+            "limitReached": false,
+            "presentationMode": "DEFAULT"
+          },
+          "size": {
+            "value": "0.14kg"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,76 @@
+query GetCompletedOrders($first: Int!, $after: String) {
+  customer {
+    ordersCompleted(first: $first, after: $after) {
+      retentionPeriod
+      pageInfo {
+        endCursor
+        hasNextPage
+        __typename
+      }
+      edges {
+        cursor
+        node {
+          __typename
+          orderId
+          status
+          region {
+            retailerRegionId
+            regionId
+            __typename
+          }
+          prices {
+            total {
+              currency
+              amount
+              __typename
+            }
+            __typename
+          }
+          slot {
+            timeWindow {
+              start
+              end
+              timeZone
+              __typename
+            }
+            __typename
+          }
+          delivery {
+            __typename
+            deliveryMethod
+            destination {
+              name
+              __typename
+            }
+            ... on HomeDelivery {
+              carrier {
+                carrierId
+                __typename
+              }
+              externalLocker {
+                externalLockerId
+                __typename
+              }
+              __typename
+            }
+          }
+          ... on InternalOrder {
+            recurringOrderDefinition {
+              name
+              __typename
+            }
+            slot {
+              type
+              shippingGroupType
+              __typename
+            }
+            __typename
+          }
+        }
+        __typename
+      }
+      __typename
+    }
+    __typename
+  }
+}
