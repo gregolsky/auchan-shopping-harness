@@ -11,8 +11,21 @@ export type Candidate = ProductFacts & {
 
 const GROUP = { preferred: 0, accepted: 1, history: 2, value: 3 } as const;
 
+/**
+ * Every word of the term starts a word of the name or brand. A term of 4 or more letters drops one final vowel so
+ * inflected forms meet ("mleka", "mleko"), and the ending is limited so "maka" misses "Makaron" and "ser" misses "Serwetki".
+ */
+export function matchesTerm(term: string, f: Pick<ProductFacts, 'name' | 'brand'>): boolean {
+  const words = normaliseTerm(term).split(' ').filter(Boolean);
+  const hayWords = `${normaliseTerm(f.name)} ${normaliseTerm(f.brand)}`.split(/[\s\-\/]+/);
+  const matches = (w: string) => {
+    const stem = w.length >= 4 ? w.replace(/[aeiouy]$/, '') : w;
+    return hayWords.some((h) => h.startsWith(stem) && h.length >= Math.min(w.length, 4) && h.length <= stem.length + 2);
+  };
+  return words.length > 0 && words.every(matches);
+}
+
 export function rankCandidates(term: string, quantity: number, facts: ProductFacts[], rule: IntentRule | null): Candidate[] {
-  const words = normaliseTerm(term).split(/\s+/).filter(Boolean);
   const brand = rule?.brand ? normaliseTerm(rule.brand) : null;
   const accepted = new Set(rule?.acceptedProductIds ?? []);
 
@@ -22,10 +35,7 @@ export function rankCandidates(term: string, quantity: number, facts: ProductFac
     if (brand !== null && normaliseTerm(f.brand) !== brand) continue;
     const isPreferred = f.productId === rule?.preferredProductId;
     const isAccepted = accepted.has(f.productId);
-    if (!isPreferred && !isAccepted) {
-      const hay = `${normaliseTerm(f.name)} ${normaliseTerm(f.brand)}`;
-      if (!words.every((w) => hay.includes(w))) continue;
-    }
+    if (!isPreferred && !isAccepted && !matchesTerm(term, f)) continue;
     const basis = isPreferred ? 'preferred' : isAccepted ? 'accepted' : f.timesBought > 0 ? 'history' : 'value';
     // An offer applies only once the quantity reaches what it requires.
     const reached = f.requiredQuantity === null || quantity >= f.requiredQuantity;

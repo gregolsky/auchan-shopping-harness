@@ -61,6 +61,44 @@ test('"maka" finds "Mąka pszenna"', () => {
   assert.deepEqual(ids(r), ['f']);
 });
 
+const named = (...names: string[]) => names.map((name, i) => fact(`p${i}`, { name }));
+const found = (term: string, facts: ProductFacts[]) => rankCandidates(term, 1, facts, null).map((c) => c.name);
+
+test('flour terms find flour, not pasta or poppy seed', () => {
+  const facts = named('Mąka pszenna', 'Makaron świderki', 'Mak niebieski');
+  for (const term of ['maka', 'mąka', 'MĄKA', 'mąki']) assert.deepEqual(found(term, facts), ['Mąka pszenna'], term);
+});
+
+test('an inflected term finds its word', () => {
+  assert.deepEqual(found('makaronu', named('Makaron świderki', 'Mąka pszenna')), ['Makaron świderki']);
+  assert.deepEqual(found('mleka', named('Mleko UHT')), ['Mleko UHT']);
+  assert.deepEqual(found('mleko', named('Napój z mleka')), ['Napój z mleka']);
+});
+
+test('a short term matches the start of a word with a short ending only', () => {
+  assert.deepEqual(found('ser', named('Serek wiejski', 'Deser czekoladowy', 'Serwetki papierowe')), ['Serek wiejski']);
+  assert.deepEqual(found('sol', named('Sól kuchenna', 'Fasola czerwona')), ['Sól kuchenna']);
+  assert.deepEqual(found('kawa', named('Kawa mielona', 'Kawałki kurczaka')), ['Kawa mielona']);
+});
+
+test('words split on spaces, hyphens and slashes, and the brand counts', () => {
+  assert.deepEqual(found('mleko', named('Napój-mleko', 'Kawa/mleko')).length, 2);
+  assert.deepEqual(found('alfa', [fact('a', { name: 'Olej', brand: 'Alfa' })]), ['Olej']);
+});
+
+test('a term with a percentage still matches', () => {
+  assert.deepEqual(found('mleko 3,2%', named('Mleko UHT 3,2%', 'Mleko UHT 2%')), ['Mleko UHT 3,2%']);
+});
+
+test('a blank term matches nothing', () => {
+  assert.deepEqual(found('   ', named('Mleko UHT')), []);
+});
+
+test('regression: flour does not lead with a bought pasta', () => {
+  const facts = [fact('pasta', { name: 'Makaron', timesBought: 8 }), fact('flour', { name: 'Mąka pszenna' })];
+  assert.deepEqual(ids(rankCandidates('maka', 1, facts, null)), ['flour']);
+});
+
 test('a fixed brand returns only that brand, even when another is cheaper', () => {
   const facts = [fact('x', { brand: 'Łaciate', latestPriceGrosze: 500 }), fact('y', { brand: 'Other', latestPriceGrosze: 100 })];
   assert.deepEqual(ids(rankCandidates('mleko', 1, facts, rule({ brand: 'laciate' }))), ['x']);
