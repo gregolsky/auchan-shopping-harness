@@ -1,4 +1,4 @@
-import { rankCandidates } from './candidates.ts';
+import { matchesTerm, rankCandidates } from './candidates.ts';
 import type { Candidate } from './candidates.ts';
 import { lineCost, parseOffer } from './pricing.ts';
 import { capQuantity, isUsual, lastBoughtText, stockUp } from './rules.ts';
@@ -67,8 +67,25 @@ function line(f: Buyable, p: { term: string | null; quantity: number; reason: st
   };
 }
 
+const brandAllowed = (r: IntentRule, f: ProductFacts) => !r.brand || normaliseTerm(f.brand) === normaliseTerm(r.brand);
+
+/** The preferred product of a rule that replaced this one, if that rule allows it and it can be bought. */
+function learnedSwap(f: ProductFacts, rules: IntentRule[], byId: Map<string, ProductFacts>): { rule: IntentRule; to: Buyable } | null {
+  for (const rule of rules) {
+    if (rule.preferredProductId === f.productId || !rule.replacedProductIds.includes(f.productId)) continue;
+    const to = byId.get(rule.preferredProductId ?? '');
+    if (to && buyable(to) && brandAllowed(rule, to)) return { rule, to };
+  }
+  return null;
+}
+
+/** A rule's fixed brand covers a product proposed under its term or matching it. */
+const wrongBrand = (f: ProductFacts, rules: IntentRule[]) =>
+  rules.some((r) => !brandAllowed(r, f) && (r.replacedProductIds.includes(f.productId) || matchesTerm(r.term, f)));
+
 export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: IntentRule[], now: Date): Draft {
   const ruleByTerm = new Map(rules.map((r) => [normaliseTerm(r.term), r]));
+  const byId = new Map(facts.map((f) => [f.productId, f]));
   const used = new Set<string>();
   const items: DraftLine[] = [];
   const unmatched: string[] = [];
@@ -89,7 +106,19 @@ export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: Inte
   if (input.includeUsual) {
     for (const f of facts) {
       if (!isUsual(f) || !buyable(f) || used.has(f.productId)) continue;
-      const cap = capQuantity(f, Math.max(1, Math.ceil(f.usualQuantity ?? 1)));
+      if (input.items.some((i) => matchesTerm(i.term, f))) continue;
+      const wanted = Math.max(1, Math.ceil(f.usualQuantity ?? 1));
+      const swap = learnedSwap(f, rules, byId);
+      if (swap || wrongBrand(f, rules)) used.add(f.productId); // keeps it out of the other groups too
+      if (swap && !used.has(swap.to.productId)) {
+        const cap = capQuantity(swap.to, wanted);
+        let reason = `your usual choice for ${swap.rule.term}` + savingNote(swap.to);
+        if (cap.capped) reason += `; capped at ${cap.quantity} because it is perishable`;
+        used.add(swap.to.productId);
+        items.push(line(swap.to, { term: swap.rule.term, quantity: cap.quantity, reason, capped: cap.capped }, now));
+      }
+      if (used.has(f.productId)) continue;
+      const cap = capQuantity(f, wanted);
       let reason = `bought in ${f.boughtInLatest10} of the latest 10 orders` + savingNote(f);
       if (cap.capped) reason += `; capped at ${cap.quantity} because it is perishable`;
       used.add(f.productId);

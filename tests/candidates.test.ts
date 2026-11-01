@@ -10,7 +10,7 @@ const fact = (productId: string, over: Partial<ProductFacts> = {}): ProductFacts
   pricePoints: 0, inCatalogue: true, boughtInLatest10: 0, seenInLatestPromotions: false, ...over,
 });
 const rule = (over: Partial<IntentRule> = {}): IntentRule => ({
-  term: 'mleko', brand: null, preferredProductId: null, acceptedProductIds: [], learnedProductIds: [], ...over,
+  term: 'mleko', brand: null, preferredProductId: null, acceptedProductIds: [], learnedProductIds: [], replacedProductIds: [], ...over,
 });
 const ids = (c: { productId: string }[]) => c.map((x) => x.productId);
 

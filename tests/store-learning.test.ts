@@ -24,7 +24,7 @@ afterEach(() => s.close());
 
 test('one choice is accepted but not preferred, and a second makes it preferred', () => {
   s.recordCorrection({ term: 'Mleko', proposedProductId: 'a', chosenProductId: 'b' });
-  assert.deepEqual(s.intentRules('mleko'), [{ term: 'mleko', brand: null, preferredProductId: null, acceptedProductIds: ['b'], learnedProductIds: [] }]);
+  assert.deepEqual(s.intentRules('mleko'), [{ term: 'mleko', brand: null, preferredProductId: null, acceptedProductIds: ['b'], learnedProductIds: [], replacedProductIds: ['a'] }]);
   s.recordCorrection({ term: 'mleko', proposedProductId: 'a', chosenProductId: 'b' });
   assert.equal(s.intentRules('mleko')[0].preferredProductId, 'b');
   assert.deepEqual(s.intentRules('mleko')[0].learnedProductIds, ['b']);
@@ -36,6 +36,23 @@ test('a newer product chosen twice replaces the preferred one', () => {
   assert.equal(rule.preferredProductId, 'c');
   assert.deepEqual([...rule.acceptedProductIds].sort(), ['b', 'c']);
   assert.deepEqual([...rule.learnedProductIds].sort(), ['b', 'c']);
+});
+
+test('replaced products come from corrections that name both products and differ', () => {
+  s.recordCorrection({ term: 'mleko', proposedProductId: 'a', chosenProductId: 'b' });
+  s.recordCorrection({ term: 'mleko', proposedProductId: 'a', chosenProductId: 'b' });
+  s.recordCorrection({ term: 'mleko', proposedProductId: 'b', chosenProductId: 'b' });
+  s.recordCorrection({ term: 'mleko', proposedProductId: null, chosenProductId: 'c' });
+  s.recordCorrection({ term: 'mleko', proposedProductId: 'c', chosenProductId: null });
+  assert.deepEqual(s.intentRules('mleko')[0].replacedProductIds, ['a']);
+});
+
+test('a deleted rule\'s corrections do not return in a later rule for the term', () => {
+  s.recordCorrection({ term: 'mleko', proposedProductId: 'a', chosenProductId: 'b' });
+  s.deleteRule('mleko');
+  s.recordCorrection({ term: 'mleko', proposedProductId: 'c', chosenProductId: 'b' });
+  assert.deepEqual(s.intentRules('mleko')[0].replacedProductIds, ['c']);
+  assert.equal(countCorrections(s), 2);
 });
 
 test('removing a line is recorded but teaches no product', () => {

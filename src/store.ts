@@ -53,6 +53,8 @@ export interface IntentRule {
   acceptedProductIds: string[];
   /** Chosen at least twice; these lead the ranking. */
   learnedProductIds: string[];
+  /** Products a correction swapped for another; a removal or a kept product does not count. */
+  replacedProductIds: string[];
 }
 
 export interface CorrectionRow {
@@ -456,6 +458,16 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
       const preferred = db.prepare(
         'SELECT product_id FROM intent_products WHERE term = ? AND times_chosen >= 2 ORDER BY last_chosen_at DESC LIMIT 1',
       );
+      // Only the corrections intent_products still counts: the latest times_chosen per chosen product.
+      // Corrections kept as history after a deleted rule stay out.
+      const replaced = db.prepare(`
+        SELECT DISTINCT c.proposed_product_id AS product_id FROM (
+          SELECT term, proposed_product_id, chosen_product_id,
+                 ROW_NUMBER() OVER (PARTITION BY chosen_product_id ORDER BY id DESC) AS newest
+          FROM corrections WHERE term = ?1
+        ) c JOIN intent_products p ON p.term = c.term AND p.product_id = c.chosen_product_id
+        WHERE c.newest <= p.times_chosen AND c.proposed_product_id IS NOT NULL AND c.proposed_product_id <> c.chosen_product_id
+        ORDER BY 1`);
       return rows.map((r) => {
         const chosen = products.all(r.term) as { product_id: string; times_chosen: number }[];
         return {
@@ -464,6 +476,7 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
           preferredProductId: (preferred.get(r.term) as { product_id: string } | undefined)?.product_id ?? null,
           acceptedProductIds: chosen.map((p) => p.product_id),
           learnedProductIds: chosen.filter((p) => p.times_chosen >= 2).map((p) => p.product_id),
+          replacedProductIds: (replaced.all(r.term) as { product_id: string }[]).map((p) => p.product_id),
         };
       });
     },

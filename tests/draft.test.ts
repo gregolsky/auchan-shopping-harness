@@ -83,7 +83,7 @@ test('a guess is marked and its reason says so', () => {
 });
 
 test('a learned rule decides the pick and the reason', () => {
-  const rules: IntentRule[] = [{ term: 'Kawa', brand: null, preferredProductId: 'b', acceptedProductIds: ['b'], learnedProductIds: ['b'] }];
+  const rules: IntentRule[] = [{ term: 'Kawa', brand: null, preferredProductId: 'b', acceptedProductIds: ['b'], learnedProductIds: ['b'], replacedProductIds: [] }];
   const facts = [fact('a', { name: 'Kawa', timesBought: 9 }), fact('b', { name: 'Kawa', timesBought: 1 })];
   const d = buildDraft(input([{ term: 'kawa', quantity: 1 }]), facts, rules, now);
   assert.equal(d.items[0].productId, 'b');
@@ -164,4 +164,80 @@ test('a usual item that would be a stock-up says so in its reason', () => {
 test('an item with no stock-up keeps its plain reason', () => {
   const facts = [fact('k', { name: 'Kawa', timesBought: 2, latestPriceGrosze: 900, medianUnitPriceGrosze: 1000, pricePoints: 4, seenInLatestPromotions: true })];
   assert.equal(buildDraft(input([{ term: 'kawa', quantity: 1 }]), facts, [], now).items[0].reason, 'bought 2 times');
+});
+
+const learnedRule = (over: Partial<IntentRule> = {}): IntentRule => ({
+  term: 'mleko', brand: null, preferredProductId: 'b', acceptedProductIds: ['b'], learnedProductIds: ['b'], replacedProductIds: ['a'], ...over,
+});
+const lineIds = (d: { items: { productId: string }[] }) => d.items.map((l) => l.productId);
+
+test('a usual product swapped twice gives way to the preferred one', () => {
+  const facts = [usual('a', { name: 'Napój Alfa', usualQuantity: 3 }), fact('b', { name: 'Napój Beta', latestPriceGrosze: 500 })];
+  const d = buildDraft(input([], true), facts, [learnedRule()], now);
+  assert.deepEqual(lineIds(d), ['b']);
+  assert.equal(d.items[0].term, 'mleko');
+  assert.equal(d.items[0].quantity, 3);
+  assert.equal(d.items[0].lineCostGrosze, 1500);
+  assert.equal(d.items[0].reason, 'your usual choice for mleko');
+  assert.equal(d.items[0].guess, false);
+});
+
+test('the swapped-out product does not come back in another group', () => {
+  const facts = [
+    usual('a', { name: 'Napój Alfa', latestPriceGrosze: 700, medianUnitPriceGrosze: 1000, pricePoints: 4, seenInLatestPromotions: true }),
+    fact('b', { name: 'Napój Beta' }),
+  ];
+  const d = buildDraft(input([], true), facts, [learnedRule()], now);
+  assert.deepEqual([...d.items, ...d.stockUps, ...d.promotions, ...d.addOns].map((l) => l.productId), ['b']);
+});
+
+test('a swap to a product already in the draft leaves one line', () => {
+  const facts = [usual('a', { name: 'Napój Alfa' }), fact('b', { name: 'Mleko Beta' })];
+  const d = buildDraft(input([{ term: 'mleko', quantity: 2 }], true), facts, [learnedRule()], now);
+  assert.deepEqual(lineIds(d), ['b']);
+  assert.equal(d.items[0].quantity, 2);
+});
+
+test('the usual line stays when the preferred product cannot be bought or breaks the fixed brand', () => {
+  const a = usual('a', { name: 'Napój Alfa' });
+  assert.deepEqual(lineIds(buildDraft(input([], true), [a, fact('b', { inCatalogue: false })], [learnedRule()], now)), ['a']);
+  assert.deepEqual(lineIds(buildDraft(input([], true), [a], [learnedRule()], now)), ['a']);
+  const facts = [a, fact('b', { brand: 'Other' })];
+  assert.deepEqual(lineIds(buildDraft(input([], true), facts, [learnedRule({ brand: 'Brand' })], now)), ['a']);
+});
+
+test('a rule with no preferred product changes no usual line', () => {
+  const rules = [learnedRule({ preferredProductId: null, learnedProductIds: [] })];
+  assert.deepEqual(lineIds(buildDraft(input([], true), [usual('a', { name: 'Napój Alfa' }), fact('b')], rules, now)), ['a']);
+});
+
+test('a product swapped back keeps its usual line', () => {
+  const rules = [learnedRule({ preferredProductId: 'a', replacedProductIds: ['a', 'b'] })];
+  const d = buildDraft(input([], true), [usual('a', { name: 'Napój Alfa' })], rules, now);
+  assert.deepEqual(lineIds(d), ['a']);
+  assert.equal(d.items[0].term, null);
+});
+
+test('a usual product matching a term of this note is covered by the term line', () => {
+  const facts = [usual('u', { name: 'Mleko UHT', timesBought: 2 }), usual('v', { name: 'Mleko świeże', timesBought: 9 })];
+  const d = buildDraft(input([{ term: 'mleko', quantity: 1 }], true), facts, [], now);
+  assert.deepEqual(lineIds(d), ['v']);
+});
+
+test('a fixed brand removes the other brand\'s usual line that matches the term', () => {
+  const facts = [usual('o', { name: 'Mleko UHT', brand: 'Other' }), usual('x', { name: 'Herbata', brand: 'Other' })];
+  const rules = [learnedRule({ brand: 'Fixed', preferredProductId: null, replacedProductIds: [], acceptedProductIds: [], learnedProductIds: [] })];
+  assert.deepEqual(buildDraft(input([], true), facts, rules, now).items.map((l) => l.productId), ['x']);
+});
+
+test('a fixed brand removes a usual product proposed under the term, whatever its name', () => {
+  const facts = [usual('a', { name: 'Napój Alfa', brand: 'Other' })];
+  const rules = [learnedRule({ brand: 'Fixed', preferredProductId: null, learnedProductIds: [], acceptedProductIds: [] })];
+  const d = buildDraft(input([], true), facts, rules, now);
+  assert.deepEqual(lineIds(d), []);
+});
+
+test('a fixed brand keeps a usual line of that brand, whatever the case and accents', () => {
+  const rules = [learnedRule({ brand: 'laciate', preferredProductId: null, replacedProductIds: [], acceptedProductIds: [], learnedProductIds: [] })];
+  assert.deepEqual(lineIds(buildDraft(input([], true), [usual('m', { name: 'Mleko UHT', brand: 'Łaciate' })], rules, now)), ['m']);
 });
