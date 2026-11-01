@@ -1,8 +1,7 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium, type BrowserContext } from 'playwright-core';
 import { ShapeError } from './parse.ts';
-import { saveCookies } from './http-worker.ts';
 
 export const ORIGIN = 'https://zakupy.auchan.pl';
 const HOST = new URL(ORIGIN).host;
@@ -312,6 +311,16 @@ export function keepSessionOnRestart(prefsFile: string): void {
   if (prefs.session?.restore_on_startup === 1) return;
   prefs.session = { ...prefs.session, restore_on_startup: 1 };
   writeFileSync(prefsFile, JSON.stringify(prefs));
+}
+
+export interface SessionCookie {
+  name: string;
+  value: string;
+}
+
+export function saveCookies(file: string, cookies: SessionCookie[]): void {
+  writeFileSync(file, JSON.stringify(cookies.map(({ name, value }) => ({ name, value }))), { mode: 0o600 });
+  chmodSync(file, 0o600); // the mode above only applies when the file is created
 }
 
 /** The only browser step left: the user logs in (or is still logged in) and the session is saved to sessionFile. */

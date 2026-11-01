@@ -1,25 +1,19 @@
-import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { ShapeError } from './parse.ts';
-import { assertAllowed, assertGraphqlOperation, Blocked, checkGraphql, LoginRequired, normaliseGet, ORIGIN, RateLimited, type Worker } from './worker.ts';
+import { assertAllowed, assertGraphqlOperation, Blocked, checkGraphql, LoginRequired, normaliseGet, ORIGIN, RateLimited, type SessionCookie, type Worker } from './worker.ts';
 
 /** One request at a time, at most one per this many ms, enforced here so no caller can skip it. */
 const MIN_GAP_MS = 1500;
 const VERSION = { 'ecom-request-source-version': '2.0.0' };
 
-export interface SessionCookie {
-  name: string;
-  value: string;
-}
-
-export function saveCookies(file: string, cookies: SessionCookie[]): void {
-  writeFileSync(file, JSON.stringify(cookies.map(({ name, value }) => ({ name, value }))), { mode: 0o600 });
-  chmodSync(file, 0o600); // the mode above only applies when the file is created
-}
-
 export function cookieHeader(file: string): string | undefined {
   if (!existsSync(file)) return undefined;
-  const cookies = JSON.parse(readFileSync(file, 'utf8')) as SessionCookie[];
-  return cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+  try {
+    const cookies = JSON.parse(readFileSync(file, 'utf8')) as SessionCookie[];
+    return cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+  } catch {
+    return undefined; // the parser's message quotes the file; a damaged session just needs a new login
+  }
 }
 
 /** Retry-After as seconds from now; undefined when absent or unreadable. It may be seconds or a date. */

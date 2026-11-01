@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { cookieHeader, createHttpWorker, extractLinks, extractState, retrySeconds, saveCookies } from '../src/http-worker.ts';
-import { Blocked, GET_COMPLETED_ORDERS_QUERY, LoginRequired, RateLimited } from '../src/worker.ts';
+import { cookieHeader, createHttpWorker, extractLinks, extractState, retrySeconds } from '../src/http-worker.ts';
+import { Blocked, GET_COMPLETED_ORDERS_QUERY, LoginRequired, RateLimited, saveCookies } from '../src/worker.ts';
 import { ShapeError } from '../src/parse.ts';
 
 const page = (state: unknown, extra = '') => `<html><script>window.__INITIAL_STATE__=${JSON.stringify(state)}</script>${extra}</html>`;
@@ -27,6 +27,17 @@ test('cookies are saved for the owner only and only name and value are kept', ()
   assert.equal(statSync(sessionFile).mode & 0o777, 0o600);
   assert.deepEqual(JSON.parse(readFileSync(sessionFile, 'utf8')), [{ name: 'a', value: '1' }]);
   assert.equal(cookieHeader(sessionFile), 'a=1');
+  cleanup();
+});
+
+test('a damaged session file asks for a login and its content never reaches an error', async () => {
+  const { worker, calls, sessionFile, cleanup } = setup(() => new Response('{}'));
+  writeFileSync(sessionFile, 'secret-cookie-value');
+  await assert.rejects(
+    () => worker.getJson('/orders'),
+    (e: Error) => e instanceof LoginRequired && !e.message.includes('secret'),
+  );
+  assert.equal(calls.length, 0);
   cleanup();
 });
 

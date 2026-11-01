@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openStore, type Store } from './store.ts';
@@ -27,7 +27,10 @@ const liveDeps: Deps = {
   },
   openStore() {
     mkdirSync(dirname(DB_PATH), { recursive: true });
-    return openStore(DB_PATH);
+    chmodSync(dirname(DB_PATH), 0o700); // order history and the session live here
+    const store = openStore(DB_PATH);
+    chmodSync(DB_PATH, 0o600);
+    return store;
   },
 };
 
