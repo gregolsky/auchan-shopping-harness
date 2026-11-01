@@ -53,6 +53,12 @@ function basisReason(c: Candidate, term: string): string {
   }
 }
 
+/** The stock-up saving a line would get at the stock-up quantity, which may not be the line's own. */
+function savingNote(f: ProductFacts): string {
+  const s = stockUp(f);
+  return s ? `; ${s.savingPercent}% below its usual unit price at quantity ${s.quantity}` : '';
+}
+
 function line(f: Buyable, p: { term: string | null; quantity: number; reason: string; guess?: boolean; capped?: boolean; alternatives?: DraftLine['alternatives'] }, now: Date): DraftLine {
   return {
     term: p.term, productId: f.productId, name: f.name, quantity: p.quantity, lineCostGrosze: costAt(f, p.quantity),
@@ -73,7 +79,7 @@ export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: Inte
     const top = ranked[0];
     if (!top || !buyable(top)) { unmatched.push(term); continue; }
     const cap = capQuantity(top, quantity);
-    let reason = basisReason(top, term);
+    let reason = basisReason(top, term) + savingNote(top);
     if (cap.capped) reason += `; capped at ${cap.quantity} because it is perishable`;
     const alternatives = ranked.slice(1, 4).filter(buyable).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, capped(c)) }));
     used.add(top.productId);
@@ -84,7 +90,7 @@ export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: Inte
     for (const f of facts) {
       if (!isUsual(f) || !buyable(f) || used.has(f.productId)) continue;
       const cap = capQuantity(f, Math.max(1, Math.ceil(f.usualQuantity ?? 1)));
-      let reason = `bought in ${f.boughtInLatest10} of the latest 10 orders`;
+      let reason = `bought in ${f.boughtInLatest10} of the latest 10 orders` + savingNote(f);
       if (cap.capped) reason += `; capped at ${cap.quantity} because it is perishable`;
       used.add(f.productId);
       items.push(line(f, { term: null, quantity: cap.quantity, reason, capped: cap.capped }, now));

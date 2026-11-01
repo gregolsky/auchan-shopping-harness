@@ -7,7 +7,7 @@ import type { ProductFacts, IntentRule } from '../src/store.ts';
 const fact = (productId: string, over: Partial<ProductFacts> = {}): ProductFacts => ({
   productId, name: `Mleko ${productId}`, brand: 'Brand', categoryPath: [], size: '1 L', timesBought: 0, lastBoughtAt: null,
   usualQuantity: null, latestPriceGrosze: 300, offerText: null, requiredQuantity: null, medianUnitPriceGrosze: null,
-  pricePoints: 0, inCatalogue: true, boughtInLatest10: 0, ...over,
+  pricePoints: 0, inCatalogue: true, boughtInLatest10: 0, seenInLatestPromotions: false, ...over,
 });
 const rule = (over: Partial<IntentRule> = {}): IntentRule => ({
   term: 'mleko', brand: null, preferredProductId: null, acceptedProductIds: [], learnedProductIds: [], ...over,
@@ -178,6 +178,17 @@ test('regression: loose ham with no size does not outrank sliced ham that was bo
   assert.equal(rankCandidates('szynka', 1, facts, null)[0].productId, 'sliced');
 });
 
+test('productFacts: a latest promotion row with no offer text still counts as seen', () => {
+  const s = openStore(':memory:');
+  const product = { productId: 'a', retailerProductId: 'r-a', name: 'A', brand: 'B', categoryPath: [], unitLabel: null, size: null, inCatalogue: true };
+  s.savePromotions({ regionId: 'r1', products: [product], prices: [{
+    productId: 'a', seenAt: '2026-02-01T10:00:00.000Z', regionId: 'r1', source: 'promotion', originalGrosze: 500, currentGrosze: 400,
+    unitCurrentGrosze: null, offerText: null, requiredQuantity: null,
+  }] });
+  assert.equal(s.productFacts()[0].seenInLatestPromotions, true);
+  s.close();
+});
+
 test('productFacts: median unit price, latest promotion only, boughtInLatest10', () => {
   const s = openStore(':memory:');
   const p = (productId: string, size: string | null) => ({
@@ -220,13 +231,16 @@ test('productFacts: median unit price, latest promotion only, boughtInLatest10',
   assert.deepEqual(a.categoryPath, ['x', 'y']);
   assert.equal(a.latestPriceGrosze, 150);
   assert.equal(a.offerText, null); // its promotion is not in the latest promotion sync
+  assert.equal(a.seenInLatestPromotions, false);
   assert.equal(a.lastBoughtAt, '2026-01-12T10:00:00.000Z');
   const b = facts.get('b')!;
   assert.equal(b.offerText, '2 za 8 zł');
   assert.equal(b.latestPriceGrosze, 450);
   assert.equal(b.requiredQuantity, 2);
+  assert.equal(b.seenInLatestPromotions, true);
   assert.equal(b.medianUnitPriceGrosze, null);
   assert.equal(facts.get('old')!.boughtInLatest10, 0);
   assert.equal(facts.get('old')!.medianUnitPriceGrosze, null);
+  assert.equal(s.productFacts({ asOf: '2026-12-01T00:00:00.000Z' }).find((f) => f.productId === 'b')!.seenInLatestPromotions, false);
   s.close();
 });

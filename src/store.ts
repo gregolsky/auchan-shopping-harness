@@ -89,6 +89,8 @@ export interface ProductFacts {
   inCatalogue: boolean;
   /** In how many of the latest 10 orders the product appears. */
   boughtInLatest10: number;
+  /** A row in the latest promotion sync, so the price is still current. False with asOf. */
+  seenInLatestPromotions: boolean;
 }
 
 function median(xs: number[]): number | null {
@@ -393,6 +395,7 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
           offerText: offer.get(p.product_id)?.offerText ?? null, requiredQuantity: offer.get(p.product_id)?.requiredQuantity ?? null,
           medianUnitPriceGrosze: med === null ? null : Math.round(med), pricePoints: units.length,
           inCatalogue: p.in_catalogue === 1, boughtInLatest10: recent.get(p.product_id) ?? 0,
+          seenInLatestPromotions: offer.has(p.product_id),
         };
       });
     },

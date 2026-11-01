@@ -19,7 +19,7 @@ export function capQuantity(facts: ProductFacts, wanted: number): { quantity: nu
 }
 
 export function stockUp(facts: ProductFacts): { quantity: number; savingPercent: number } | null {
-  if (isPerishable(facts.categoryPath) || facts.pricePoints < 3) return null;
+  if (isPerishable(facts.categoryPath) || facts.pricePoints < 3 || !facts.seenInLatestPromotions) return null;
   if (facts.latestPriceGrosze === null || facts.medianUnitPriceGrosze === null) return null;
   const quantity = facts.requiredQuantity ?? 2;
   const cost = lineCost(facts.latestPriceGrosze, parseOffer(facts.offerText), quantity);

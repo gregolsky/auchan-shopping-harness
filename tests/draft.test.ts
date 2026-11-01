@@ -7,7 +7,7 @@ const now = new Date('2026-11-01T00:00:00Z');
 const fact = (productId: string, over: Partial<ProductFacts> = {}): ProductFacts => ({
   productId, name: `Item ${productId}`, brand: 'Brand', categoryPath: ['Produkty', 'Kawa, herbata'], size: '1 kg', timesBought: 0,
   lastBoughtAt: null, usualQuantity: null, latestPriceGrosze: 1000, offerText: null, requiredQuantity: null,
-  medianUnitPriceGrosze: null, pricePoints: 0, inCatalogue: true, boughtInLatest10: 0, ...over,
+  medianUnitPriceGrosze: null, pricePoints: 0, inCatalogue: true, boughtInLatest10: 0, seenInLatestPromotions: false, ...over,
 });
 const usual = (id: string, over: Partial<ProductFacts> = {}) => fact(id, { timesBought: 5, boughtInLatest10: 4, usualQuantity: 2, lastBoughtAt: '2026-10-20T00:00:00Z', ...over });
 const input = (items: { term: string; quantity: number }[], includeUsual = false, budgetGrosze?: number) => ({ items, includeUsual, budgetGrosze });
@@ -41,8 +41,8 @@ test('an item the user names keeps their quantity over the usual line', () => {
 
 test('no product appears in two groups', () => {
   const facts = [
-    usual('u', { name: 'Kawa mielona', latestPriceGrosze: 700, medianUnitPriceGrosze: 1000, pricePoints: 4, offerText: '2 za 14 zł', requiredQuantity: 2 }),
-    usual('s', { latestPriceGrosze: 700, medianUnitPriceGrosze: 1000, pricePoints: 4 }),
+    usual('u', { name: 'Kawa mielona', latestPriceGrosze: 700, medianUnitPriceGrosze: 1000, pricePoints: 4, offerText: '2 za 14 zł', requiredQuantity: 2, seenInLatestPromotions: true }),
+    usual('s', { latestPriceGrosze: 700, medianUnitPriceGrosze: 1000, pricePoints: 4, seenInLatestPromotions: true }),
     fact('p', { timesBought: 1, offerText: '2 za 10 zł', requiredQuantity: 2 }),
     fact('o', { timesBought: 3, lastBoughtAt: '2026-09-01T00:00:00Z' }),
   ];
@@ -55,7 +55,7 @@ test('no product appears in two groups', () => {
 });
 
 test('stock-ups draw from products outside items and are not in the total', () => {
-  const facts = [usual('s', { latestPriceGrosze: 700, medianUnitPriceGrosze: 1000, pricePoints: 4 })];
+  const facts = [usual('s', { latestPriceGrosze: 700, medianUnitPriceGrosze: 1000, pricePoints: 4, seenInLatestPromotions: true })];
   const d = buildDraft(input([]), facts, [], now);
   assert.equal(d.stockUps.length, 1);
   assert.equal(d.stockUps[0].quantity, 2);
@@ -142,4 +142,26 @@ test('a perishable promotion is skipped when the cap cannot reach the offer', ()
     fact('pantry', { name: 'Kawa', timesBought: 1, usualQuantity: 1, offerText: '3 za 15 zł', requiredQuantity: 3 }),
   ];
   assert.deepEqual(buildDraft(input([]), facts, [], now).promotions.map((l) => l.productId).sort(), ['in', 'pantry']);
+});
+
+test('an expired price gives no stock-up', () => {
+  const facts = [usual('s', { latestPriceGrosze: 700, medianUnitPriceGrosze: 1000, pricePoints: 4 })];
+  assert.deepEqual(buildDraft(input([]), facts, [], now).stockUps, []);
+});
+
+test('a named item that would be a stock-up says so in its reason', () => {
+  const facts = [fact('k', { name: 'Kawa', timesBought: 2, latestPriceGrosze: 700, medianUnitPriceGrosze: 1000, pricePoints: 4, seenInLatestPromotions: true })];
+  const d = buildDraft(input([{ term: 'kawa', quantity: 1 }]), facts, [], now);
+  assert.equal(d.items[0].reason, 'bought 2 times; 30% below its usual unit price at quantity 2');
+  assert.deepEqual(d.stockUps, []);
+});
+
+test('a usual item that would be a stock-up says so in its reason', () => {
+  const facts = [usual('u', { latestPriceGrosze: 700, medianUnitPriceGrosze: 1000, pricePoints: 4, seenInLatestPromotions: true })];
+  assert.equal(buildDraft(input([], true), facts, [], now).items[0].reason, 'bought in 4 of the latest 10 orders; 30% below its usual unit price at quantity 2');
+});
+
+test('an item with no stock-up keeps its plain reason', () => {
+  const facts = [fact('k', { name: 'Kawa', timesBought: 2, latestPriceGrosze: 900, medianUnitPriceGrosze: 1000, pricePoints: 4, seenInLatestPromotions: true })];
+  assert.equal(buildDraft(input([{ term: 'kawa', quantity: 1 }]), facts, [], now).items[0].reason, 'bought 2 times');
 });
