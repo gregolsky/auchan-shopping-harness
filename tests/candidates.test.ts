@@ -1,0 +1,156 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { rankCandidates } from '../src/candidates.ts';
+import { openStore } from '../src/store.ts';
+import type { ProductFacts, IntentRule } from '../src/store.ts';
+
+const fact = (productId: string, over: Partial<ProductFacts> = {}): ProductFacts => ({
+  productId, name: `Mleko ${productId}`, brand: 'Brand', categoryPath: [], size: '1 L', timesBought: 0, lastBoughtAt: null,
+  usualQuantity: null, latestPriceGrosze: 300, offerText: null, requiredQuantity: null, medianUnitPriceGrosze: null,
+  pricePoints: 0, inCatalogue: true, boughtInLatest10: 0, ...over,
+});
+const rule = (over: Partial<IntentRule> = {}): IntentRule => ({
+  term: 'mleko', brand: null, preferredProductId: null, acceptedProductIds: [], ...over,
+});
+const ids = (c: { productId: string }[]) => c.map((x) => x.productId);
+
+test('preferred outranks a cheaper product', () => {
+  const facts = [fact('cheap', { latestPriceGrosze: 100 }), fact('pref', { latestPriceGrosze: 500 })];
+  const r = rankCandidates('mleko', 1, facts, rule({ preferredProductId: 'pref', acceptedProductIds: ['pref'] }));
+  assert.deepEqual(ids(r), ['pref', 'cheap']);
+  assert.equal(r[0].basis, 'preferred');
+});
+
+test('accepted products are never hidden by history', () => {
+  const facts = [fact('bought', { timesBought: 9 }), fact('acc', { latestPriceGrosze: 900 })];
+  const r = rankCandidates('mleko', 1, facts, rule({ acceptedProductIds: ['acc'] }));
+  assert.deepEqual(ids(r), ['acc', 'bought']);
+  assert.equal(r[0].basis, 'accepted');
+});
+
+test('purchase count beats value within history', () => {
+  const facts = [fact('often', { timesBought: 5, latestPriceGrosze: 600 }), fact('rare', { timesBought: 1, latestPriceGrosze: 100 })];
+  assert.deepEqual(ids(rankCandidates('mleko', 1, facts, null)), ['often', 'rare']);
+});
+
+test('a bigger pack wins on unit price among products never bought, and is marked as a guess', () => {
+  const facts = [fact('small', { size: '1 L', latestPriceGrosze: 400 }), fact('big', { size: '3 L', latestPriceGrosze: 900 })];
+  const r = rankCandidates('mleko', 1, facts, null);
+  assert.deepEqual(ids(r), ['big', 'small']);
+  assert.equal(r[0].basis, 'value');
+  assert.equal(r[0].guess, true);
+  assert.equal(r[0].unitPriceGrosze, 300);
+});
+
+test('a product with no known unit price ranks after one with a known price', () => {
+  const facts = [fact('nosize', { size: null, latestPriceGrosze: 50 }), fact('sized', { latestPriceGrosze: 900 })];
+  assert.deepEqual(ids(rankCandidates('mleko', 1, facts, null)), ['sized', 'nosize']);
+});
+
+test('the unit price uses the offer only if the quantity reaches it', () => {
+  const f = [fact('a', { latestPriceGrosze: 400, offerText: '2 za 6 zł', requiredQuantity: 2 })];
+  assert.equal(rankCandidates('mleko', 1, f, null)[0].unitPriceGrosze, 400);
+  assert.equal(rankCandidates('mleko', 1, f, null)[0].lineCostGrosze, 400);
+  const two = rankCandidates('mleko', 2, f, null)[0];
+  assert.equal(two.lineCostGrosze, 600);
+  assert.equal(two.unitPriceGrosze, 300);
+});
+
+test('"maka" finds "Mąka pszenna"', () => {
+  const r = rankCandidates('maka', 1, [fact('f', { name: 'Mąka pszenna' }), fact('g', { name: 'Mleko' })], null);
+  assert.deepEqual(ids(r), ['f']);
+});
+
+test('a fixed brand returns only that brand, even when another is cheaper', () => {
+  const facts = [fact('x', { brand: 'Łaciate', latestPriceGrosze: 500 }), fact('y', { brand: 'Other', latestPriceGrosze: 100 })];
+  assert.deepEqual(ids(rankCandidates('mleko', 1, facts, rule({ brand: 'laciate' }))), ['x']);
+});
+
+test('excludes products out of the catalogue or without a price', () => {
+  const facts = [fact('gone', { inCatalogue: false }), fact('noprice', { latestPriceGrosze: null }), fact('ok')];
+  assert.deepEqual(ids(rankCandidates('mleko', 1, facts, null)), ['ok']);
+});
+
+test('an accepted product still shows when the term no longer matches its name', () => {
+  const facts = [fact('acc', { name: 'Zupełnie inna nazwa' }), fact('gone', { name: 'Zupełnie', inCatalogue: false })];
+  const r = rankCandidates('mleko', 1, facts, rule({ acceptedProductIds: ['acc', 'gone'] }));
+  assert.deepEqual(ids(r), ['acc']);
+});
+
+test('regression: "nutella" with the spread accepted does not lead with wafers', () => {
+  const facts = [
+    fact('wafer', { name: 'Nutella B-ready wafelki', size: '0.132 kg', latestPriceGrosze: 300 }),
+    fact('spread', { name: 'Nutella krem', size: '0.4 kg', latestPriceGrosze: 1500 }),
+  ];
+  const r = rankCandidates('nutella', 1, facts, rule({ term: 'nutella', acceptedProductIds: ['spread'] }));
+  assert.equal(r[0].productId, 'spread');
+});
+
+test('regression: a catering 3L syrup does not outrank the usual bottle the user bought', () => {
+  const facts = [
+    fact('catering', { name: 'Syrop malinowy', size: '3 L', latestPriceGrosze: 1500 }),
+    fact('usual', { name: 'Syrop malinowy', size: '0.5 L', latestPriceGrosze: 900, timesBought: 3 }),
+  ];
+  assert.equal(rankCandidates('syrop', 1, facts, null)[0].productId, 'usual');
+});
+
+test('regression: loose ham with no size does not outrank sliced ham that was bought', () => {
+  const facts = [
+    fact('loose', { name: 'Szynka luzem', size: null, latestPriceGrosze: 100 }),
+    fact('sliced', { name: 'Szynka plastry', size: '0.1 kg', latestPriceGrosze: 700, timesBought: 2 }),
+  ];
+  assert.equal(rankCandidates('szynka', 1, facts, null)[0].productId, 'sliced');
+});
+
+test('productFacts: median unit price, latest promotion only, boughtInLatest10', () => {
+  const s = openStore(':memory:');
+  const p = (productId: string, size: string | null) => ({
+    productId, retailerProductId: `r-${productId}`, name: `Item ${productId}`, brand: 'B', categoryPath: ['x', 'y'],
+    unitLabel: null, size, inCatalogue: true,
+  });
+  const price = (productId: string, seenAt: string, source: 'order' | 'promotion', currentGrosze: number, offerText: string | null = null) => ({
+    productId, seenAt, regionId: 'r1', source, originalGrosze: null, currentGrosze, unitCurrentGrosze: null,
+    offerText, requiredQuantity: offerText ? 2 : null,
+  });
+  for (let i = 1; i <= 12; i++) {
+    const day = String(i).padStart(2, '0');
+    const at = `2026-01-${day}T10:00:00.000Z`;
+    const orderId = `o${day}`;
+    const withA = i !== 1; // a is absent from the oldest order
+    s.saveOrder({
+      order: { orderId, deliveredAt: at, totalGrosze: 0, regionId: 'r1' },
+      lines: [
+        ...(withA ? [{ orderId, productId: 'a', quantity: i === 12 ? 4 : 2, pricePerItemGrosze: 100 }] : []),
+        ...(i === 1 ? [{ orderId, productId: 'old', quantity: 1, pricePerItemGrosze: 100 }] : []),
+      ],
+      products: [p('a', '1 L'), p('old', null)],
+      prices: i <= 3 && withA ? [price('a', at, 'order', 100 * i)] : [],
+    });
+  }
+  // a: order prices 200, 300 -> median 250 per L; plus a promotion price that must not count
+  s.savePromotions({ regionId: 'r1', products: [p('a', '1 L'), p('b', null)], prices: [
+    price('a', '2026-02-01T10:00:00.000Z', 'promotion', 150, '2 za 2 zł'),
+    price('b', '2026-02-01T10:00:00.000Z', 'promotion', 500, '2 za 8 zł'),
+  ] });
+  s.savePromotions({ regionId: 'r1', products: [p('b', null)], prices: [price('b', '2026-03-01T10:00:00.000Z', 'promotion', 450, '2 za 8 zł')] });
+
+  const facts = new Map(s.productFacts().map((f) => [f.productId, f]));
+  const a = facts.get('a')!;
+  assert.equal(a.timesBought, 11);
+  assert.equal(a.boughtInLatest10, 10);
+  assert.equal(a.usualQuantity, 2);
+  assert.equal(a.pricePoints, 2);
+  assert.equal(a.medianUnitPriceGrosze, 250);
+  assert.deepEqual(a.categoryPath, ['x', 'y']);
+  assert.equal(a.latestPriceGrosze, 150);
+  assert.equal(a.offerText, null); // its promotion is not in the latest promotion sync
+  assert.equal(a.lastBoughtAt, '2026-01-12T10:00:00.000Z');
+  const b = facts.get('b')!;
+  assert.equal(b.offerText, '2 za 8 zł');
+  assert.equal(b.latestPriceGrosze, 450);
+  assert.equal(b.requiredQuantity, 2);
+  assert.equal(b.medianUnitPriceGrosze, null);
+  assert.equal(facts.get('old')!.boughtInLatest10, 0);
+  assert.equal(facts.get('old')!.medianUnitPriceGrosze, null);
+  s.close();
+});

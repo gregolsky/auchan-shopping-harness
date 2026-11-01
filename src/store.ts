@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import type { Product, PriceObservation } from './types.ts';
 import type { parseDecoratedOrder } from './parse.ts';
+import { unitPriceGrosze } from './pricing.ts';
 
 type ParsedOrder = Pick<ReturnType<typeof parseDecoratedOrder>, 'order' | 'lines' | 'products' | 'prices'>;
 export type SyncKind = 'orders' | 'promotions';
@@ -65,6 +66,36 @@ export function normaliseTerm(s: string): string {
   return s.trim().toLocaleLowerCase('pl').normalize('NFD').replace(/\p{M}/gu, '').replace(/ł/g, 'l');
 }
 
+export interface ProductFacts {
+  productId: string;
+  name: string;
+  brand: string;
+  categoryPath: string[];
+  size: string | null;
+  timesBought: number;
+  lastBoughtAt: string | null;
+  /** Median line quantity over the orders containing the product. */
+  usualQuantity: number | null;
+  /** current_grosze of the newest price_history row. */
+  latestPriceGrosze: number | null;
+  /** Offer fields only from rows seen in the latest promotion sync. */
+  offerText: string | null;
+  requiredQuantity: number | null;
+  /** Median price per kg or L over the product's order-sourced prices; null without a known size or such rows. */
+  medianUnitPriceGrosze: number | null;
+  pricePoints: number;
+  inCatalogue: boolean;
+  /** In how many of the latest 10 orders the product appears. */
+  boughtInLatest10: number;
+}
+
+function median(xs: number[]): number | null {
+  if (xs.length === 0) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
 export interface Store {
   saveOrder(parsed: ParsedOrder): void;
   hasOrder(orderId: string): boolean;
@@ -74,6 +105,8 @@ export interface Store {
   recentOrders(limit: number): RecentOrder[];
   productHistory(query: string): ProductHistoryRow[];
   currentPromotions(opts: { boughtBefore?: boolean; limit: number }): PromotionRow[];
+  /** One row per product, for ranking. Reads each table once. */
+  productFacts(): ProductFacts[];
   startSync(kind: SyncKind): number;
   finishSync(id: number, status: SyncStatus): void;
   lastSyncStatus(kind: SyncKind): SyncStatus | null;
@@ -298,6 +331,54 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
         originalGrosze: r.original_grosze, currentGrosze: r.current_grosze, unitCurrentGrosze: r.unit_current_grosze,
         offerText: r.offer_text, requiredQuantity: r.required_quantity, boughtBefore: r.bought === 1,
       }));
+    },
+
+    productFacts() {
+      const products = db.prepare('SELECT product_id, name, brand, category_path, size, in_catalogue FROM products').all() as any[];
+      const lines = db.prepare(`
+        SELECT l.product_id, l.quantity, o.delivered_at FROM order_lines l JOIN orders o ON o.order_id = l.order_id`).all() as any[];
+      const in10 = db.prepare(`
+        SELECT l.product_id, COUNT(*) AS n FROM order_lines l
+        WHERE l.order_id IN (SELECT order_id FROM orders ORDER BY delivered_at DESC, order_id DESC LIMIT 10)
+        GROUP BY l.product_id`).all() as any[];
+      const prices = db.prepare('SELECT product_id, seen_at, source, current_grosze FROM price_history ORDER BY seen_at, rowid').all() as any[];
+      const offers = db.prepare(`
+        SELECT product_id, offer_text, required_quantity, current_grosze FROM price_history
+        WHERE source = 'promotion' AND seen_at = (SELECT MAX(seen_at) FROM price_history WHERE source = 'promotion')
+        ORDER BY rowid`).all() as any[];
+
+      const qty = new Map<string, number[]>();
+      const last = new Map<string, string>();
+      for (const l of lines) {
+        (qty.get(l.product_id) ?? qty.set(l.product_id, []).get(l.product_id)!).push(l.quantity);
+        if ((last.get(l.product_id) ?? '') < l.delivered_at) last.set(l.product_id, l.delivered_at);
+      }
+      const latestPrice = new Map<string, number>(); // rows are in seen_at order, so the last one wins
+      const orderPrices = new Map<string, number[]>();
+      for (const r of prices) {
+        latestPrice.set(r.product_id, r.current_grosze);
+        if (r.source === 'order') (orderPrices.get(r.product_id) ?? orderPrices.set(r.product_id, []).get(r.product_id)!).push(r.current_grosze);
+      }
+      const offer = new Map<string, { offerText: string | null; requiredQuantity: number | null }>();
+      for (const r of offers) {
+        if (r.offer_text !== null || !offer.has(r.product_id)) offer.set(r.product_id, { offerText: r.offer_text, requiredQuantity: r.required_quantity });
+      }
+      const recent = new Map<string, number>(in10.map((r) => [r.product_id, r.n]));
+
+      return products.map((p) => {
+        const q = qty.get(p.product_id) ?? [];
+        const op = orderPrices.get(p.product_id) ?? [];
+        const units = op.map((g) => unitPriceGrosze(g, 1, p.size)).filter((u): u is number => u !== null);
+        const med = median(units);
+        return {
+          productId: p.product_id, name: p.name, brand: p.brand, categoryPath: JSON.parse(p.category_path), size: p.size,
+          timesBought: q.length, lastBoughtAt: last.get(p.product_id) ?? null, usualQuantity: median(q),
+          latestPriceGrosze: latestPrice.get(p.product_id) ?? null,
+          offerText: offer.get(p.product_id)?.offerText ?? null, requiredQuantity: offer.get(p.product_id)?.requiredQuantity ?? null,
+          medianUnitPriceGrosze: med === null ? null : Math.round(med), pricePoints: units.length,
+          inCatalogue: p.in_catalogue === 1, boughtInLatest10: recent.get(p.product_id) ?? 0,
+        };
+      });
     },
 
     startSync(kind) {
