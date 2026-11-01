@@ -106,7 +106,9 @@ export interface Store {
   productHistory(query: string): ProductHistoryRow[];
   currentPromotions(opts: { boughtBefore?: boolean; limit: number }): PromotionRow[];
   /** One row per product, for ranking. Reads each table once. */
-  productFacts(): ProductFacts[];
+  productFacts(opts?: { asOf?: string }): ProductFacts[];
+  /** Product ids on one order, in line order. */
+  orderProductIds(orderId: string): string[];
   startSync(kind: SyncKind): number;
   finishSync(id: number, status: SyncStatus): void;
   lastSyncStatus(kind: SyncKind): SyncStatus | null;
@@ -333,19 +335,31 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
       }));
     },
 
-    productFacts() {
+    orderProductIds(orderId) {
+      return (db.prepare('SELECT product_id FROM order_lines WHERE order_id = ? ORDER BY rowid').all(orderId) as { product_id: string }[])
+        .map((r) => r.product_id);
+    },
+
+    productFacts(opts) {
+      // asOf: only orders delivered strictly before it, and prices seen strictly before it; no offers, as promotion
+      // syncs are not dated per order. In-catalogue stays as it is today (a known limit for replays).
+      const asOf = opts?.asOf ?? null;
       const products = db.prepare('SELECT product_id, name, brand, category_path, size, in_catalogue FROM products').all() as any[];
       const lines = db.prepare(`
-        SELECT l.product_id, l.quantity, o.delivered_at FROM order_lines l JOIN orders o ON o.order_id = l.order_id`).all() as any[];
+        SELECT l.product_id, l.quantity, o.delivered_at FROM order_lines l JOIN orders o ON o.order_id = l.order_id
+        WHERE ?1 IS NULL OR o.delivered_at < ?1`).all(asOf) as any[];
       const in10 = db.prepare(`
         SELECT l.product_id, COUNT(*) AS n FROM order_lines l
-        WHERE l.order_id IN (SELECT order_id FROM orders ORDER BY delivered_at DESC, order_id DESC LIMIT 10)
-        GROUP BY l.product_id`).all() as any[];
-      const prices = db.prepare('SELECT product_id, seen_at, source, current_grosze FROM price_history ORDER BY seen_at, rowid').all() as any[];
+        WHERE l.order_id IN (SELECT order_id FROM orders WHERE ?1 IS NULL OR delivered_at < ?1 ORDER BY delivered_at DESC, order_id DESC LIMIT 10)
+        GROUP BY l.product_id`).all(asOf) as any[];
+      const prices = db.prepare(
+        'SELECT product_id, seen_at, source, current_grosze FROM price_history WHERE ?1 IS NULL OR seen_at < ?1 ORDER BY seen_at, rowid',
+      ).all(asOf) as any[];
       const offers = db.prepare(`
         SELECT product_id, offer_text, required_quantity, current_grosze FROM price_history
         WHERE source = 'promotion' AND seen_at = (SELECT MAX(seen_at) FROM price_history WHERE source = 'promotion')
         ORDER BY rowid`).all() as any[];
+      if (asOf !== null) offers.length = 0;
 
       const qty = new Map<string, number[]>();
       const last = new Map<string, string>();

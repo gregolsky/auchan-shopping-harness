@@ -161,6 +161,7 @@ TypeScript on Node. `playwright-core` drives the installed Chromium at `/usr/sbi
 - **Scoring:** deterministic tests for unit prices, multibuy maths, and intent and category rules.
 - **Regressions:** starts with the June mistakes (Nutella wafers, 3L catering syrup, loose ham). Future corrections can become new cases.
 - **History replay:** given an old order and a similar note, measure how closely the draft matches what the user bought.
+  - Measured 2026-11-01 with `npm run replay` (usual list only, latest 5 orders, each using only the orders before it): average recall 33%, precision 37%.
 - **Cart logic:** difference calculation, retries and mid-run crashes, against a fake cart.
 - **Safety:** confirm that no checkout operation exists and that hooks block the raw browser tools during runs.
 - **Live smoke test:** manually started, on the real cart with one cheap item: add, verify, remove. It also re-tests whether `apply-quantity` is additive.
