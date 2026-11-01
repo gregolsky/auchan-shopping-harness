@@ -103,21 +103,30 @@ export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: Inte
     items.push(line(top, { term, quantity: cap.quantity, reason, guess: top.guess, capped: cap.capped, alternatives }, now));
   }
 
+  // A wrong-brand product or one replaced by a live preferred product stays out of every group.
+  const swaps = new Map<string, { rule: IntentRule; to: Buyable }>();
+  for (const f of facts) {
+    if (used.has(f.productId) || input.items.some((i) => matchesTerm(i.term, f))) continue;
+    const swap = learnedSwap(f, rules, byId);
+    if (swap) swaps.set(f.productId, swap);
+    if (swap || wrongBrand(f, rules)) used.add(f.productId);
+  }
+
   if (input.includeUsual) {
     for (const f of facts) {
-      if (!isUsual(f) || !buyable(f) || used.has(f.productId)) continue;
-      if (input.items.some((i) => matchesTerm(i.term, f))) continue;
-      const wanted = Math.max(1, Math.ceil(f.usualQuantity ?? 1));
-      const swap = learnedSwap(f, rules, byId);
-      if (swap || wrongBrand(f, rules)) used.add(f.productId); // keeps it out of the other groups too
-      if (swap && !used.has(swap.to.productId)) {
+      const swap = swaps.get(f.productId);
+      if (swap && isUsual(f) && buyable(f) && !used.has(swap.to.productId)) {
+        const wanted = Math.max(1, Math.ceil(f.usualQuantity ?? 1));
         const cap = capQuantity(swap.to, wanted);
         let reason = `your usual choice for ${swap.rule.term}` + savingNote(swap.to);
         if (cap.capped) reason += `; capped at ${cap.quantity} because it is perishable`;
         used.add(swap.to.productId);
         items.push(line(swap.to, { term: swap.rule.term, quantity: cap.quantity, reason, capped: cap.capped }, now));
+        continue;
       }
-      if (used.has(f.productId)) continue;
+      if (!isUsual(f) || !buyable(f) || used.has(f.productId)) continue;
+      if (input.items.some((i) => matchesTerm(i.term, f))) continue;
+      const wanted = Math.max(1, Math.ceil(f.usualQuantity ?? 1));
       const cap = capQuantity(f, wanted);
       let reason = `bought in ${f.boughtInLatest10} of the latest 10 orders` + savingNote(f);
       if (cap.capped) reason += `; capped at ${cap.quantity} because it is perishable`;

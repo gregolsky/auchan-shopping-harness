@@ -241,3 +241,13 @@ test('a fixed brand keeps a usual line of that brand, whatever the case and acce
   const rules = [learnedRule({ brand: 'laciate', preferredProductId: null, replacedProductIds: [], acceptedProductIds: [], learnedProductIds: [] })];
   assert.deepEqual(lineIds(buildDraft(input([], true), [usual('m', { name: 'Mleko UHT', brand: 'Łaciate' })], rules, now)), ['m']);
 });
+
+test('without usual products, a wrong-brand or twice-replaced product is in no group', () => {
+  const wrong = usual('a', { name: 'Napój Omega', brand: 'Other', offerText: '2 za 10 zł', requiredQuantity: 2 });
+  const rules = [learnedRule({ brand: 'Fixed', preferredProductId: null, acceptedProductIds: [], learnedProductIds: [] })];
+  const d1 = buildDraft(input([]), [wrong], rules, now);
+  assert.deepEqual([...d1.items, ...d1.stockUps, ...d1.promotions, ...d1.addOns], []);
+  const a = usual('a', { name: 'Napój Alfa', offerText: '2 za 10 zł', requiredQuantity: 2 });
+  const d2 = buildDraft(input([]), [a, fact('b', { name: 'Napój Beta' })], [learnedRule()], now);
+  assert.deepEqual([...d2.items, ...d2.stockUps, ...d2.promotions, ...d2.addOns], []);
+});
