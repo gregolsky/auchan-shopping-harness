@@ -51,9 +51,9 @@ function withWritable(dbPath: string, fn: (store: Store) => unknown) {
 }
 
 /** Opens writable once so the planner tables exist, since the read-only connection cannot create them. */
-function ensureSchema(dbPath: string): void {
-  if (!existsSync(dbPath)) return;
-  try { openStore(dbPath).close(); } catch { /* the read path reports it */ }
+function ensureSchema(dbPath: string): boolean {
+  if (!existsSync(dbPath)) return false;
+  try { openStore(dbPath).close(); return true; } catch { return false; /* the read path reports it */ }
 }
 
 export function createServer(dbPath: string = DB_PATH): McpServer {
@@ -97,12 +97,12 @@ export function createServer(dbPath: string = DB_PATH): McpServer {
   );
 
   let schemaReady = false;
-  const ready = () => { if (!schemaReady) { ensureSchema(dbPath); schemaReady = existsSync(dbPath); } };
+  const ready = () => { if (!schemaReady) schemaReady = ensureSchema(dbPath); };
 
   server.registerTool(
     'draft_basket',
     {
-      description: 'Builds a draft basket from shopping terms using order history, promotions and learned preferences. Returns groups (items, stockUps, promotions, addOns), unmatched terms, and totals in grosze; budget is only a warning. Does not fill any cart.' + NEVER_AUCHAN,
+      description: 'Builds a draft basket from shopping terms using order history, promotions and learned preferences. Returns groups (items, stockUps, promotions, addOns), unmatched terms, totals in grosze, and when orders (lastSyncAt) and promotions (promotionsLastSyncAt) were last synced; budget is only a warning. Does not fill any cart.' + NEVER_AUCHAN,
       inputSchema: {
         items: z.array(z.object({ term: z.string().min(1).max(100), quantity: z.number().min(0.01).max(100).default(1) })).max(100),
         includeUsual: z.boolean().default(false),
@@ -113,6 +113,7 @@ export function createServer(dbPath: string = DB_PATH): McpServer {
       ready();
       return withData(dbPath, 'orders', (s, fresh) => ({
         ...fresh,
+        promotionsLastSyncAt: s.lastSyncFinishedAt('promotions'),
         ...buildDraft({ items, includeUsual, budgetGrosze }, s.productFacts(), s.intentRules(), new Date()),
       }));
     },
@@ -146,7 +147,7 @@ export function createServer(dbPath: string = DB_PATH): McpServer {
   server.registerTool(
     'list_rules',
     {
-      description: 'Lists learned term rules (fixed brand, preferred and accepted product ids). Includes how old the synced data is.' + NEVER_AUCHAN,
+      description: 'Lists learned term rules (fixed brand; preferred, accepted, learned and replaced product ids). Includes how old the synced data is.' + NEVER_AUCHAN,
       inputSchema: {},
     },
     () => { ready(); return withData(dbPath, 'orders', (s, fresh) => ({ ...fresh, rules: s.intentRules() })); },
@@ -155,7 +156,7 @@ export function createServer(dbPath: string = DB_PATH): McpServer {
   server.registerTool(
     'set_brand',
     {
-      description: 'Limits a term to one brand in later drafts; a null brand frees it. Call only when the user names a brand. Writes the local database only.' + NEVER_AUCHAN,
+      description: 'Limits a term to one brand in later drafts; a null brand frees it. Call when the user names a brand, or with null when the user swaps across a fixed brand. Writes the local database only.' + NEVER_AUCHAN,
       inputSchema: { term: z.string().min(1).max(100), brand: z.string().min(1).max(100).nullable() },
     },
     ({ term, brand }) => withWritable(dbPath, (s) => { s.setBrandFixed(term, brand); return { ok: true }; }),

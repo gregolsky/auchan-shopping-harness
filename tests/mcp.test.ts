@@ -285,6 +285,42 @@ test('set_brand limits candidates, and null frees them', async () => {
   );
 });
 
+test('a failed first open is retried on the next call', async () => {
+  await withDb(
+    (p) => writeFileSync(p, 'this is not a sqlite database, '.repeat(200)),
+    (path) =>
+      withClient(path, async (c) => {
+        assert.match(await call(c, 'draft_basket', { items: [], includeUsual: false }), /Database error/);
+        rmSync(path);
+        seedPlanner(path);
+        const db = new DatabaseSync(path);
+        db.exec('DROP TABLE corrections; DROP TABLE intent_products; DROP TABLE intents;');
+        db.close();
+        assert.equal((await draft(c)).items.length, 1);
+      }),
+  );
+});
+
+test('draft_basket reports when promotions were last synced', async () => {
+  await withDb(seedPlanner, (path) =>
+    withClient(path, async (c) => {
+      assert.equal((await draft(c)).promotionsLastSyncAt, null);
+      const s = openStore(path);
+      s.finishSync(s.startSync('promotions'), 'ok');
+      s.close();
+      assert.match((await draft(c)).promotionsLastSyncAt, /^\d{4}-/);
+    }),
+  );
+});
+
+test('the planning skill states the rules the tools rely on', () => {
+  const skill = readFileSync(join(SRC, '..', '.claude', 'skills', 'auchan-plan', 'SKILL.md'), 'utf8');
+  assert.match(skill, /`term` is null[^\n]*short generic noun/);
+  assert.match(skill, /`set_brand` before `draft_basket`/);
+  assert.match(skill, /nominative singular/);
+  assert.match(skill, /`set_brand\(term, null\)`[^\n]*swaps across a fixed brand/);
+});
+
 test('record_correction validates its input with fixed errors', async () => {
   await withDb(seedPlanner, (path) =>
     withClient(path, async (c) => {
