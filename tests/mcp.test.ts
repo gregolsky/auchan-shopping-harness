@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createServer } from '../src/mcp.ts';
+import { DatabaseSync } from 'node:sqlite';
 import { openStore } from '../src/store.ts';
 import { parseDecoratedOrder } from '../src/parse.ts';
 import type { Product, PriceObservation } from '../src/types.ts';
@@ -56,11 +57,12 @@ function seedOrders(path: string) {
   s.close();
 }
 
-test('server registers exactly the three read tools', async () => {
+test('server registers the read and planner tools', async () => {
   await withDb(null, (path) =>
     withClient(path, async (c) => {
       const names = (await c.listTools()).tools.map((t) => t.name).sort();
-      assert.deepEqual(names, ['current_promotions', 'product_history', 'recent_orders']);
+      assert.deepEqual(names, ['current_promotions', 'delete_rule', 'draft_basket', 'list_rules', 'product_history', 'recent_orders', 'record_correction', 'set_brand']);
+      assert.ok(names.every((n) => !/cart|checkout|order(?!s)|buy/i.test(n)));
     }),
   );
 });
@@ -77,6 +79,7 @@ test('no MCP tool imports the worker, even transitively', () => {
   const names = [...seen].map((f) => f.slice(SRC.length + 1));
   assert.ok(names.includes('store.ts'));
   for (const n of names) assert.doesNotMatch(n, /worker|cli|sync-/);
+  assert.ok(!names.includes('worker.ts') && !names.includes('http-worker.ts'));
   for (const f of seen) assert.doesNotMatch(readFileSync(f, 'utf8'), /playwright/);
 });
 
@@ -177,5 +180,114 @@ test('a corrupt database is an error, not the run-sync hint', async () => {
         assert.doesNotMatch(r.content[0].text, /run npm run sync first/);
         assert.match(r.content[0].text, /Database error/);
       }),
+  );
+});
+
+const mk = (id: string, name: string, brand = 'Marka'): Product => ({
+  productId: id, retailerProductId: `r-${id}`, name, brand, categoryPath: ['Nabiał'], unitLabel: 'kg', size: '1 l', inCatalogue: true,
+});
+const price = (id: string, grosze: number): PriceObservation => ({
+  productId: id, seenAt: '2026-10-30T10:00:00.000Z', regionId: 'r1', source: 'promotion',
+  originalGrosze: null, currentGrosze: grosze, unitCurrentGrosze: grosze, offerText: null, requiredQuantity: null,
+});
+function seedPlanner(path: string) {
+  const s = openStore(path);
+  const id = s.startSync('orders');
+  s.savePromotions({
+    regionId: 'r1',
+    products: [mk('m1', 'Mleko Alfa 1 l', 'Alfa'), mk('m2', 'Mleko Beta 1 l', 'Beta')],
+    prices: [price('m1', 300), price('m2', 200)],
+  });
+  s.finishSync(id, 'ok');
+  s.close();
+}
+const draft = async (c: Client) =>
+  JSON.parse(await call(c, 'draft_basket', { items: [{ term: 'mleko', quantity: 1 }], includeUsual: false }));
+
+test('draft_basket returns the groups from a seeded store', async () => {
+  await withDb(seedPlanner, (path) =>
+    withClient(path, async (c) => {
+      const d = await draft(c);
+      assert.equal(d.items.length, 1);
+      assert.equal(d.items[0].productId, 'm2');
+      assert.equal(d.totalGrosze, 200);
+      assert.deepEqual(d.unmatched, []);
+      assert.match(d.lastSyncAt, /^\d{4}-/);
+    }),
+  );
+});
+
+test('draft_basket works on a database created before the learning tables', async () => {
+  await withDb(
+    (p) => {
+      seedPlanner(p);
+      const db = new DatabaseSync(p);
+      db.exec('DROP TABLE corrections; DROP TABLE intent_products; DROP TABLE intents;');
+      db.close();
+    },
+    (path) =>
+      withClient(path, async (c) => {
+        assert.equal((await draft(c)).items.length, 1);
+        assert.deepEqual(JSON.parse(await call(c, 'list_rules', {})).rules, []);
+      }),
+  );
+});
+
+test('record_correction twice changes the next draft', async () => {
+  await withDb(seedPlanner, (path) =>
+    withClient(path, async (c) => {
+      for (let i = 0; i < 2; i++) await call(c, 'record_correction', { term: 'mleko', proposedProductId: 'm2', chosenProductId: 'm1' });
+      assert.equal((await draft(c)).items[0].productId, 'm1');
+      assert.equal(JSON.parse(await call(c, 'list_rules', {})).rules[0].preferredProductId, 'm1');
+    }),
+  );
+});
+
+test('delete_rule stops the rule affecting the next draft and keeps the corrections', async () => {
+  await withDb(seedPlanner, (path) =>
+    withClient(path, async (c) => {
+      for (let i = 0; i < 2; i++) await call(c, 'record_correction', { term: 'mleko', proposedProductId: 'm2', chosenProductId: 'm1' });
+      await call(c, 'delete_rule', { term: 'mleko' });
+      assert.equal((await draft(c)).items[0].productId, 'm2');
+      const s = openStore(path, { readOnly: true });
+      assert.equal(s.corrections('mleko').length, 2);
+      s.close();
+    }),
+  );
+});
+
+test('set_brand limits candidates, and null frees them', async () => {
+  await withDb(seedPlanner, (path) =>
+    withClient(path, async (c) => {
+      await call(c, 'set_brand', { term: 'mleko', brand: 'Alfa' });
+      assert.equal((await draft(c)).items[0].productId, 'm1');
+      await call(c, 'set_brand', { term: 'mleko', brand: null });
+      assert.equal((await draft(c)).items[0].productId, 'm2');
+    }),
+  );
+});
+
+test('record_correction validates its input with fixed errors', async () => {
+  await withDb(seedPlanner, (path) =>
+    withClient(path, async (c) => {
+      const r = (await c.callTool({ name: 'record_correction', arguments: { term: 'mleko' } })) as { isError?: boolean; content: { text: string }[] };
+      assert.equal(r.isError, true);
+      const u = (await c.callTool({ name: 'record_correction', arguments: { term: 'mleko', chosenProductId: 'nope' } })) as { isError?: boolean; content: { text: string }[] };
+      assert.equal(u.isError, true);
+      assert.doesNotMatch(u.content[0].text, /INSERT|SELECT|constraint/i);
+      assert.match(u.content[0].text, /Unknown chosenProductId/);
+    }),
+  );
+});
+
+test('write tools do not create a missing database', async () => {
+  await withDb(null, (path) =>
+    withClient(path, async (c) => {
+      assert.match(await call(c, 'set_brand', { term: 'x', brand: 'y' }), /run npm run sync first/);
+      assert.match(await call(c, 'delete_rule', { term: 'x' }), /run npm run sync first/);
+      assert.match(await call(c, 'record_correction', { term: 'x', chosenProductId: 'a' }), /run npm run sync first/);
+      assert.match(await call(c, 'draft_basket', { items: [], includeUsual: true }), /run npm run sync first/);
+      assert.equal(existsSync(path), false);
+    }),
   );
 });

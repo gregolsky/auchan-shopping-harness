@@ -5,8 +5,9 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { openStore, type Store, type SyncKind } from './store.ts';
 import { DB_PATH } from './dbpath.ts';
+import { buildDraft } from './draft.ts';
 
-// Read-only: this file must never import the worker or anything that can reach Auchan.
+// This file must never import the worker or anything that can reach Auchan. Only the planner write tools open the store writable.
 
 const NEED_SYNC = 'No data yet: run npm run sync first.';
 
@@ -29,6 +30,30 @@ function withData(dbPath: string, kind: SyncKind, fn: (store: Store, freshness: 
   } finally {
     store?.close();
   }
+}
+
+const DB_ERROR = (e: unknown) => ({ isError: true, content: [{ type: 'text' as const, text: `Database error: ${e instanceof Error ? e.message : String(e)}` }] });
+const fail = (msg: string) => ({ isError: true, content: [{ type: 'text' as const, text: msg }] });
+const NEVER_AUCHAN = ' Money is in grosze (1 zł = 100 grosze). Reads only the local database; never contacts Auchan.';
+
+/** Opens the store writable for one call. A missing file is never created. */
+function withWritable(dbPath: string, fn: (store: Store) => unknown) {
+  if (!existsSync(dbPath)) return text(NEED_SYNC);
+  let store: Store | undefined;
+  try {
+    store = openStore(dbPath);
+    return json(fn(store));
+  } catch (e) {
+    return DB_ERROR(e);
+  } finally {
+    store?.close();
+  }
+}
+
+/** Opens writable once so the planner tables exist, since the read-only connection cannot create them. */
+function ensureSchema(dbPath: string): void {
+  if (!existsSync(dbPath)) return;
+  try { openStore(dbPath).close(); } catch { /* the read path reports it */ }
 }
 
 export function createServer(dbPath: string = DB_PATH): McpServer {
@@ -69,6 +94,80 @@ export function createServer(dbPath: string = DB_PATH): McpServer {
         ...fresh,
         promotions: s.currentPromotions({ boughtBefore: bought_before, limit }),
       })),
+  );
+
+  let schemaReady = false;
+  const ready = () => { if (!schemaReady) { ensureSchema(dbPath); schemaReady = existsSync(dbPath); } };
+
+  server.registerTool(
+    'draft_basket',
+    {
+      description: 'Builds a draft basket from shopping terms using order history, promotions and learned preferences. Returns groups (items, stockUps, promotions, addOns), unmatched terms, and totals in grosze; budget is only a warning. Does not fill any cart.' + NEVER_AUCHAN,
+      inputSchema: {
+        items: z.array(z.object({ term: z.string().min(1).max(100), quantity: z.number().min(0.01).max(100).default(1) })).max(100),
+        includeUsual: z.boolean().default(false),
+        budgetGrosze: z.number().int().min(0).optional(),
+      },
+    },
+    ({ items, includeUsual, budgetGrosze }) => {
+      ready();
+      return withData(dbPath, 'orders', (s, fresh) => ({
+        ...fresh,
+        ...buildDraft({ items, includeUsual, budgetGrosze }, s.productFacts(), s.intentRules(), new Date()),
+      }));
+    },
+  );
+
+  server.registerTool(
+    'record_correction',
+    {
+      description: 'Records that the user changed a draft line for a term, so later drafts learn it. Needs a term and proposedProductId and/or chosenProductId (omit chosen to record a removal). Writes the local database only.' + NEVER_AUCHAN,
+      inputSchema: {
+        term: z.string().min(1).max(100),
+        proposedProductId: z.string().min(1).max(100).optional(),
+        chosenProductId: z.string().min(1).max(100).optional(),
+        reason: z.string().max(300).optional(),
+      },
+    },
+    ({ term, proposedProductId, chosenProductId, reason }) => {
+      if (!proposedProductId && !chosenProductId) return fail('Give proposedProductId or chosenProductId.');
+      return withWritable(dbPath, (s) => {
+        try {
+          s.recordCorrection({ term, proposedProductId: proposedProductId ?? null, chosenProductId: chosenProductId ?? null, reason });
+        } catch (e) {
+          if (chosenProductId && /FOREIGN KEY/i.test(String(e))) throw new Error('Unknown chosenProductId: no such product in the local data.');
+          throw e;
+        }
+        return { ok: true };
+      });
+    },
+  );
+
+  server.registerTool(
+    'list_rules',
+    {
+      description: 'Lists learned term rules (fixed brand, preferred and accepted product ids). Includes how old the synced data is.' + NEVER_AUCHAN,
+      inputSchema: {},
+    },
+    () => { ready(); return withData(dbPath, 'orders', (s, fresh) => ({ ...fresh, rules: s.intentRules() })); },
+  );
+
+  server.registerTool(
+    'set_brand',
+    {
+      description: 'Limits a term to one brand in later drafts; a null brand frees it. Call only when the user names a brand. Writes the local database only.' + NEVER_AUCHAN,
+      inputSchema: { term: z.string().min(1).max(100), brand: z.string().min(1).max(100).nullable() },
+    },
+    ({ term, brand }) => withWritable(dbPath, (s) => { s.setBrandFixed(term, brand); return { ok: true }; }),
+  );
+
+  server.registerTool(
+    'delete_rule',
+    {
+      description: 'Forgets the learned rule for a term; the correction history is kept. Writes the local database only.' + NEVER_AUCHAN,
+      inputSchema: { term: z.string().min(1).max(100) },
+    },
+    ({ term }) => withWritable(dbPath, (s) => { s.deleteRule(term); return { ok: true }; }),
   );
 
   return server;
