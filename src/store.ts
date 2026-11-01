@@ -45,6 +45,26 @@ export interface PromotionRow {
   boughtBefore: boolean;
 }
 
+export interface IntentRule {
+  term: string;
+  brand: string | null;
+  preferredProductId: string | null;
+  acceptedProductIds: string[];
+}
+
+export interface CorrectionRow {
+  term: string;
+  proposedProductId: string | null;
+  chosenProductId: string | null;
+  reason: string | null;
+  createdAt: string;
+}
+
+/** Trim, lower case and strip diacritics (including the stroked l) so terms match however they were typed. */
+export function normaliseTerm(s: string): string {
+  return s.trim().toLocaleLowerCase('pl').normalize('NFD').replace(/\p{M}/gu, '').replace(/ł/g, 'l');
+}
+
 export interface Store {
   saveOrder(parsed: ParsedOrder): void;
   hasOrder(orderId: string): boolean;
@@ -61,6 +81,13 @@ export interface Store {
   lastSyncClean(kind: SyncKind): boolean;
   /** ISO time of the latest successful sync of this kind, or null if none. */
   lastSyncFinishedAt(kind: SyncKind): string | null;
+  /** Records a user correction; a chosen product also teaches the term's rule. Terms are normalised. */
+  recordCorrection(c: { term: string; proposedProductId: string | null; chosenProductId: string | null; reason?: string }): void;
+  intentRules(term?: string): IntentRule[];
+  setBrandFixed(term: string, brand: string | null): void;
+  /** Removes the learned rule for a term; the correction history stays. */
+  deleteRule(term: string): void;
+  corrections(term?: string): CorrectionRow[];
   close(): void;
 }
 
@@ -110,6 +137,25 @@ CREATE TABLE IF NOT EXISTS sync_runs (
   started_at TEXT NOT NULL,
   finished_at TEXT,
   status TEXT CHECK (status IN ('ok', 'failed'))
+);
+CREATE TABLE IF NOT EXISTS intents (
+  term TEXT PRIMARY KEY,
+  brand TEXT
+);
+CREATE TABLE IF NOT EXISTS intent_products (
+  term TEXT NOT NULL,
+  product_id TEXT NOT NULL REFERENCES products(product_id),
+  times_chosen INTEGER NOT NULL,
+  last_chosen_at TEXT NOT NULL,
+  PRIMARY KEY (term, product_id)
+);
+CREATE TABLE IF NOT EXISTS corrections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  term TEXT NOT NULL,
+  proposed_product_id TEXT,
+  chosen_product_id TEXT,
+  reason TEXT,
+  created_at TEXT NOT NULL
 );
 `;
 
@@ -167,6 +213,13 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
       db.exec('ROLLBACK');
       throw e;
     }
+  }
+
+  // Strictly increasing, so "most recently chosen" never ties within one process.
+  let lastStamp = 0;
+  function stamp(): string {
+    lastStamp = Math.max(Date.now(), lastStamp + 1);
+    return new Date(lastStamp).toISOString();
   }
 
   return {
@@ -275,6 +328,63 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
         | { finished_at: string }
         | undefined;
       return r ? r.finished_at : null;
+    },
+
+    recordCorrection({ term, proposedProductId, chosenProductId, reason }) {
+      const key = normaliseTerm(term);
+      const now = stamp();
+      transaction(() => {
+        db.prepare(
+          'INSERT INTO corrections (term, proposed_product_id, chosen_product_id, reason, created_at) VALUES (?, ?, ?, ?, ?)',
+        ).run(key, proposedProductId, chosenProductId, reason ?? null, now);
+        if (chosenProductId === null) return;
+        db.prepare('INSERT OR IGNORE INTO intents (term, brand) VALUES (?, NULL)').run(key);
+        db.prepare(`
+          INSERT INTO intent_products (term, product_id, times_chosen, last_chosen_at) VALUES (?, ?, 1, ?)
+          ON CONFLICT(term, product_id) DO UPDATE SET times_chosen = times_chosen + 1, last_chosen_at = excluded.last_chosen_at`)
+          .run(key, chosenProductId, now);
+      });
+    },
+
+    intentRules(term) {
+      const rows = (term === undefined
+        ? db.prepare('SELECT term, brand FROM intents ORDER BY term').all()
+        : db.prepare('SELECT term, brand FROM intents WHERE term = ?').all(normaliseTerm(term))) as { term: string; brand: string | null }[];
+      const products = db.prepare(
+        'SELECT product_id, times_chosen FROM intent_products WHERE term = ? ORDER BY times_chosen DESC, last_chosen_at DESC',
+      );
+      const preferred = db.prepare(
+        'SELECT product_id FROM intent_products WHERE term = ? AND times_chosen >= 2 ORDER BY last_chosen_at DESC LIMIT 1',
+      );
+      return rows.map((r) => ({
+        term: r.term,
+        brand: r.brand,
+        preferredProductId: (preferred.get(r.term) as { product_id: string } | undefined)?.product_id ?? null,
+        acceptedProductIds: (products.all(r.term) as { product_id: string }[]).map((p) => p.product_id),
+      }));
+    },
+
+    setBrandFixed(term, brand) {
+      db.prepare('INSERT INTO intents (term, brand) VALUES (?, ?) ON CONFLICT(term) DO UPDATE SET brand = excluded.brand')
+        .run(normaliseTerm(term), brand);
+    },
+
+    deleteRule(term) {
+      const key = normaliseTerm(term);
+      transaction(() => {
+        db.prepare('DELETE FROM intent_products WHERE term = ?').run(key);
+        db.prepare('DELETE FROM intents WHERE term = ?').run(key);
+      });
+    },
+
+    corrections(term) {
+      const rows = (term === undefined
+        ? db.prepare('SELECT * FROM corrections ORDER BY id').all()
+        : db.prepare('SELECT * FROM corrections WHERE term = ? ORDER BY id').all(normaliseTerm(term))) as any[];
+      return rows.map((r) => ({
+        term: r.term, proposedProductId: r.proposed_product_id, chosenProductId: r.chosen_product_id,
+        reason: r.reason, createdAt: r.created_at,
+      }));
     },
 
     close() {
