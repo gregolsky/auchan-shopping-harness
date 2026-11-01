@@ -70,6 +70,21 @@ test('terms match without diacritics or case', () => {
   assert.equal(normaliseTerm('Łosoś'), 'losos');
 });
 
+test('terms collapse inner whitespace', () => {
+  assert.equal(normaliseTerm('  mleko \t  3,2%  '), 'mleko 3,2%');
+});
+
+test('the store treats a term with or without diacritics as one rule', () => {
+  s.recordCorrection({ term: 'MĄKA', proposedProductId: 'a', chosenProductId: 'b' });
+  s.recordCorrection({ term: 'maka', proposedProductId: 'a', chosenProductId: 'b' });
+  s.setBrandFixed('Mąka', 'Brand');
+  assert.equal(s.intentRules().length, 1);
+  assert.equal(s.intentRules('mąka')[0].preferredProductId, 'b');
+  assert.equal(s.intentRules('maka')[0].brand, 'Brand');
+  s.deleteRule('MĄKA');
+  assert.deepEqual(s.intentRules('maka'), []);
+});
+
 test('a read-only store on an older database still opens', () => {
   const dir = mkdtempSync(join(tmpdir(), 'store-old-'));
   try {

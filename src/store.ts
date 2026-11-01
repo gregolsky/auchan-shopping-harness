@@ -61,9 +61,9 @@ export interface CorrectionRow {
   createdAt: string;
 }
 
-/** Trim, lower case and strip diacritics (including the stroked l) so terms match however they were typed. */
+/** Trim, collapse whitespace, lower case and strip diacritics (including the stroked l) so terms match however they were typed. */
 export function normaliseTerm(s: string): string {
-  return s.trim().toLocaleLowerCase('pl').normalize('NFD').replace(/\p{M}/gu, '').replace(/ł/g, 'l');
+  return s.trim().replace(/\s+/g, ' ').toLocaleLowerCase('pl').normalize('NFD').replace(/\p{M}/gu, '').replace(/ł/g, 'l');
 }
 
 export interface ProductFacts {
