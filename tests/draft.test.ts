@@ -83,7 +83,7 @@ test('a guess is marked and its reason says so', () => {
 });
 
 test('a learned rule decides the pick and the reason', () => {
-  const rules: IntentRule[] = [{ term: 'Kawa', brand: null, preferredProductId: 'b', acceptedProductIds: [] }];
+  const rules: IntentRule[] = [{ term: 'Kawa', brand: null, preferredProductId: 'b', acceptedProductIds: ['b'], learnedProductIds: ['b'] }];
   const facts = [fact('a', { name: 'Kawa', timesBought: 9 }), fact('b', { name: 'Kawa', timesBought: 1 })];
   const d = buildDraft(input([{ term: 'kawa', quantity: 1 }]), facts, rules, now);
   assert.equal(d.items[0].productId, 'b');

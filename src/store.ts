@@ -51,6 +51,8 @@ export interface IntentRule {
   brand: string | null;
   preferredProductId: string | null;
   acceptedProductIds: string[];
+  /** Chosen at least twice; these lead the ranking. */
+  learnedProductIds: string[];
 }
 
 export interface CorrectionRow {
@@ -451,12 +453,16 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
       const preferred = db.prepare(
         'SELECT product_id FROM intent_products WHERE term = ? AND times_chosen >= 2 ORDER BY last_chosen_at DESC LIMIT 1',
       );
-      return rows.map((r) => ({
-        term: r.term,
-        brand: r.brand,
-        preferredProductId: (preferred.get(r.term) as { product_id: string } | undefined)?.product_id ?? null,
-        acceptedProductIds: (products.all(r.term) as { product_id: string }[]).map((p) => p.product_id),
-      }));
+      return rows.map((r) => {
+        const chosen = products.all(r.term) as { product_id: string; times_chosen: number }[];
+        return {
+          term: r.term,
+          brand: r.brand,
+          preferredProductId: (preferred.get(r.term) as { product_id: string } | undefined)?.product_id ?? null,
+          acceptedProductIds: chosen.map((p) => p.product_id),
+          learnedProductIds: chosen.filter((p) => p.times_chosen >= 2).map((p) => p.product_id),
+        };
+      });
     },
 
     setBrandFixed(term, brand) {

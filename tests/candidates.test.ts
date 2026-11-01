@@ -10,7 +10,7 @@ const fact = (productId: string, over: Partial<ProductFacts> = {}): ProductFacts
   pricePoints: 0, inCatalogue: true, boughtInLatest10: 0, ...over,
 });
 const rule = (over: Partial<IntentRule> = {}): IntentRule => ({
-  term: 'mleko', brand: null, preferredProductId: null, acceptedProductIds: [], ...over,
+  term: 'mleko', brand: null, preferredProductId: null, acceptedProductIds: [], learnedProductIds: [], ...over,
 });
 const ids = (c: { productId: string }[]) => c.map((x) => x.productId);
 
@@ -21,11 +21,49 @@ test('preferred outranks a cheaper product', () => {
   assert.equal(r[0].basis, 'preferred');
 });
 
-test('accepted products are never hidden by history', () => {
+test('a product chosen twice leads what was bought', () => {
   const facts = [fact('bought', { timesBought: 9 }), fact('acc', { latestPriceGrosze: 900 })];
-  const r = rankCandidates('mleko', 1, facts, rule({ acceptedProductIds: ['acc'] }));
+  const r = rankCandidates('mleko', 1, facts, rule({ acceptedProductIds: ['acc'], learnedProductIds: ['acc'] }));
   assert.deepEqual(ids(r), ['acc', 'bought']);
   assert.equal(r[0].basis, 'accepted');
+});
+
+test('a product chosen once stays an alternative behind what was bought', () => {
+  const facts = [fact('bought', { timesBought: 9 }), fact('once', { latestPriceGrosze: 100 })];
+  const r = rankCandidates('mleko', 1, facts, rule({ acceptedProductIds: ['once'] }));
+  assert.deepEqual(ids(r), ['bought', 'once']);
+  assert.equal(r[1].basis, 'accepted');
+  assert.equal(r[1].guess, false);
+});
+
+test('the full order: preferred, learned, bought, chosen once, the rest', () => {
+  const facts = [
+    fact('rest', { latestPriceGrosze: 50 }), fact('once', { latestPriceGrosze: 100 }), fact('bought', { timesBought: 2 }),
+    fact('learned', { latestPriceGrosze: 800 }), fact('pref', { latestPriceGrosze: 900 }),
+  ];
+  const r = rankCandidates('mleko', 1, facts, rule({
+    preferredProductId: 'pref', acceptedProductIds: ['pref', 'learned', 'once'], learnedProductIds: ['pref', 'learned'],
+  }));
+  assert.deepEqual(ids(r), ['pref', 'learned', 'bought', 'once', 'rest']);
+  assert.deepEqual(r.map((c) => c.basis), ['preferred', 'accepted', 'history', 'accepted', 'value']);
+});
+
+test('a product chosen once and bought keeps its place by purchase count', () => {
+  const facts = [fact('more', { timesBought: 5 }), fact('once', { timesBought: 2 }), fact('less', { timesBought: 1 })];
+  const r = rankCandidates('mleko', 1, facts, rule({ acceptedProductIds: ['once'] }));
+  assert.deepEqual(ids(r), ['more', 'once', 'less']);
+  assert.equal(r[1].basis, 'history');
+});
+
+test('a product chosen once still shows when the term does not match its name, and is bought', () => {
+  const facts = [fact('acc', { name: 'Zupełnie inna nazwa', timesBought: 2 })];
+  assert.deepEqual(ids(rankCandidates('mleko', 1, facts, rule({ acceptedProductIds: ['acc'] }))), ['acc']);
+});
+
+test('a fixed brand hides an accepted product of another brand', () => {
+  const facts = [fact('other', { brand: 'Other', timesBought: 9 }), fact('fixed', { brand: 'Fixed' })];
+  const r = rankCandidates('mleko', 1, facts, rule({ brand: 'Fixed', acceptedProductIds: ['other'], learnedProductIds: ['other'], preferredProductId: 'other' }));
+  assert.deepEqual(ids(r), ['fixed']);
 });
 
 test('purchase count beats value within history', () => {
@@ -115,12 +153,12 @@ test('an accepted product still shows when the term no longer matches its name',
   assert.deepEqual(ids(r), ['acc']);
 });
 
-test('regression: "nutella" with the spread accepted does not lead with wafers', () => {
+test('regression: "nutella" with the spread chosen twice does not lead with wafers', () => {
   const facts = [
     fact('wafer', { name: 'Nutella B-ready wafelki', size: '0.132 kg', latestPriceGrosze: 300 }),
     fact('spread', { name: 'Nutella krem', size: '0.4 kg', latestPriceGrosze: 1500 }),
   ];
-  const r = rankCandidates('nutella', 1, facts, rule({ term: 'nutella', acceptedProductIds: ['spread'] }));
+  const r = rankCandidates('nutella', 1, facts, rule({ term: 'nutella', acceptedProductIds: ['spread'], learnedProductIds: ['spread'] }));
   assert.equal(r[0].productId, 'spread');
 });
 

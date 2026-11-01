@@ -9,8 +9,6 @@ export type Candidate = ProductFacts & {
   guess: boolean;
 };
 
-const GROUP = { preferred: 0, accepted: 1, history: 2, value: 3 } as const;
-
 /**
  * Every word of the term starts a word of the name or brand. A term of 4 or more letters drops one final vowel so
  * inflected forms meet ("mleka", "mleko"), and the ending is limited so "maka" misses "Makaron" and "ser" misses "Serwetki".
@@ -28,6 +26,10 @@ export function matchesTerm(term: string, f: Pick<ProductFacts, 'name' | 'brand'
 export function rankCandidates(term: string, quantity: number, facts: ProductFacts[], rule: IntentRule | null): Candidate[] {
   const brand = rule?.brand ? normaliseTerm(rule.brand) : null;
   const accepted = new Set(rule?.acceptedProductIds ?? []);
+  const learned = new Set(rule?.learnedProductIds ?? []);
+  // Only a product chosen at least twice leads. One chosen once stays an alternative behind what was bought.
+  const group = (c: Candidate) =>
+    c.basis === 'preferred' ? 0 : learned.has(c.productId) ? 1 : c.basis === 'history' ? 2 : c.basis === 'accepted' ? 3 : 4;
 
   const out: Candidate[] = [];
   for (const f of facts) {
@@ -36,7 +38,7 @@ export function rankCandidates(term: string, quantity: number, facts: ProductFac
     const isPreferred = f.productId === rule?.preferredProductId;
     const isAccepted = accepted.has(f.productId);
     if (!isPreferred && !isAccepted && !matchesTerm(term, f)) continue;
-    const basis = isPreferred ? 'preferred' : isAccepted ? 'accepted' : f.timesBought > 0 ? 'history' : 'value';
+    const basis = isPreferred ? 'preferred' : learned.has(f.productId) ? 'accepted' : f.timesBought > 0 ? 'history' : isAccepted ? 'accepted' : 'value';
     // An offer applies only once the quantity reaches what it requires.
     const reached = f.requiredQuantity === null || quantity >= f.requiredQuantity;
     const cost = lineCost(f.latestPriceGrosze, reached ? parseOffer(f.offerText) : null, quantity);
@@ -46,7 +48,7 @@ export function rankCandidates(term: string, quantity: number, facts: ProductFac
   }
 
   return out.sort((a, b) =>
-    GROUP[a.basis] - GROUP[b.basis]
+    group(a) - group(b)
     || (a.basis === 'history' ? b.timesBought - a.timesBought : 0)
     || (a.unitPriceGrosze === null ? 1 : 0) - (b.unitPriceGrosze === null ? 1 : 0)
     || (a.unitPriceGrosze ?? 0) - (b.unitPriceGrosze ?? 0)

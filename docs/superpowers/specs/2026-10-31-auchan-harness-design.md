@@ -106,6 +106,7 @@ A pick with no intent or history behind it is marked as a guess in the draft.
 - Every edit in the app is saved as a correction.
 - Choosing the same product twice for an intent makes it the preferred product.
 - A single edit affects only that basket.
+- A product chosen once appears as an alternative and leads only after a second choice.
 - The user can view and delete rules in the app.
 
 ## Stock-ups and perishables

@@ -24,9 +24,10 @@ afterEach(() => s.close());
 
 test('one choice is accepted but not preferred, and a second makes it preferred', () => {
   s.recordCorrection({ term: 'Mleko', proposedProductId: 'a', chosenProductId: 'b' });
-  assert.deepEqual(s.intentRules('mleko'), [{ term: 'mleko', brand: null, preferredProductId: null, acceptedProductIds: ['b'] }]);
+  assert.deepEqual(s.intentRules('mleko'), [{ term: 'mleko', brand: null, preferredProductId: null, acceptedProductIds: ['b'], learnedProductIds: [] }]);
   s.recordCorrection({ term: 'mleko', proposedProductId: 'a', chosenProductId: 'b' });
   assert.equal(s.intentRules('mleko')[0].preferredProductId, 'b');
+  assert.deepEqual(s.intentRules('mleko')[0].learnedProductIds, ['b']);
 });
 
 test('a newer product chosen twice replaces the preferred one', () => {
@@ -34,6 +35,7 @@ test('a newer product chosen twice replaces the preferred one', () => {
   const [rule] = s.intentRules('mleko');
   assert.equal(rule.preferredProductId, 'c');
   assert.deepEqual([...rule.acceptedProductIds].sort(), ['b', 'c']);
+  assert.deepEqual([...rule.learnedProductIds].sort(), ['b', 'c']);
 });
 
 test('removing a line is recorded but teaches no product', () => {

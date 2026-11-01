@@ -201,6 +201,19 @@ function seedPlanner(path: string) {
   s.finishSync(id, 'ok');
   s.close();
 }
+/** As seedPlanner, with the cheaper m2 bought before. */
+function seedPlannerBought(path: string) {
+  seedPlanner(path);
+  const s = openStore(path);
+  const id = s.startSync('orders');
+  s.saveOrder({
+    order: { orderId: 'o1', deliveredAt: '2026-10-29T10:00:00.000Z', totalGrosze: 200, regionId: 'r1' },
+    lines: [{ orderId: 'o1', productId: 'm2', quantity: 1, pricePerItemGrosze: 200 }],
+    products: [], prices: [],
+  });
+  s.finishSync(id, 'ok');
+  s.close();
+}
 const draft = async (c: Client) =>
   JSON.parse(await call(c, 'draft_basket', { items: [{ term: 'mleko', quantity: 1 }], includeUsual: false }));
 
@@ -233,10 +246,15 @@ test('draft_basket works on a database created before the learning tables', asyn
   );
 });
 
-test('record_correction twice changes the next draft', async () => {
-  await withDb(seedPlanner, (path) =>
+test('one correction leaves the next draft unchanged, a second changes it', async () => {
+  await withDb(seedPlannerBought, (path) =>
     withClient(path, async (c) => {
-      for (let i = 0; i < 2; i++) await call(c, 'record_correction', { term: 'mleko', proposedProductId: 'm2', chosenProductId: 'm1' });
+      const correct = () => call(c, 'record_correction', { term: 'mleko', proposedProductId: 'm2', chosenProductId: 'm1' });
+      await correct();
+      const once = await draft(c);
+      assert.equal(once.items[0].productId, 'm2');
+      assert.deepEqual(once.items[0].alternatives.map((a: { productId: string }) => a.productId), ['m1']);
+      await correct();
       assert.equal((await draft(c)).items[0].productId, 'm1');
       assert.equal(JSON.parse(await call(c, 'list_rules', {})).rules[0].preferredProductId, 'm1');
     }),
