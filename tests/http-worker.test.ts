@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cookieHeader, createHttpWorker, extractLinks, extractState, retrySeconds } from '../src/http-worker.ts';
@@ -37,6 +37,15 @@ test('a damaged session file asks for a login and its content never reaches an e
     () => worker.getJson('/orders'),
     (e: Error) => e instanceof LoginRequired && !e.message.includes('secret'),
   );
+  assert.equal(calls.length, 0);
+  cleanup();
+});
+
+test('an unreadable session file is a real error, not a request to log in', async () => {
+  const { worker, calls, sessionFile, cleanup } = setup(() => new Response('{}'));
+  rmSync(sessionFile);
+  mkdirSync(sessionFile); // reading a directory fails with EISDIR
+  await assert.rejects(() => worker.getJson('/orders'), (e: Error) => !(e instanceof LoginRequired) && /EISDIR/.test(e.message));
   assert.equal(calls.length, 0);
   cleanup();
 });

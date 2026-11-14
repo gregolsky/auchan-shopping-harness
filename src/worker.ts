@@ -323,15 +323,19 @@ export function saveCookies(file: string, cookies: SessionCookie[]): void {
   chmodSync(file, 0o600); // the mode above only applies when the file is created
 }
 
-/** The only browser step left: the user logs in (or is still logged in) and the session is saved to sessionFile. */
-export async function browserLogin(sessionFile: string): Promise<boolean> {
-  let context: BrowserContext;
+/** Opens the dedicated, logged-in profile in a visible, sandboxed Chromium. */
+export async function launchProfile(): Promise<BrowserContext> {
   try {
     if (!existsSync(join(PROFILE, 'SingletonLock'))) keepSessionOnRestart(join(PROFILE, 'Default', 'Preferences'));
-    context = await chromium.launchPersistentContext(PROFILE, { executablePath: EXECUTABLE, headless: false, chromiumSandbox: true });
+    return await chromium.launchPersistentContext(PROFILE, { executablePath: EXECUTABLE, headless: false, chromiumSandbox: true });
   } catch (err) {
     throw mapLaunchError(err);
   }
+}
+
+/** The only browser step left: the user logs in (or is still logged in) and the session is saved to sessionFile. */
+export async function browserLogin(sessionFile: string): Promise<boolean> {
+  const context = await launchProfile();
   const closed = whenClosed(context);
   const page = context.pages()[0] ?? (await context.newPage());
   await page.goto(new URL('/orders', ORIGIN).toString()).catch(() => {}); // a login redirect is expected here
@@ -343,13 +347,7 @@ export async function browserLogin(sessionFile: string): Promise<boolean> {
 }
 
 export async function openWorker(): Promise<Worker> {
-  let context: BrowserContext;
-  try {
-    if (!existsSync(join(PROFILE, 'SingletonLock'))) keepSessionOnRestart(join(PROFILE, 'Default', 'Preferences'));
-    context = await chromium.launchPersistentContext(PROFILE, { executablePath: EXECUTABLE, headless: false, chromiumSandbox: true });
-  } catch (err) {
-    throw mapLaunchError(err);
-  }
+  const context = await launchProfile();
   const closed = whenClosed(context);
   const page = context.pages()[0] ?? (await context.newPage());
   return createWorker(page as unknown as PageLike, () => context.close(), () => closed);

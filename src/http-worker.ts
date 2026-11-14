@@ -8,8 +8,10 @@ const VERSION = { 'ecom-request-source-version': '2.0.0' };
 
 export function cookieHeader(file: string): string | undefined {
   if (!existsSync(file)) return undefined;
+  const raw = readFileSync(file, 'utf8'); // an unreadable file is a real error, not a missing login; its message names only the path
   try {
-    const cookies = JSON.parse(readFileSync(file, 'utf8')) as SessionCookie[];
+    const cookies = JSON.parse(raw) as SessionCookie[];
+    if (!Array.isArray(cookies)) return undefined;
     return cookies.map((c) => `${c.name}=${c.value}`).join('; ');
   } catch {
     return undefined; // the parser's message quotes the file; a damaged session just needs a new login

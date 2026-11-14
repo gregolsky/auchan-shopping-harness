@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openStore, type Store } from './store.ts';
@@ -20,17 +20,23 @@ export interface Deps {
   paceMs?: number;
 }
 
+/** Order history and the session live here: owner only, whichever command creates it first. */
+function ensureStateDir(file: string): void {
+  mkdirSync(dirname(file), { recursive: true });
+  chmodSync(dirname(file), 0o700);
+}
+
 const liveDeps: Deps = {
   async openWorker() {
-    mkdirSync(dirname(SESSION_PATH), { recursive: true });
+    ensureStateDir(SESSION_PATH);
     return createHttpWorker({ sessionFile: SESSION_PATH, login: () => browserLogin(SESSION_PATH) });
   },
   openStore() {
-    mkdirSync(dirname(DB_PATH), { recursive: true });
-    chmodSync(dirname(DB_PATH), 0o700); // order history and the session live here
-    const store = openStore(DB_PATH);
+    ensureStateDir(DB_PATH);
+    // Create and restrict the file before opening it, so a failed chmod leaves no open handle behind. SQLite reads an empty file as an empty database.
+    if (!existsSync(DB_PATH)) writeFileSync(DB_PATH, '', { mode: 0o600 });
     chmodSync(DB_PATH, 0o600);
-    return store;
+    return openStore(DB_PATH);
   },
 };
 
