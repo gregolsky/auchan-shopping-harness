@@ -10,6 +10,15 @@ export type OrderStatus = 'placed' | 'delivered';
 export type SyncKind = 'orders' | 'promotions';
 export type SyncStatus = 'ok' | 'failed';
 
+export interface SearchInput {
+  regionId: string;
+  products: Product[];
+  prices: PriceObservation[];
+}
+
+/** A term searched this recently is not searched again unless forced. */
+export const SEARCH_FRESH_DAYS = 7;
+
 export interface PromotionsInput {
   regionId: string;
   products: Product[];
@@ -118,6 +127,10 @@ export interface Store {
   /** Region of the most recently delivered stored order, or null if there are none. */
   latestOrderRegion(): string | null;
   savePromotions(parsed: PromotionsInput): void;
+  /** Upserts the search results and records the run, in one transaction. Terms are normalised. */
+  saveSearchResults(term: string, parsed: SearchInput, now: Date): void;
+  /** True if the term was searched within the last SEARCH_FRESH_DAYS days. */
+  searchedRecently(term: string, now: Date): boolean;
   recentOrders(limit: number): RecentOrder[];
   productHistory(query: string): ProductHistoryRow[];
   currentPromotions(opts: { boughtBefore?: boolean; limit: number }): PromotionRow[];
@@ -189,7 +202,7 @@ CREATE TABLE IF NOT EXISTS price_history (
   seen_at TEXT NOT NULL,
   seen_day TEXT NOT NULL,
   region_id TEXT NOT NULL,
-  source TEXT NOT NULL CHECK (source IN ('order', 'promotion')),
+  source TEXT NOT NULL CHECK (source IN ('order', 'promotion', 'search')),
   original_grosze INTEGER,
   current_grosze INTEGER NOT NULL,
   unit_current_grosze INTEGER,
@@ -206,6 +219,12 @@ CREATE TABLE IF NOT EXISTS sync_runs (
   finished_at TEXT,
   status TEXT CHECK (status IN ('ok', 'failed'))
 );
+CREATE TABLE IF NOT EXISTS search_runs (
+  term TEXT NOT NULL,
+  searched_at TEXT NOT NULL,
+  found INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS search_runs_term ON search_runs (term, searched_at);
 CREATE TABLE IF NOT EXISTS intents (
   term TEXT PRIMARY KEY,
   brand TEXT
@@ -279,6 +298,28 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
     db.exec('BEGIN IMMEDIATE');
     try {
       for (const [t, c, ddl] of later) if (!hasColumn(t, c)) db.exec(ddl);
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      db.close();
+      throw e;
+    }
+  }
+  // The source CHECK cannot be altered: an older price_history is rebuilt once, inside one write transaction.
+  const priceHistoryOld = () => {
+    const r = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'price_history'").get() as { sql: string } | undefined;
+    return r !== undefined && !r.sql.includes("'search'");
+  };
+  if (!opts.readOnly && priceHistoryOld()) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      if (priceHistoryOld()) {
+        db.exec(`ALTER TABLE price_history RENAME TO price_history_old;
+          DROP INDEX IF EXISTS price_history_observation;
+          DROP INDEX IF EXISTS price_history_source_seen;`);
+        db.exec(SCHEMA.slice(SCHEMA.indexOf('CREATE TABLE IF NOT EXISTS price_history'), SCHEMA.indexOf('CREATE TABLE IF NOT EXISTS sync_runs')));
+        db.exec('INSERT INTO price_history SELECT product_id, seen_at, seen_day, region_id, source, original_grosze, current_grosze, unit_current_grosze, offer_text, required_quantity FROM price_history_old; DROP TABLE price_history_old');
+      }
       db.exec('COMMIT');
     } catch (e) {
       db.exec('ROLLBACK');
@@ -414,6 +455,23 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
         writeProducts(products);
         writePrices(prices);
       });
+    },
+
+    saveSearchResults(term, { regionId, products, prices }, now) {
+      const foreign = prices.find((o) => o.regionId !== regionId);
+      if (foreign) throw new Error(`price for ${foreign.productId} has region ${foreign.regionId}, expected ${regionId}`);
+      transaction(() => {
+        writeProducts(products);
+        writePrices(prices);
+        db.prepare('INSERT INTO search_runs (term, searched_at, found) VALUES (?, ?, ?)').run(normaliseTerm(term), now.toISOString(), products.length);
+      });
+    },
+
+    searchedRecently(term, now) {
+      const has = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'search_runs'").get() !== undefined;
+      if (!has) return false;
+      const since = new Date(now.getTime() - SEARCH_FRESH_DAYS * 86_400_000).toISOString();
+      return db.prepare('SELECT 1 FROM search_runs WHERE term = ? AND searched_at >= ? LIMIT 1').get(normaliseTerm(term), since) !== undefined;
     },
 
     recentOrders(limit) {
