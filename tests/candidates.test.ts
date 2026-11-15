@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { rankCandidates } from '../src/candidates.ts';
+import { matchConfidence, rankCandidates } from '../src/candidates.ts';
 import { openStore } from '../src/store.ts';
 import type { ProductFacts, IntentRule } from '../src/store.ts';
 
@@ -243,4 +243,66 @@ test('productFacts: median unit price, latest promotion only, boughtInLatest10',
   assert.equal(facts.get('old')!.medianUnitPriceGrosze, null);
   assert.equal(s.productFacts({ asOf: '2026-12-01T00:00:00.000Z' }).find((f) => f.productId === 'b')!.seenInLatestPromotions, false);
   s.close();
+});
+
+const CHIPS = "Chipsy ziemniaczane karbowane o smaku zielonej cebulki Lay's 190 g";
+const conf = (term: string, name: string, bought = true) => matchConfidence(term, { name, brand: '' }, bought);
+
+test('a flavour before the matched word is low confidence', () => {
+  assert.deepEqual(conf('cebula', CHIPS), { confidence: 'low', reason: 'term only in the flavour' });
+  assert.equal(conf('cebula', 'Cebula złota  Warzywa Auchan 1 kg').confidence, 'high');
+  assert.equal(conf('cebula', 'Cebula złota  Warzywa Auchan 1 kg').reason, '');
+});
+
+test('a mixture is medium confidence unless the term names the mixture', () => {
+  assert.deepEqual(conf('marchew', 'Marchew z groszkiem   Auchan 450 g'), { confidence: 'medium', reason: 'mixed with another ingredient' });
+  assert.equal(conf('marchew', 'Marchew wczesna Warzywa Auchan na wagę ok. 500 g').confidence, 'high');
+  assert.equal(conf('marchew z groszkiem', 'Marchew z groszkiem   Auchan 450 g').confidence, 'high');
+});
+
+test('a pet product is low confidence unless the term asks for it', () => {
+  const name = 'Suszone przysmaki dla kota pierś z kurczaka Hilton 100 g';
+  assert.deepEqual(conf('pierś z kurczaka', name), { confidence: 'low', reason: 'pet product' });
+  assert.equal(conf('pierś z kurczaka', 'Pierś z kurczaka filet Auchan 1 kg').confidence, 'high');
+  assert.notEqual(conf('przysmaki dla kota', name).confidence, 'low');
+});
+
+test('a term deep in the name is medium; the first two words are high', () => {
+  assert.deepEqual(conf('skyr', 'High Protein Skyr naturalny Ehrmann 450 g'), { confidence: 'medium', reason: 'term not at the start of the name' });
+  assert.equal(conf('skyr', 'Skyr jogurt typu islandzkiego naturalny Piątnica 330 g').confidence, 'high');
+  assert.equal(conf('ser żółty', 'Ser żółty Królewski plastry Sierpc 150 g').confidence, 'high');
+  assert.equal(conf('ketchup', 'Ketchup łagodny Kotlin 950 g').confidence, 'high');
+});
+
+test('a product not bought before is medium, and the lowest level wins', () => {
+  assert.deepEqual(conf('ketchup', 'Ketchup łagodny Kotlin 950 g', false), { confidence: 'medium', reason: 'not bought before' });
+  assert.equal(conf('cebula', CHIPS, false).confidence, 'low');
+});
+
+test('rankCandidates puts the right onion before chips bought more often', () => {
+  const facts = [
+    fact('chips', { name: CHIPS, timesBought: 6 }), fact('onion', { name: 'Cebula złota  Warzywa Auchan 1 kg', timesBought: 5 }),
+  ];
+  const r = rankCandidates('cebula', 1, facts, null);
+  assert.deepEqual(ids(r), ['onion', 'chips']);
+  assert.equal(r[1].confidence, 'low');
+  assert.equal(r[1].confidenceReason, 'term only in the flavour');
+  const carrots = [
+    fact('mix', { name: 'Marchew z groszkiem   Auchan 450 g', timesBought: 4 }),
+    fact('fresh', { name: 'Marchew wczesna Warzywa Auchan na wagę ok. 500 g', timesBought: 2 }),
+  ];
+  assert.deepEqual(ids(rankCandidates('marchew', 1, carrots, null)), ['fresh', 'mix']);
+});
+
+test('confidence never moves a product across groups', () => {
+  const facts = [fact('chips', { name: CHIPS, timesBought: 1 }), fact('onion', { name: 'Cebula złota', timesBought: 0 })];
+  const r = rankCandidates('cebula', 1, facts, rule({ term: 'cebula', preferredProductId: 'chips', acceptedProductIds: ['chips'] }));
+  assert.deepEqual(ids(r), ['chips', 'onion']);
+});
+
+test('a preferred product that does not match the term is high confidence', () => {
+  const facts = [fact('pref', { name: 'Zupełnie inna nazwa' })];
+  const r = rankCandidates('mleko', 1, facts, rule({ preferredProductId: 'pref' }));
+  assert.equal(r[0].confidence, 'high');
+  assert.equal(r[0].confidenceReason, '');
 });
