@@ -232,7 +232,8 @@ export function createService(d: ServiceDeps) {
     const old = t.lines.filter((l) => l.kind === 'item' && l.term !== null && keys.has(normaliseTerm(l.term)));
     const items = terms.map((term) => {
       const was = old.find((l) => normaliseTerm(l.term!) === normaliseTerm(term));
-      return { term, quantity: was?.quantity ?? 1, note: was?.note ?? '' };
+      const asked = t.unmatched.find((u) => normaliseTerm(u.term) === normaliseTerm(term));
+      return { term, quantity: was?.quantity ?? asked?.quantity ?? 1, note: was?.note ?? asked?.note ?? '' };
     });
     const draft = withStore((s) => draftTerms(s, items, false));
     const base = { ...t, lines: t.lines.filter((l) => !old.includes(l)) };
@@ -263,14 +264,14 @@ export function createService(d: ServiceDeps) {
         : parsed.ops.flatMap((o) => (o.op === 'add' ? [{ term: o.term, quantity: o.quantity, note: o.note ?? '' }] : []));
       t = { ...t, mode, messages: mode === 'fallback' ? [FALLBACK_MESSAGE] : [] };
       const draft = withStore((s) => draftTerms(s, items, input.includeUsual, input.budgetGrosze));
-      t = tripFromDraft(t, draft, noteMap(items));
+      t = tripFromDraft(t, draft, noteMap(items), items);
       if (draft.blocked?.length) t = { ...t, messages: [...t.messages, `Pominięto zablokowane produkty: ${draft.blocked.join(', ')}.`] };
       let drop = 0;
       if (parsed !== null) {
         drop += parsed.dropped;
         const matched = new Set(t.lines.flatMap((l) => (l.term === null ? [] : [normaliseTerm(l.term)])));
         const blocked = new Set((draft.blocked ?? []).map(normaliseTerm));
-        const extra = parsed.ops.filter((o) => o.op === 'say' || (o.op === 'unmatched' && !matched.has(normaliseTerm(o.term)) && !blocked.has(normaliseTerm(o.term))));
+        const extra = parsed.ops.filter((o) => o.op === 'add' || o.op === 'say' || (o.op === 'unmatched' && !matched.has(normaliseTerm(o.term)) && !blocked.has(normaliseTerm(o.term))));
         t = applyOps(t, extra).trip;
       }
       if (draft.overBudgetGrosze !== null) t = { ...t, messages: [...t.messages, `Przekroczono budżet o ${zl(draft.overBudgetGrosze)}.`] };

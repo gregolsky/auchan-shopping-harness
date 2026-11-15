@@ -408,7 +408,39 @@ test('moveToUnmatched removes the line, records a removal and lists the term for
   const t = tripFromDraft(emptyTrip(NOW), d, {});
   const r = moveToUnmatched(t, t.lines[0]!.lineKey);
   assert.equal(r.trip.lines.some((l) => l.term === 'pierś z kurczaka'), false);
-  assert.deepEqual(r.trip.unmatched.at(-1), { term: 'pierś z kurczaka', hint: '' });
+  assert.deepEqual(r.trip.unmatched.at(-1), { term: 'pierś z kurczaka', hint: '', quantity: 1, note: '' });
   assert.deepEqual(r.corrections, [{ term: 'pierś z kurczaka', proposedProductId: 'K', chosenProductId: null }]);
   assert.equal(moveToUnmatched(t, 'nope').trip, t);
+});
+
+test('unmatched terms keep the parsed quantity and note', () => {
+  const d = { ...draft(), unmatched: ['kawior', 'ikra'] };
+  const t = tripFromDraft(emptyTrip(NOW), d, {}, [{ term: 'kawior', quantity: 3, note: 'czarny' }, { term: 'ikra', quantity: 99, note: '' }]);
+  assert.deepEqual(t.unmatched.find((u) => u.term === 'kawior'), { term: 'kawior', hint: '', quantity: 3, note: 'czarny' });
+  assert.equal(t.unmatched.find((u) => u.term === 'ikra')!.quantity, 20, 'cut to the limit');
+  const o = applyOps(emptyTrip(NOW), [{ op: 'add', term: 'Sól', quantity: 2, note: 'morska' }, { op: 'unmatched', term: 'sól', hint: 'x' }]).trip;
+  assert.deepEqual(o.unmatched, [{ term: 'sól', hint: 'x', quantity: 2, note: 'morska' }]);
+  const kept = applyOps(o, [{ op: 'unmatched', term: 'sól', hint: 'y' }]).trip;
+  assert.deepEqual(kept.unmatched, [{ term: 'sól', hint: 'y', quantity: 2, note: 'morska' }], 'a new hint keeps the quantity');
+});
+
+test('moveToUnmatched keeps the line quantity and note', () => {
+  let t = base();
+  t = applyOps(t, [{ op: 'setQuantity', lineKey: CHEESE, quantity: 4 }]).trip;
+  const r = moveToUnmatched(t, CHEESE).trip;
+  assert.equal(r.unmatched.find((u) => u.term === 'Ser żółty')!.quantity, 4);
+});
+
+test('loadTrip validates the unmatched quantity and note', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'trip-'));
+  const f = join(dir, 't.json');
+  const withU = (u: object) => JSON.stringify({ ...base(), unmatched: [u] });
+  writeFileSync(f, withU({ term: 'a', hint: '', quantity: 2, note: 'n' }));
+  assert.deepEqual(loadTrip(f)!.unmatched, [{ term: 'a', hint: '', quantity: 2, note: 'n' }]);
+  writeFileSync(f, withU({ term: 'a', hint: '' }));
+  assert.ok(loadTrip(f), 'old trips without them still load');
+  for (const bad of [{ quantity: 0 }, { quantity: 21 }, { quantity: 1.5 }, { quantity: '2' }, { note: 5 }]) {
+    writeFileSync(f, withU({ term: 'a', hint: '', ...bad }));
+    assert.equal(loadTrip(f), null, JSON.stringify(bad));
+  }
 });

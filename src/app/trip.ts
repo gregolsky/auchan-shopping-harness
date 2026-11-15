@@ -19,9 +19,11 @@ export interface TripLine {
   held?: boolean;
   imageUrl?: string | null; imageAlt?: string | null;
 }
+/** A term with no product yet; it keeps the parsed quantity (1..20) and note so a later search drafts it as asked. */
+export interface UnmatchedTerm { term: string; hint: string; quantity?: number; note?: string }
 export interface Proposal { id: string; ops: Op[]; dropped: number; source: 'claude' | 'fallback' }
 export interface Trip {
-  note: string; step: Step; mode: 'claude' | 'fallback'; lines: TripLine[]; unmatched: { term: string; hint: string }[];
+  note: string; step: Step; mode: 'claude' | 'fallback'; lines: TripLine[]; unmatched: UnmatchedTerm[];
   messages: string[]; proposal: Proposal | null; updatedAt: string; reportText?: string | null;
   /** Auchan answered the fill with a block (403): approving again is refused until a new trip is started. */
   blocked?: boolean;
@@ -76,7 +78,7 @@ function holdLow(l: TripLine): TripLine {
 }
 
 /** Adds lines for new keys only; an existing line (the user's choice, quantity, included flag) is kept untouched. */
-export function tripFromDraft(trip: Trip, draft: Draft, notes: Record<string, string>): Trip {
+export function tripFromDraft(trip: Trip, draft: Draft, notes: Record<string, string>, items: { term: string; quantity: number; note: string }[] = []): Trip {
   const have = new Set(trip.lines.map((l) => l.lineKey));
   const added: TripLine[] = [];
   const all: [DraftLine, TripLine['kind']][] = [
@@ -95,9 +97,17 @@ export function tripFromDraft(trip: Trip, draft: Draft, notes: Record<string, st
   const seen = new Set(unmatched.map((u) => normaliseTerm(u.term)));
   for (const term of draft.unmatched) {
     const n = normaliseTerm(term);
-    if (!matched.has(n) && !seen.has(n)) { seen.add(n); unmatched.push({ term, hint: '' }); }
+    if (!matched.has(n) && !seen.has(n)) { seen.add(n); unmatched.push({ term, hint: '', ...wanted(items, term) }); }
   }
   return { ...trip, lines, unmatched };
+}
+
+const clampQuantity = (n: number): number => Math.min(MAX_QUANTITY, Math.max(1, Math.trunc(n) || 1));
+
+/** The quantity and note asked for a term, if any item names it. */
+function wanted(items: { term: string; quantity: number; note: string }[], term: string): Pick<UnmatchedTerm, 'quantity' | 'note'> {
+  const it = items.find((x) => normaliseTerm(x.term) === normaliseTerm(term));
+  return it ? { quantity: clampQuantity(it.quantity), note: it.note } : {};
 }
 
 export function lineViews(trip: Trip): LineView[] {
@@ -133,6 +143,7 @@ export function applyOps(trip: Trip, ops: Op[]): { trip: Trip; corrections: Corr
   const unmatched = [...trip.unmatched];
   const touched = new Map<string, TripLine>();
   const addTerms: { term: string; quantity: number; note: string }[] = [];
+  const asked = ops.flatMap((o) => (o.op === 'add' ? [{ term: o.term, quantity: o.quantity, note: o.note ?? '' }] : []));
   const update = (key: string, f: (l: TripLine) => TripLine) => { lines = lines.map((l) => (l.lineKey === key ? f(l) : l)); };
   for (const op of ops) {
     const line = 'lineKey' in op ? lines.find((l) => l.lineKey === op.lineKey) : undefined;
@@ -141,7 +152,8 @@ export function applyOps(trip: Trip, ops: Op[]): { trip: Trip; corrections: Corr
       case 'say': messages.push(op.text); break;
       case 'unmatched': {
         const i = unmatched.findIndex((u) => normaliseTerm(u.term) === normaliseTerm(op.term));
-        if (i >= 0) unmatched[i] = { term: op.term, hint: op.hint }; else unmatched.push({ term: op.term, hint: op.hint });
+        const ask = wanted(asked, op.term);
+        if (i >= 0) unmatched[i] = { ...unmatched[i]!, ...ask, term: op.term, hint: op.hint }; else unmatched.push({ term: op.term, hint: op.hint, ...ask });
         break;
       }
       case 'choose': {
@@ -203,7 +215,7 @@ export function moveToUnmatched(trip: Trip, lineKey: string): { trip: Trip; corr
   const line = trip.lines.find((l) => l.lineKey === lineKey);
   if (line === undefined || line.term === null) return { trip, corrections: [] };
   const r = answer(trip, lineKey, null);
-  return { trip: applyOps(r.trip, [{ op: 'unmatched', term: line.term, hint: '' }]).trip, corrections: r.corrections };
+  return { trip: applyOps(r.trip, [{ op: 'add', term: line.term, quantity: line.quantity, note: line.note }, { op: 'unmatched', term: line.term, hint: '' }]).trip, corrections: r.corrections };
 }
 
 export function dropUnmatched(trip: Trip, term: string): Trip {
@@ -286,7 +298,8 @@ function validProposal(v: unknown): boolean {
 function validTrip(v: unknown): v is Trip {
   return isRec(v) && isStr(v.note) && isStr(v.step) && STEPS.includes(v.step) && (v.mode === 'claude' || v.mode === 'fallback')
     && isArr(v.lines, validLine) && v.lines.length <= 200 && new Set(v.lines.map((l) => l.lineKey)).size === v.lines.length
-    && isArr(v.unmatched, (u): u is { term: string; hint: string } => isRec(u) && isStr(u.term) && isStr(u.hint))
+    && isArr(v.unmatched, (u): u is UnmatchedTerm => isRec(u) && isStr(u.term) && isStr(u.hint)
+      && (u.quantity === undefined || (isInt(u.quantity) && u.quantity >= 1 && u.quantity <= MAX_QUANTITY)) && (u.note === undefined || isStr(u.note)))
     && isArr(v.messages, isStr) && v.messages.length <= 200 && v.messages.every((m) => m.length <= 2000)
     && validProposal(v.proposal) && isStr(v.updatedAt) && (v.blocked === undefined || typeof v.blocked === 'boolean')
     && (v.reportText === undefined || v.reportText === null || (isStr(v.reportText) && v.reportText.length <= MAX_REPORT));

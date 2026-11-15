@@ -864,3 +864,21 @@ test('a new trip forgets the last search result', async () => {
   t.svc.reset();
   assert.equal(t.svc.state().search.last, null);
 });
+
+test('an unmatched term found by the search comes back with its quantity and note', async () => {
+  // A non-perishable category, so the perishable cap does not cut the asked quantity.
+  const shelf = structuredClone(SEARCH_STATE);
+  for (const e of Object.values<any>(shelf.data.products.productEntities)) e.categoryPath = ['Artykuły spożywcze', 'Przetwory', 'Parówki'];
+  const t = setup({
+    page: () => fakeSearchPage({ 'parówki': shelf }),
+    claude: { parse: { ops: [{ op: 'add', term: 'parówki', quantity: 2, note: 'bez kości' }] }, choose: { ops: [] } },
+  });
+  await t.svc.note({ note: 'parówki 2 bez kości', includeUsual: false });
+  assert.deepEqual(t.svc.state().trip.unmatched.map((u) => [u.term, u.quantity, u.note]), [['parówki', 2, 'bez kości']]);
+  await t.svc.searchAuchan();
+  await searchEnd(t.events);
+  const line = t.svc.state().trip.lines.find((l) => l.term === 'parówki');
+  assert.ok(line, 'drafted after the search');
+  assert.equal(line.quantity, 2);
+  assert.equal(line.note, 'bez kości');
+});
