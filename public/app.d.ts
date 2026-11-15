@@ -1,6 +1,7 @@
 export const STEPS: string[];
 export function categoryFor(categoryPath?: string[]): { key: string; label: string; icon: string };
 export function groupByCategory<T extends { categoryPath?: string[] }>(items: T[]): { category: { key: string; label: string; icon: string }; items: T[] }[];
+export function iconPaths(key: string): string[];
 export function progressLine(stepIndex: number): string;
 export function zl(grosze: number): string;
 export function viewModel(state: any): any;

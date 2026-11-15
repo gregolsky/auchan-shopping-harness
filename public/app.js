@@ -31,6 +31,21 @@ export function groupByCategory(items) {
   });
   return [...groups.values()].sort((a, b) => CATEGORY_ORDER.indexOf(a.category.key) - CATEGORY_ORDER.indexOf(b.category.key));
 }
+const ICON_PATHS = {
+  produce: ['M12 7C8 3 3 8 4 14C5 20 9 22 12 19C15 22 19 20 20 14C21 8 16 3 12 7Z', 'M12 7C12 4 13 3 16 2', 'M12 7C10 5 8 5 6 5'],
+  dairy: ['M7 3H17L19 8V21H5V8Z', 'M7 3L5 8H19L17 3', 'M9 12H15V17H9Z'],
+  meat: ['M7 7C9 3 15 3 18 7C21 10 19 16 15 18C11 20 6 18 5 14C4 11 5 9 7 7Z', 'M12 10C14 9 16 11 15 13C14 15 11 15 10 13C9 12 10 11 12 10Z'],
+  bread: ['M3 11C3 7 6 5 9 5C11 3 14 3 16 5C19 5 21 8 21 11V19H3Z', 'M8 9V14', 'M13 8V13', 'M18 9V14'],
+  drink: ['M7 4H17L16 10L15 21H9L8 10Z', 'M8 10H16', 'M12 4V2'],
+  snack: ['M6 3H18L20 21H4Z', 'M8 8H16', 'M9 12H15', 'M10 16H14'],
+  frozen: ['M12 2V22', 'M2 12H22', 'M5 5L19 19', 'M19 5L5 19'],
+  pantry: ['M6 6H18V21H6Z', 'M5 3H19V6H5Z', 'M9 11H15V16H9Z'],
+  care: ['M9 8H16V21H6V11C6 9 7 8 9 8Z', 'M10 8V4H15', 'M14 4H19', 'M10 14H13'],
+  pet: ['M8 13C6 15 5 17 6 19C7 21 10 20 12 19C14 20 17 21 18 19C19 17 18 15 16 13C14 11 10 11 8 13Z', 'M6 8C5 8 4 9 4 10C4 11 5 12 6 12C7 12 8 11 8 10C8 9 7 8 6 8Z', 'M18 8C17 8 16 9 16 10C16 11 17 12 18 12C19 12 20 11 20 10C20 9 19 8 18 8Z', 'M10 5C9 5 8 6 8 7C8 8 9 9 10 9C11 9 12 8 12 7C12 6 11 5 10 5Z', 'M14 5C13 5 12 6 12 7C12 8 13 9 14 9C15 9 16 8 16 7C16 6 15 5 14 5Z'],
+  other: ['M3 7L12 3L21 7V18L12 22L3 18Z', 'M3 7L12 11L21 7', 'M12 11V22'],
+  cart: ['M2 4H5L8 17H19L22 8H6', 'M9 21H10', 'M18 21H19'],
+};
+export const iconPaths = (key) => ICON_PATHS[key] || ICON_PATHS.other;
 // The server keeps six steps; its 'szkic' is Lista without lines and Przegląd with lines (see stepIndexOf).
 const KEYS = ['dane', 'szkic', 'doprecyzowanie', 'zatwierdzenie', 'koszyk', 'platnosc'];
 const FIRST_CART = 5;
@@ -207,7 +222,7 @@ export function describeOp(op, linesByKey) {
   }
 }
 
-const mini = (c) => ({ productId: c.productId, name: c.name, priceText: zl(c.lineCostGrosze), imageUrl: c.imageUrl || null, imageAlt: c.imageAlt || c.name });
+const mini = (c) => ({ productId: c.productId, name: c.name, priceText: zl(c.lineCostGrosze), imageUrl: c.imageUrl || null, imageAlt: c.imageAlt || c.name, categoryPath: c.categoryPath });
 
 /** Claude's pending operations: per line (by lineKey) and the ones not tied to a line; each keeps its index in the proposal. */
 export function proposalView(trip) {
@@ -274,7 +289,7 @@ export function lineCard(line, ops = []) {
   const doubtful = line.held || line.confidence !== 'high';
   return {
     lineKey: line.lineKey, term: line.term ?? null, hasOthers: asked.length > 0 || (line.candidates || []).some((c) => c.productId !== line.productId && c.confidence !== 'low'),
-    label: lineLabel(line), name: line.name, priceText: zl(line.lineCostGrosze),
+    label: lineLabel(line), name: line.name, priceText: zl(line.lineCostGrosze), categoryPath: line.categoryPath,
     imageUrl: line.imageUrl || null, imageAlt: line.imageAlt || line.name,
     quantity: line.quantity, canDec: line.quantity > 1, canInc: line.quantity < 20,
     suggestion: line.kind === 'suggestion', included: Boolean(line.included), held: Boolean(line.held),
@@ -353,6 +368,16 @@ function element(tag, className = '', value = '') {
   node.textContent = String(value);
   return node;
 }
+function iconNode(key) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('class', 'category-icon'); svg.setAttribute('aria-hidden', 'true');
+  iconPaths(key).forEach((shape) => { const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', shape); svg.append(path); });
+  return svg;
+}
+function categoryTag(categoryPath) {
+  const category = categoryFor(categoryPath);
+  return append(element('span', 'category-tag'), iconNode(category.icon), element('span', '', category.label));
+}
 function append(parent, ...children) { for (const child of children) parent.append(child); return parent; }
 function button(label, action, className = 'button', disabled = false) {
   const node = element('button', className, label);
@@ -375,7 +400,7 @@ export function badgeText(line) {
 }
 export function confidenceReasonText(reason) { return REASONS[reason] || reason || 'dopasowanie niepewne'; }
 function thumb(url, alt, className = 'thumb') {
-  if (!url) { const blank = element('span', `${className} placeholder`, '🛒'); blank.setAttribute('aria-hidden', 'true'); return blank; }
+  if (!url) { const blank = element('span', `${className} placeholder`); blank.setAttribute('aria-hidden', 'true'); blank.append(iconNode('cart')); return blank; }
   const img = document.createElement('img');
   img.alt = alt; img.src = url; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer'; img.className = className;
   return img;
@@ -469,7 +494,8 @@ export function start() {
   function option(product, action) {
     const node = element('button', 'option');
     node.type = 'button'; node.addEventListener('click', action);
-    append(node, thumb(product.imageUrl, product.imageAlt, 'thumb small-thumb'), element('span', 'option-name', product.name), element('span', 'price', product.priceText));
+    const description = append(element('span', 'option-details'), element('span', 'option-name', product.name), categoryTag(product.categoryPath));
+    append(node, thumb(product.imageUrl, product.imageAlt, 'thumb small-thumb'), description, element('span', 'price', product.priceText));
     return node;
   }
   /** One product of the list with everything needed to decide next to it: the stepper, Claude's proposal, the question or other candidates. */
@@ -479,7 +505,7 @@ export function start() {
     node.dataset.lineKey = line.lineKey; node.tabIndex = -1;
     node.append(element('div', 'meta from-list', view.label));
     const info = element('div', 'line-info');
-    append(info, element('span', 'line-name', view.name), element('span', 'price', view.priceText), element('span', `badge ${view.badge.level}`, view.badge.text));
+    append(info, element('span', 'line-name', view.name), categoryTag(view.categoryPath), element('span', 'price', view.priceText), element('span', `badge ${view.badge.level}`, view.badge.text));
     if (view.badge.reason) info.append(element('div', 'meta why', `Dlaczego sprawdzić: ${view.badge.reason}`));
     node.append(append(element('div', 'line-main'), thumb(view.imageUrl, view.imageAlt), info));
     if (view.suggestion) node.append(append(element('div', 'actions'), button(view.included ? '✓ W koszyku' : '＋ Dodaj', () => run('/api/line', { lineKey: line.lineKey, included: !view.included }), 'small')));
@@ -515,6 +541,15 @@ export function start() {
     }
     node.append(actionsNode(line, view));
     return node;
+  }
+  function appendGroupedProducts(parent, lines, heading = 'h3') {
+    groupByCategory(lines).forEach(({ category, items }) => {
+      const section = element('section', 'category-group');
+      const title = append(element(heading, 'category-heading'), iconNode(category.icon), element('span', '', category.label), element('span', 'category-count', String(items.length)));
+      section.append(title);
+      items.forEach((line) => section.append(lineCardNode(line, opsFor(line))));
+      parent.append(section);
+    });
   }
   /** The explicit actions of a card, with one line under the buttons saying what the focused or last-pressed action does. */
   function actionsNode(line, view) {
@@ -580,10 +615,10 @@ export function start() {
     const blockedNotice = state.trip.messages?.find((m) => m.startsWith('Pominięto zablokowane produkty:'));
     if (blockedNotice) results.append(element('p', 'message blocked', `⛔ ${blockedNotice}`));
     if (!model.lines.length) results.append(element('p', 'empty', 'Produkty pojawią się tu po ułożeniu szkicu.'));
-    model.lines.forEach((l) => results.append(lineCardNode(l, opsFor(l))));
+    appendGroupedProducts(results, model.lines);
     if (model.suggestions.length) {
       results.append(element('h3', '', 'Propozycje · dodawane tylko po Twoim kliknięciu'));
-      model.suggestions.forEach((l) => results.append(lineCardNode(l, opsFor(l))));
+      appendGroupedProducts(results, model.suggestions, 'h4');
     }
     if (model.unmatched.length) {
       results.append(element('h3', '', 'Nie znaleziono w katalogu'));
@@ -612,7 +647,7 @@ export function start() {
     const model = viewModel(state);
     const box = card('5. Zatwierdzenie', 'Ostatnia kontrola przed dodaniem produktów do koszyka Auchan.');
     const included = state.trip.lines.filter((l) => l.included);
-    included.forEach((l) => box.append(lineCardNode(l, opsFor(l))));
+    appendGroupedProducts(box, included);
     if (!included.length) box.append(element('p', 'empty', 'Lista jest pusta. Wróć do listy.'));
     if (model.unmatched.length) append(box, element('h3', '', 'Do dodania ręcznie w Auchan'), ...model.unmatched.flatMap((u) => [element('p', 'meta', unmatchedText(u)), searchLink(u.term)]), element('p', 'meta', MANUAL_HINT));
     append(box, element('div', 'total', `Szacowana kwota: ${zl(model.total)}`), model.inCart ? element('p', 'meta', 'Te zakupy są już w koszyku. Zacznij nowe zakupy, żeby dodać coś jeszcze.') : button('✓ Zatwierdź i dodaj do koszyka', async () => { const result = await run('/api/approve', {}); if (result?.started) { selected = 5; render(); } }, 'button', !model.canApprove));

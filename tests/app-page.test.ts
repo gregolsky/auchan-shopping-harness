@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionNote, categoryFor, groupByCategory } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionNote, categoryFor, groupByCategory, iconPaths } from '../public/app.js';
 
 test('catalog category paths map to stable shopping sections and unknown paths stay in Inne', () => {
   assert.equal(categoryFor(['Artykuły spożywcze', 'Sery']).key, 'dairy');
@@ -18,6 +18,16 @@ test('catalog category paths map to stable shopping sections and unknown paths s
 test('grouping keeps a stable category order and original order within each category', () => {
   const rows = [{ id: 1, categoryPath: ['Artykuły spożywcze', 'Sery'] }, { id: 2, categoryPath: ['Artykuły spożywcze', 'Sypkie i produkty zbożowe'] }, { id: 3, categoryPath: ['Artykuły spożywcze', 'Sery'] }];
   assert.deepEqual(groupByCategory(rows).map((g) => [g.category.key, g.items.map((r) => r.id)]), [['dairy', [1, 3]], ['pantry', [2]]]);
+});
+
+test('every shopping category and the empty thumbnail has a vector icon', () => {
+  for (const key of ['produce', 'dairy', 'meat', 'bread', 'drink', 'snack', 'frozen', 'pantry', 'care', 'pet', 'other', 'cart']) {
+    assert.ok(iconPaths(key).length > 0, key);
+    assert.ok(iconPaths(key).every((path) => /^[MmLlHhVvCcSsQqTtAaZz0-9 .,\-]+$/.test(path)), key);
+  }
+  assert.deepEqual(iconPaths('unknown'), iconPaths('other'));
+  const js = readFileSync('public/app.js', 'utf8');
+  assert.doesNotMatch(js, /🛒/);
 });
 
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,
