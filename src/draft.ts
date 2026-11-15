@@ -3,6 +3,7 @@ import type { Candidate, Confidence } from './candidates.ts';
 import { lineCost, parseOffer } from './pricing.ts';
 import { capQuantity, isUsual, lastBoughtText, stockUp } from './rules.ts';
 import { normaliseTerm } from './store.ts';
+import { isBlockedProduct } from './blacklist.ts';
 import type { IntentRule, ProductFacts } from './store.ts';
 
 export interface DraftInput {
@@ -89,6 +90,7 @@ const wrongBrand = (f: ProductFacts, rules: IntentRule[]) =>
   rules.some((r) => !brandAllowed(r, f) && (r.replacedProductIds.includes(f.productId) || matchesTerm(r.term, f)));
 
 export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: IntentRule[], now: Date): Draft {
+  facts = facts.filter((f) => !isBlockedProduct(f));
   const ruleByTerm = new Map(rules.map((r) => [normaliseTerm(r.term), r]));
   const byId = new Map(facts.map((f) => [f.productId, f]));
   const used = new Set<string>();

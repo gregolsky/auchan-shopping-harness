@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { BasketLine } from './types.ts';
+import { isBlockedProduct } from './blacklist.ts';
 
 export const BASKET_SCHEMA = `
 CREATE TABLE IF NOT EXISTS baskets (
@@ -40,6 +41,7 @@ export function basketMethods(db: DatabaseSync) {
     approveBasket(lines: { term: string | null; productId: string; quantity: number }[], unmatched: string[], now: Date = new Date()): { basketId: number; totalGrosze: number } {
       const seen = new Set<string>();
       for (const l of lines) {
+        if (isBlockedProduct(l)) throw new Error(`Produkt zablokowany: ${l.productId}`);
         if (!Number.isInteger(l.quantity) || l.quantity < 1 || l.quantity > 20) throw new Error(`Quantity must be a whole number from 1 to 20: ${l.productId}`);
         if (seen.has(l.productId)) throw new Error(`Duplicate product in basket: ${l.productId}`);
         seen.add(l.productId);
@@ -49,7 +51,8 @@ export function basketMethods(db: DatabaseSync) {
         const basketId = Number(insBasket.run(now.toISOString(), JSON.stringify(unmatched)).lastInsertRowid);
         let total = 0;
         for (const l of lines) {
-          const p = product.get(l.productId) as { in_catalogue: number; price: number | null } | undefined;
+          const p = product.get(l.productId) as { name: string; in_catalogue: number; price: number | null } | undefined;
+          if (p && isBlockedProduct({ productId: l.productId, name: p.name })) throw new Error(`Produkt zablokowany: ${p.name}`);
           if (!p || p.in_catalogue !== 1 || p.price === null) throw new Error(`Unknown or unavailable product: ${l.productId}`);
           insLine.run(basketId, l.term, l.productId, l.quantity, p.price);
           total += p.price * l.quantity;
