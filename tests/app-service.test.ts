@@ -854,3 +854,12 @@ test('shutdown closes the browser and frees the lock', async () => {
   assert.ok(log.includes('closed'));
   assert.equal(existsSync(t.lockFile), false);
 });
+
+test('a new trip forgets the last search result', async () => {
+  const t = await draftWithUnmatched();
+  await t.svc.searchAuchan();
+  await searchEnd(t.events);
+  assert.equal(t.svc.state().search.last?.status, 'done');
+  t.svc.reset();
+  assert.equal(t.svc.state().search.last, null);
+});

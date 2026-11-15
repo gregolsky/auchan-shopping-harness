@@ -24,3 +24,7 @@ export function acceptAllText(count: number): string;
 export function proposalNote(trip: any): { intro: string; items: { lineKey: string; name: string; what: string }[]; text: string } | null;
 export function proposalButtons(op: any): { accept: string; skip: string };
 export function acceptAllSummary(ops: any[]): string;
+export const MANUAL_HINT: string;
+export function auchanSearchUrl(term: string): string;
+export function searchPanel(event: any, busy: string | null): any;
+export function searchButton(state: any): any;

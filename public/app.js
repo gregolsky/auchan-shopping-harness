@@ -208,6 +208,34 @@ export function lineCard(line, ops = []) {
 /** A term Claude could not match: its own card, with the hint when there is one. */
 export function unmatchedCard(item) { return { title: `Nie znalazłem: ${item.term}`, hint: item.hint || null }; }
 
+export const MANUAL_HINT = 'Produkty dodane ręcznie na Auchan planer pozna po złożeniu zamówienia.';
+
+/** The Auchan search page for a term, for the user to open themselves when the planner cannot find a product. */
+export function auchanSearchUrl(term) { return `https://zakupy.auchan.pl/search?q=${encodeURIComponent(String(term))}`; }
+
+/** What the search status panel says, from the last search event and the service's busy flag; null when there is nothing to show. */
+export function searchPanel(event, busy) {
+  if (busy === 'search') {
+    if (!event || event.status === 'done' || event.status === 'stopped') return { text: 'Otwieram przeglądarkę…', active: true };
+    if (event.status === 'login') return { text: 'Zaloguj się w oknie przeglądarki…', active: true };
+    if (event.status === 'captcha') return { text: 'Rozwiąż weryfikację w oknie przeglądarki (to wymóg Auchan)…', active: true };
+    return { text: `Szukam: ${event.term} (${event.index}/${event.total})…`, active: true };
+  }
+  if (event?.status === 'done') return { text: `Znaleziono produkty dla ${event.found} z ${event.total} haseł.`, active: false };
+  if (event?.status === 'stopped') return { text: `Szukanie zatrzymano: weryfikacja nie została rozwiązana albo Auchan odmówił. Nie ponawiam. Znaleziono produkty dla ${event.found} z ${event.total} haseł.`, active: false };
+  return null;
+}
+
+/** The "search on Auchan" button: how many terms it covers, or a forced rerun when all were searched in the last 7 days. */
+export function searchButton(state) {
+  const search = state.search;
+  if (!search || KEYS.indexOf(state.trip?.step) >= 4) return null;
+  const disabled = Boolean(state.busy);
+  if (search.terms.length > 0) return { label: `Szukaj w Auchan (${search.terms.length})`, force: false, disabled };
+  if (search.recent.length > 0) return { label: `Szukaj ponownie (${search.recent.length})`, force: true, disabled };
+  return null;
+}
+
 function element(tag, className = '', value = '') {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -218,6 +246,11 @@ function append(parent, ...children) { for (const child of children) parent.appe
 function button(label, action, className = 'button', disabled = false) {
   const node = element('button', className, label);
   node.type = 'button'; node.disabled = disabled; node.addEventListener('click', action); return node;
+}
+function searchLink(term) {
+  const link = element('a', 'search-link', `Szukaj „${term}” na Auchan ↗`);
+  link.href = auchanSearchUrl(term); link.target = '_blank'; link.rel = 'noopener noreferrer'; link.referrerPolicy = 'no-referrer';
+  return link;
 }
 function card(title, description = '') {
   const node = element('section', 'card');
@@ -243,7 +276,7 @@ export function start() {
   const steps = document.querySelector('#steps');
   const alert = document.querySelector('#alert');
   let state = null, selected = 0, rulesOpen = false, report = null, progress = { sent: 0, total: 0 }, logs = [];
-  let productSearch = '', searchResults = [], searchDone = false, renderVersion = 0, pending = null;
+  let productSearch = '', searchResults = [], searchDone = false, renderVersion = 0, pending = null, searchEvent = null;
   const draftForm = { note: null, usual: false, budget: '', ask: '' };
 
   const tell = (message) => { alert.textContent = message || ''; alert.hidden = !message; };
@@ -267,7 +300,7 @@ export function start() {
     } catch (error) { tell(failure ? failure(error.message) : error.message); return null; }
   }
   async function refresh() {
-    try { const first = state === null; state = await api('/api/state'); selected = nextSelected(selected, viewModel(state).stepIndex, first); render(); }
+    try { const first = state === null; state = await api('/api/state'); if (searchEvent === null && state.search?.last) searchEvent = state.search.last; showSearch(); selected = nextSelected(selected, viewModel(state).stepIndex, first); render(); }
     catch (error) { tell(error.message); }
   }
 
@@ -288,6 +321,20 @@ export function start() {
     pending = kind; working = { text: START_TEXT[kind], startedAt: Date.now() }; showWorking(); render();
     const timer = setInterval(showWorking, 1000);
     try { await work(); } finally { clearInterval(timer); pending = null; working = null; showWorking(); render(); }
+  }
+  const searchPanelNode = document.querySelector('#search-status');
+  function showSearch() {
+    const view = state ? searchPanel(searchEvent, state.busy) : null;
+    searchPanelNode.hidden = view === null;
+    if (view === null) return;
+    searchPanelNode.querySelector('.working-text').textContent = view.text;
+    searchPanelNode.classList.toggle('finished', !view.active);
+  }
+  /** The button that searches Auchan for the unmatched and doubtful terms; it only ever runs on a click. */
+  function searchButtonNode() {
+    const view = searchButton(state);
+    if (view === null) return null;
+    return button(view.label, async () => { searchEvent = null; await run('/api/search', view.force ? { force: true } : {}); showSearch(); }, 'quiet', view.disabled);
   }
   function renderSteps(model) {
     steps.replaceChildren();
@@ -369,6 +416,7 @@ export function start() {
     append(node, append(element('div', 'actions'),
       button(mine ? '✓ Dodam sam na Auchan' : 'Dodam sam na Auchan', () => { ownTerms.add(item.term); render(); }, 'small', mine),
       button('Usuń', () => run('/api/unmatched/remove', { term: item.term }), 'small danger')));
+    append(node, searchLink(item.term), element('p', 'meta', MANUAL_HINT));
     return node;
   }
 
@@ -388,7 +436,7 @@ export function start() {
     const budget = element('input'); budget.type = 'text'; budget.inputMode = 'decimal'; budget.placeholder = 'Opcjonalnie'; budget.id = 'budget'; budget.value = draftForm.budget; budget.addEventListener('input', () => { draftForm.budget = budget.value; });
     const budgetLabel = element('label', '', 'Budżet w zł'); budgetLabel.htmlFor = 'budget';
     append(form, note, usualLabel, budgetLabel, budget,
-      button('Ułóż szkic →', async () => { const parsed = parseBudget(budget.value); if (!parsed.ok) { tell(parsed.error); return; } const body = { note: note.value, includeUsual: usual.checked }; if (parsed.grosze !== undefined) body.budgetGrosze = parsed.grosze; await withClaude('note', async () => { const result = await run('/api/note', body, (m) => failureText('note', m)); if (result) { selected = Math.max(1, viewModel(state).stepIndex); tell(doneSummary(viewModel(state))); } }); }, 'button', state.busy === 'fill' || claudeStatus(pending).disableNote));
+      button('Ułóż szkic →', async () => { const parsed = parseBudget(budget.value); if (!parsed.ok) { tell(parsed.error); return; } const body = { note: note.value, includeUsual: usual.checked }; if (parsed.grosze !== undefined) body.budgetGrosze = parsed.grosze; await withClaude('note', async () => { const result = await run('/api/note', body, (m) => failureText('note', m)); if (result) { selected = Math.max(1, viewModel(state).stepIndex); tell(doneSummary(viewModel(state))); } }); }, 'button', state.busy === 'fill' || state.busy === 'search' || claudeStatus(pending).disableNote));
     const results = card('Wybrane produkty', 'Sprawdź nazwę, ilość i ocenę dopasowania.');
     const model = viewModel(state);
     const blockedNotice = state.trip.messages?.find((m) => m.startsWith('Pominięto zablokowane produkty:'));
@@ -401,6 +449,7 @@ export function start() {
     }
     if (model.unmatched.length) {
       results.append(element('h3', '', 'Nie znaleziono w katalogu'));
+      const find = searchButtonNode(); if (find) results.append(find);
       model.unmatched.forEach((item) => results.append(unmatchedNode(item)));
     }
     if (model.lines.length) results.append(element('div', 'total row', `Szacowana kwota: ${zl(model.total)}`));
@@ -416,6 +465,8 @@ export function start() {
     target.append(box);
     const view = proposalView(state.trip);
     state.trip.lines.filter((l) => ((l.included || l.held) && l.question) || view.byLine[l.lineKey]).forEach((l) => target.append(lineCardNode(l, opsFor(l))));
+    const find = model.unmatched.length || state.search?.terms?.length || state.search?.recent?.length ? searchButtonNode() : null;
+    if (find) target.append(find);
     model.unmatched.forEach((item) => target.append(unmatchedNode(item)));
     target.append(button('Dalej: zatwierdzenie →', () => { selected = 3; render(); }, 'quiet', !info.canContinue));
   }
@@ -425,7 +476,7 @@ export function start() {
     const included = state.trip.lines.filter((l) => l.included);
     included.forEach((l) => box.append(lineCardNode(l, opsFor(l))));
     if (!included.length) box.append(element('p', 'empty', 'Lista jest pusta. Wróć do szkicu.'));
-    if (model.unmatched.length) append(box, element('h3', '', 'Do dodania ręcznie w Auchan'), ...model.unmatched.map((u) => element('p', 'meta', unmatchedText(u))));
+    if (model.unmatched.length) append(box, element('h3', '', 'Do dodania ręcznie w Auchan'), ...model.unmatched.flatMap((u) => [element('p', 'meta', unmatchedText(u)), searchLink(u.term)]), element('p', 'meta', MANUAL_HINT));
     append(box, element('div', 'total', `Szacowana kwota: ${zl(model.total)}`), model.inCart ? element('p', 'meta', 'Te zakupy są już w koszyku. Zacznij nowe zakupy, żeby dodać coś jeszcze.') : button('✓ Zatwierdź i dodaj do koszyka', async () => { const result = await run('/api/approve', {}); if (result?.started) { selected = 4; render(); } }, 'button', !model.canApprove));
     if (!model.canApprove && !model.inCart && model.approveHint) box.append(element('p', 'meta', model.approveHint));
     target.append(box);
@@ -448,6 +499,7 @@ export function start() {
       });
     }
     else box.append(element('p', 'empty', 'Raport jest dostępny po zakończeniu dodawania produktów. Po odświeżeniu strony sprawdź koszyk bezpośrednio w Auchan.'));
+    if (state.trip.unmatched.length) append(box, element('h3', '', 'Do dodania ręcznie w Auchan'), ...state.trip.unmatched.flatMap((u) => [element('p', 'meta', unmatchedText(u)), searchLink(u.term)]), element('p', 'meta', MANUAL_HINT));
     const link = element('a', 'button', '↗ Zapłać na Auchan'); link.href = 'https://zakupy.auchan.pl/checkout'; link.target = '_blank'; link.rel = 'noopener noreferrer';
     box.append(link); target.append(box);
   }
@@ -539,7 +591,7 @@ export function start() {
     const box = card('Powiedz, co zmienić', 'Możesz opisać zmianę własnymi słowami. Zobaczysz propozycję przed zastosowaniem.');
     const input = element('textarea', 'short-textarea'); input.setAttribute('aria-label', 'Polecenie dla Claude'); input.placeholder = 'Na przykład: wybierz większe opakowanie sera';
     input.value = draftForm.ask; input.addEventListener('input', () => { draftForm.ask = input.value; });
-    append(box, input, button('Zaproponuj zmianę', () => withClaude('ask', async () => { const result = await run('/api/ask', { text: input.value }, (m) => failureText('ask', m)); if (result) { draftForm.ask = ''; tell(doneSummary(viewModel(state))); } }), 'quiet', state.busy === 'fill' || claudeStatus(pending).disableAsk));
+    append(box, input, button('Zaproponuj zmianę', () => withClaude('ask', async () => { const result = await run('/api/ask', { text: input.value }, (m) => failureText('ask', m)); if (result) { draftForm.ask = ''; tell(doneSummary(viewModel(state))); } }), 'quiet', state.busy === 'fill' || state.busy === 'search' || claudeStatus(pending).disableAsk));
     target.append(box);
   }
   function render() {
@@ -547,8 +599,8 @@ export function start() {
     const version = ++renderVersion;
     const model = viewModel(state);
     document.querySelector('#mode').textContent = state.trip.mode === 'fallback' ? 'Tryb bez Claude' : 'Z pomocą Claude';
-    document.querySelector('#new-trip').disabled = state.busy === 'fill' || state.trip.step === 'koszyk';
-    renderSteps(model); target.replaceChildren();
+    document.querySelector('#new-trip').disabled = state.busy === 'fill' || state.busy === 'search' || state.trip.step === 'koszyk';
+    showSearch(); renderSteps(model); target.replaceChildren();
     if (rulesOpen) { void renderRules(version); return; }
     renderProposal();
     [renderData, renderDraft, renderQuestions, renderReview, renderCart, renderPayment][selected]();
@@ -558,13 +610,14 @@ export function start() {
       const box = card('Wskazówki'); messages.forEach((m) => box.append(element('p', 'message', m))); target.append(box);
     }
   }
-  document.querySelector('#new-trip').addEventListener('click', async () => { if (state.busy === 'fill') return; const result = await run('/api/trip/reset', {}); if (result?.step === 'dane') { selected = 0; rulesOpen = false; report = null; logs = []; draftForm.note = null; draftForm.usual = false; draftForm.budget = ''; draftForm.ask = ''; render(); } });
+  document.querySelector('#new-trip').addEventListener('click', async () => { if (state.busy === 'fill' || state.busy === 'search') return; const result = await run('/api/trip/reset', {}); if (result?.step === 'dane') { selected = 0; rulesOpen = false; report = null; logs = []; searchEvent = null; draftForm.note = null; draftForm.usual = false; draftForm.budget = ''; draftForm.ask = ''; render(); } });
   const events = new EventSource(`/api/events?t=${encodeURIComponent(token)}`);
   events.addEventListener('state', () => { void refresh(); });
   events.addEventListener('working', (event) => { if (working !== null) { working.text = JSON.parse(event.data).text; showWorking(); } });
   events.addEventListener('progress', (event) => { progress = JSON.parse(event.data); if (selected === 4) render(); });
   events.addEventListener('log', (event) => { logs.push(JSON.parse(event.data).text); if (selected === 4 || selected === 0) render(); });
   events.addEventListener('report', (event) => { report = JSON.parse(event.data).report; selected = 5; render(); });
+  events.addEventListener('search', (event) => { searchEvent = JSON.parse(event.data); showSearch(); if (searchEvent.status === 'done' || searchEvent.status === 'stopped') void refresh(); });
   events.addEventListener('done', () => { void refresh(); });
   void refresh();
 }

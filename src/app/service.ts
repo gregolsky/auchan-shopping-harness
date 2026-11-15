@@ -510,6 +510,7 @@ export function createService(d: ServiceDeps) {
     reset(): Trip {
       if (busy === 'fill' || busy === 'search') return trip;
       generation++;
+      lastSearch = null;
       trip = emptyTrip(d.now());
       rmSync(d.tripFile, { force: true });
       d.emit({ type: 'state' });

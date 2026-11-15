@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, MANUAL_HINT } from '../public/app.js';
 
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,
   reason: 'bought before', confidence: 'medium', confidenceReason: 'not bought before', included: true, kind: 'item',
@@ -312,4 +312,69 @@ test('accept-all summary says what the number contains', () => {
   assert.equal(acceptAllSummary(ops), '2 do dodania ręcznie, 1 do dodania do listy, 1 zmiana ilości, 1 usunięcie');
   assert.equal(acceptAllSummary([]), '');
   assert.equal(acceptAllSummary([{ op: 'remove', lineKey: 'y' }, { op: 'remove', lineKey: 'z' }, { op: 'choose', lineKey: 'q', productId: 'p' }]), '1 zamiana produktu, 2 usunięcia');
+});
+
+test('auchanSearchUrl encodes the term for the Auchan search page', () => {
+  assert.equal(auchanSearchUrl('parówki'), 'https://zakupy.auchan.pl/search?q=par%C3%B3wki');
+  assert.equal(auchanSearchUrl('mąka & cukier?#'), 'https://zakupy.auchan.pl/search?q=m%C4%85ka%20%26%20cukier%3F%23');
+  assert.equal(new URL(auchanSearchUrl('a/../b')).origin, 'https://zakupy.auchan.pl');
+});
+
+test('the manual hint says the planner learns hand-added products from the placed order', () => {
+  assert.equal(MANUAL_HINT, 'Produkty dodane ręcznie na Auchan planer pozna po złożeniu zamówienia.');
+});
+
+test('the search panel says what the browser is waiting for, in Polish', () => {
+  assert.deepEqual(searchPanel(null, 'search'), { text: 'Otwieram przeglądarkę…', active: true });
+  assert.deepEqual(searchPanel({ type: 'search', status: 'login' }, 'search'), { text: 'Zaloguj się w oknie przeglądarki…', active: true });
+  assert.deepEqual(searchPanel({ type: 'search', status: 'captcha', term: 'ser' }, 'search'), { text: 'Rozwiąż weryfikację w oknie przeglądarki (to wymóg Auchan)…', active: true });
+  assert.deepEqual(searchPanel({ type: 'search', status: 'searching', term: 'ser', index: 2, total: 5 }, 'search'), { text: 'Szukam: ser (2/5)…', active: true });
+});
+
+test('the search panel reports the result, a stop, and hides when nothing happened', () => {
+  assert.deepEqual(searchPanel({ type: 'search', status: 'done', found: 4, total: 5 }, null), { text: 'Znaleziono produkty dla 4 z 5 haseł.', active: false });
+  const stopped = searchPanel({ type: 'search', status: 'stopped', found: 1, total: 5 }, null);
+  assert.equal(stopped.active, false);
+  assert.match(stopped.text, /zatrzymano/i);
+  assert.match(stopped.text, /1 z 5/);
+  assert.match(stopped.text, /nie ponawiam/i);
+  assert.equal(searchPanel(null, null), null);
+  assert.equal(searchPanel({ type: 'search', status: 'searching', term: 'ser', index: 1, total: 2 }, null), null, 'a stale running status is not shown once the search is over');
+});
+
+test('the search button counts the terms, and offers a forced rerun when all were searched lately', () => {
+  const state = (search: object, busy: string | null = null, step = 'szkic') => ({ trip: { step }, busy, search });
+  assert.deepEqual(searchButton(state({ terms: ['a', 'b'], recent: [] })), { label: 'Szukaj w Auchan (2)', force: false, disabled: false });
+  assert.deepEqual(searchButton(state({ terms: [], recent: ['a'] })), { label: 'Szukaj ponownie (1)', force: true, disabled: false });
+  assert.equal(searchButton(state({ terms: [], recent: [] })), null);
+  assert.equal(searchButton({ trip: { step: 'szkic' }, busy: null }), null, 'an older state without search info');
+  assert.equal(searchButton(state({ terms: ['a'], recent: [] }, 'sync')).disabled, true);
+  assert.equal(searchButton(state({ terms: ['a'], recent: [] }, 'search')).disabled, true);
+  assert.equal(searchButton(state({ terms: ['a'], recent: [] }, null, 'koszyk')), null);
+});
+
+test('every link to Auchan opens safely: noopener noreferrer, no referrer', () => {
+  const js = readFileSync('public/app.js', 'utf8');
+  const html = readFileSync('public/index.html', 'utf8');
+  assert.doesNotMatch(html, /zakupy\.auchan\.pl/);
+  const hrefs = [...js.matchAll(/\.href = ([^;]*);/g)];
+  assert.ok(hrefs.length >= 2, 'the pay link and the search link');
+  for (const m of hrefs) {
+    const around = js.slice(m.index!, m.index! + 260);
+    assert.match(around, /target = '_blank'/, m[0]);
+    assert.match(around, /rel = 'noopener noreferrer'/, m[0]);
+  }
+  const search = js.slice(js.indexOf('function searchLink'), js.indexOf('function searchLink') + 400);
+  assert.match(search, /referrerPolicy = 'no-referrer'/);
+});
+
+test('the page has a polite search status panel', () => {
+  const html = readFileSync('public/index.html', 'utf8');
+  assert.match(html, /id="search-status"[^>]*role="status"[^>]*aria-live="polite"/);
+});
+
+test('the page code lists the manual hint under the search links in steps 4 and 6', () => {
+  const js = readFileSync('public/app.js', 'utf8');
+  assert.ok(js.match(/MANUAL_HINT/g)!.length >= 3, 'defined once, shown in step 2/3 cards, 4 and 6');
+  assert.match(js, /\/api\/search/);
 });

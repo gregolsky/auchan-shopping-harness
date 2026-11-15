@@ -60,3 +60,6 @@ button:disabled{opacity:1;cursor:not-allowed;border-color:#68796c;background:#e8
 .line-card:focus{outline:3px solid #984b00;outline-offset:2px}
 .line-card.flash{background:#fff1c7;box-shadow:0 0 0 3px #e1b25c}
 .proposal-note .link-button{color:#754609;font-size:inherit;padding:2px 0;align-self:auto}.proposal-note .link-button:hover{color:#984b00}
+
+.working.finished .spinner{display:none}
+.search-link{display:inline-block;font-size:14px;margin:4px 0}
