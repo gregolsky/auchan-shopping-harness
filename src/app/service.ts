@@ -145,10 +145,23 @@ export function createService(d: ServiceDeps) {
 
   const isAskOrSay = (o: Op) => o.op === 'ask' || o.op === 'say';
 
-  /** Asking and saying change nothing; everything else waits as a proposal. */
+  /** Whether an operation would change the trip; Claude often proposes what the line already has. */
+  function changesTrip(t: Trip, o: Op): boolean {
+    const line = 'lineKey' in o ? t.lines.find((l) => l.lineKey === o.lineKey) : undefined;
+    switch (o.op) {
+      case 'choose': return line !== undefined && line.productId !== o.productId;
+      case 'setQuantity': return line !== undefined && line.quantity !== o.quantity;
+      case 'remove': return line !== undefined;
+      case 'add': return !t.lines.some((l) => l.term !== null && normaliseTerm(l.term) === normaliseTerm(o.term));
+      case 'unmatched': return !t.unmatched.some((u) => normaliseTerm(u.term) === normaliseTerm(o.term));
+      default: return true;
+    }
+  }
+
+  /** Asking and saying change nothing; everything else that changes something waits as a proposal. */
   function holdProposal(t: Trip, ops: Op[], drop: number): Trip {
     const now = applyOps(t, ops.filter(isAskOrSay)).trip;
-    const rest = ops.filter((o) => !isAskOrSay(o));
+    const rest = ops.filter((o) => !isAskOrSay(o) && changesTrip(now, o));
     const messages = drop > 0 ? [...now.messages, dropped(drop)] : now.messages;
     const proposal = rest.length > 0 ? { id: randomUUID(), ops: rest, dropped: drop, source: 'claude' as const } : now.proposal;
     return { ...now, messages, proposal };

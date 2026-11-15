@@ -640,3 +640,27 @@ test('dropUnmatched removes a term the user no longer wants listed', async () =>
   assert.deepEqual(t.unmatched.map((u) => u.term), ['kawior']);
   assert.deepEqual(svc.dropUnmatched('kawior').unmatched, []);
 });
+
+test('note drops proposal ops that would change nothing and holds no proposal when none remain', async () => {
+  const noop = { ops: [
+    { op: 'choose', lineKey: 't:mleko', productId: A }, { op: 'setQuantity', lineKey: 't:mleko', quantity: 1 },
+    { op: 'add', term: 'mleko', quantity: 1 },
+  ] };
+  const { svc } = setup({ claude: { parse: parseMilk, choose: noop } });
+  const t = await svc.note({ note: 'mleko x2, chleb', includeUsual: false });
+  assert.equal(t.proposal, null);
+  assert.equal(t.step, 'zatwierdzenie');
+});
+
+test('note keeps only the real changes of a proposal', async () => {
+  const mixed = { ops: [{ op: 'choose', lineKey: 't:mleko', productId: A }, { op: 'choose', lineKey: 't:mleko', productId: C }, { op: 'setQuantity', lineKey: 't:chleb', quantity: 1 }] };
+  const { svc } = setup({ claude: { parse: parseMilk, choose: mixed } });
+  const t = await svc.note({ note: 'mleko, chleb', includeUsual: false });
+  assert.deepEqual(t.proposal?.ops, [{ op: 'choose', lineKey: 't:mleko', productId: C }]);
+});
+
+test('an unmatched op for a term that is already unmatched is dropped', async () => {
+  const { svc } = setup({ claude: { parse: { ops: [{ op: 'add', term: 'zzz', quantity: 1 }, { op: 'add', term: 'chleb', quantity: 1 }] }, choose: { ops: [{ op: 'unmatched', term: 'zzz', hint: 'x' }] } } });
+  const t = await svc.note({ note: 'zzz, chleb', includeUsual: false });
+  assert.equal(t.proposal, null);
+});
