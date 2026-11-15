@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { acquireLock, lockHeld, releaseLock, LOCK_MAX_AGE_MS } from '../src/lock.ts';
+import { acquireLock, takeOverStale, lockHeld, releaseLock, LOCK_MAX_AGE_MS } from '../src/lock.ts';
 
 const tmp = () => {
   const dir = mkdtempSync(join(tmpdir(), 'lock-'));
@@ -73,4 +73,34 @@ test('releaseLock removes the lock only while it still holds what this process w
   releaseLock(file, mine); // and a missing lock is no error
   rmSync(file);
   releaseLock(file, mine);
+});
+
+test('acquire publishes a complete lock at once: never an empty file, no temp files left', () => {
+  const { dir, file } = tmp();
+  const token = acquireLock(file) as string;
+  assert.ok(token.length > 0);
+  assert.equal(readFileSync(file, 'utf8'), token);
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+  assert.deepEqual(readdirSync(dir), ['fill.lock']);
+});
+
+test('a takeover whose lock changed between judgement and rename refuses and keeps the fresh lock', () => {
+  const { dir, file } = tmp();
+  plant(file, 1, LOCK_MAX_AGE_MS + 60_000);
+  const judged = readFileSync(file, 'utf8');
+  rmSync(file);
+  plant(file, process.pid, 100); // the other starter's fresh lock lands first
+  const fresh = readFileSync(file, 'utf8');
+  assert.equal(takeOverStale(file, judged), false);
+  assert.equal(readFileSync(file, 'utf8'), fresh);
+  assert.deepEqual(readdirSync(dir), ['fill.lock']);
+});
+
+test('a takeover of a lock that is unchanged since judgement succeeds', () => {
+  const { dir, file } = tmp();
+  plant(file, 1, LOCK_MAX_AGE_MS + 60_000);
+  const token = takeOverStale(file, readFileSync(file, 'utf8'));
+  assert.ok(token);
+  assert.equal(readFileSync(file, 'utf8'), token);
+  assert.deepEqual(readdirSync(dir), ['fill.lock']);
 });
