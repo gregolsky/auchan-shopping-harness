@@ -43,6 +43,9 @@ export class ProfileBusy extends Error {
   }
 }
 
+export const CART_READ_PATH = '/api/cart/v1/carts/active';
+export const APPLY_QUANTITY_PATH = '/api/cart/v1/carts/active/apply-quantity';
+
 // Anchored, matched against the normalised pathname only.
 export const ALLOWED_PATHS: readonly RegExp[] = [
   /^\/orders$/,
@@ -50,6 +53,7 @@ export const ALLOWED_PATHS: readonly RegExp[] = [
   /^\/promotions\/[^/]+\/\d+$/,
   /^\/api\/order\/v6\/orders\/[\w-]+\/decorated$/,
   /^\/graphql$/,
+  /^\/api\/cart\/v1\/carts\/active$/, // read only; apply-quantity is built by the HTTP worker, never allowlisted
 ];
 
 const CONTROL = /[\u0000-\u001f\u007f]/;

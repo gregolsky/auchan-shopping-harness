@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { ShapeError } from './parse.ts';
-import { assertAllowed, assertGraphqlOperation, Blocked, checkGraphql, LoginRequired, normaliseGet, ORIGIN, RateLimited, type SessionCookie, type Worker } from './worker.ts';
+import { APPLY_QUANTITY_PATH, assertAllowed, assertGraphqlOperation, Blocked, CART_READ_PATH, checkGraphql, LoginRequired, normaliseGet, ORIGIN, RateLimited, type SessionCookie, type Worker } from './worker.ts';
 
 /** One request at a time, at most one per this many ms, enforced here so no caller can skip it. */
 const MIN_GAP_MS = 1500;
@@ -59,7 +59,36 @@ export interface HttpOptions {
   gapMs?: number;
 }
 
-export function createHttpWorker(o: HttpOptions): Worker {
+export interface CartChange {
+  productId: string;
+  quantity: number;
+}
+/** A product Auchan could not add in full; it still answers HTTP 200. */
+export interface LimitedItem {
+  productId: string;
+  reason: string;
+  requestedAmount: number;
+  addedAmount: number;
+}
+export interface CartAccess {
+  readCart(): Promise<unknown>;
+  /** Sends at most MAX_BATCH changes in one POST; throws on a non-2xx. Returns the products Auchan limited. */
+  applyQuantities(changes: CartChange[]): Promise<LimitedItem[]>;
+}
+export const MAX_BATCH = 10;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** A 4xx other than 401, 403 and 429: Auchan refused the request itself. */
+export class Rejected extends Error {
+  status: number;
+  constructor(status: number) {
+    super(`rejected by site (HTTP ${status})`);
+    this.name = 'Rejected';
+    this.status = status;
+  }
+}
+
+export function createHttpWorker(o: HttpOptions): Worker & CartAccess {
   const fetchFn = o.fetchFn ?? fetch;
   const gapMs = o.gapMs ?? MIN_GAP_MS;
   let last = 0;
@@ -89,6 +118,7 @@ export function createHttpWorker(o: HttpOptions): Worker {
       if (status === 429 || (status === 503 && retryAfter)) throw new RateLimited(status, retrySeconds(retryAfter));
       if (status === 403) throw new Blocked(`blocked by site (HTTP ${status}); stopping, not retrying`);
       if (status === 401 || (status >= 300 && status < 400)) throw new LoginRequired();
+      if (status >= 400 && status < 500) throw new Rejected(status);
       if (status < 200 || status >= 300) throw new Error(`unexpected HTTP ${status}`);
       return { status, text: await res.text() };
     };
@@ -142,6 +172,35 @@ export function createHttpWorker(o: HttpOptions): Worker {
     async pageLinks(path, prefix) {
       if (!prefix.startsWith('/') || prefix.startsWith('//')) throw new Error(`bad link prefix: ${prefix}`);
       return extractLinks(await page(path), prefix);
+    },
+
+    async readCart() {
+      return parse((await request(normaliseGet(CART_READ_PATH), { headers: VERSION })).text);
+    },
+
+    async applyQuantities(changes) {
+      if (changes.length === 0 || changes.length > MAX_BATCH) throw new Error(`a batch must have 1 to ${MAX_BATCH} changes`);
+      for (const c of changes) {
+        if (typeof c.productId !== 'string' || !UUID.test(c.productId)) throw new Error('product id is not a UUID');
+        if (typeof c.quantity !== 'number' || !Number.isFinite(c.quantity) || c.quantity <= 0 || c.quantity > 100) {
+          throw new Error('quantity must be above 0 and at most 100');
+        }
+      }
+      await loadState('/orders'); // a fresh token for every batch
+      if (!csrf) throw new LoginRequired('no CSRF token in page state: session not logged in');
+      const meta = { itemListName: 'search', favorite: false, pageViewId: crypto.randomUUID(), pageType: 'search' };
+      const { text } = await request(APPLY_QUANTITY_PATH, {
+        method: 'POST',
+        headers: { ...VERSION, 'content-type': 'application/json', 'x-csrf-token': csrf, 'ecom-request-source': 'web' },
+        body: JSON.stringify(changes.map((c) => ({ productId: c.productId, quantity: c.quantity, meta }))),
+      });
+      const limited = (parse(text) as any)?.limitedItems;
+      if (limited === undefined) return [];
+      if (!Array.isArray(limited)) throw new ShapeError('limitedItems was not an array');
+      return limited.map((l: any): LimitedItem => {
+        if (typeof l?.productId !== 'string') throw new ShapeError('a limited item has no product id');
+        return { productId: l.productId, reason: String(l.reason), requestedAmount: Number(l.requestedAmount), addedAmount: Number(l.addedAmount) };
+      });
     },
 
     async close() {},

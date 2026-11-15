@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { cookieHeader, createHttpWorker, extractLinks, extractState, retrySeconds } from '../src/http-worker.ts';
-import { Blocked, GET_COMPLETED_ORDERS_QUERY, LoginRequired, RateLimited, saveCookies } from '../src/worker.ts';
+import { cookieHeader, createHttpWorker, MAX_BATCH, Rejected, extractLinks, extractState, retrySeconds } from '../src/http-worker.ts';
+import { APPLY_QUANTITY_PATH, CART_READ_PATH, Blocked, GET_COMPLETED_ORDERS_QUERY, LoginRequired, ORIGIN, RateLimited, saveCookies } from '../src/worker.ts';
 import { ShapeError } from '../src/parse.ts';
 
 const page = (state: unknown, extra = '') => `<html><script>window.__INITIAL_STATE__=${JSON.stringify(state)}</script>${extra}</html>`;
@@ -197,4 +197,84 @@ test('extractState reads the page state and fails with fixed text', () => {
 test('extractLinks keeps same-origin links under the prefix, encoded as a browser would', () => {
   const html = '<a class="x" href="/promotions/zdrowa-żywność/3177?a=1&amp;b=2">x</a><a href="https://evil.example/promotions/x">y</a><a href="/orders">z</a>';
   assert.deepEqual(extractLinks(html, '/promotions/'), ['/promotions/zdrowa-%C5%BCywno%C5%9B%C4%87/3177?a=1&b=2']);
+});
+
+const P1 = '7866c30c-0b4e-402b-a90c-f292bca0ef6b';
+const cartServer = (apply: () => Response = () => new Response('{}')) => (url: string) =>
+  url.endsWith('/orders') ? new Response(page({ session: { csrf: { token: 't1' } } })) : url.includes(APPLY_QUANTITY_PATH) ? apply() : new Response('{}');
+
+test('readCart sends a GET to the cart path with the version header and returns parsed JSON', async () => {
+  const { worker, calls, cleanup } = setup(() => new Response('{"a":1}'));
+  assert.deepEqual(await worker.readCart(), { a: 1 });
+  assert.equal(calls[0].url, ORIGIN + CART_READ_PATH);
+  assert.equal(calls[0].init.method, undefined);
+  assert.equal(calls[0].init.headers['ecom-request-source-version'], '2.0.0');
+  cleanup();
+});
+
+test('applyQuantities posts the body to apply-quantity with the CSRF token from page state', async () => {
+  const { worker, calls, cleanup } = setup(cartServer());
+  assert.deepEqual(await worker.applyQuantities([{ productId: P1, quantity: 2 }]), []);
+  const post = calls[1];
+  assert.equal(post.url, ORIGIN + APPLY_QUANTITY_PATH);
+  assert.equal(post.init.method, 'POST');
+  assert.equal(post.init.headers['x-csrf-token'], 't1');
+  const body = JSON.parse(post.init.body);
+  assert.match(body[0].meta.pageViewId, /^[0-9a-f-]{36}$/);
+  assert.deepEqual(body, [{ productId: P1, quantity: 2, meta: { itemListName: 'search', favorite: false, pageViewId: body[0].meta.pageViewId, pageType: 'search' } }]);
+  cleanup();
+});
+
+test('applyQuantities fetches a fresh CSRF token on every call', async () => {
+  const { worker, calls, cleanup } = setup(cartServer());
+  await worker.applyQuantities([{ productId: P1, quantity: 1 }]);
+  await worker.applyQuantities([{ productId: P1, quantity: 1 }]);
+  assert.equal(calls.filter((c) => c.url.endsWith('/orders')).length, 2);
+  cleanup();
+});
+
+test('applyQuantities refuses bad batches, ids and quantities, and sends nothing', async () => {
+  const { worker, calls, cleanup } = setup(cartServer());
+  const ok = { productId: P1, quantity: 1 };
+  await assert.rejects(() => worker.applyQuantities([]));
+  await assert.rejects(() => worker.applyQuantities(Array(MAX_BATCH + 1).fill(ok)));
+  await assert.rejects(() => worker.applyQuantities([{ productId: 'p1', quantity: 1 }]));
+  for (const quantity of [0, -1, 101, NaN, Infinity]) await assert.rejects(() => worker.applyQuantities([{ productId: P1, quantity }]));
+  assert.equal(calls.length, 0);
+  cleanup();
+});
+
+test('a 400 from apply-quantity throws Rejected with the status and no body text', async () => {
+  const { worker, cleanup } = setup(cartServer(() => new Response('secret-body', { status: 400 })));
+  await assert.rejects(
+    () => worker.applyQuantities([{ productId: P1, quantity: 1 }]),
+    (e: any) => e instanceof Rejected && e.status === 400 && !e.message.includes('secret'),
+  );
+  cleanup();
+});
+
+test('403 from apply-quantity throws Blocked; 401 throws LoginRequired', async () => {
+  const a = setup(cartServer(() => new Response('', { status: 403 })));
+  await assert.rejects(() => a.worker.applyQuantities([{ productId: P1, quantity: 1 }]), Blocked);
+  a.cleanup();
+  const b = setup(cartServer(() => new Response('', { status: 401 })));
+  await assert.rejects(() => b.worker.applyQuantities([{ productId: P1, quantity: 1 }]), LoginRequired);
+  b.cleanup();
+});
+
+test('applyQuantities returns limited items from the response', async () => {
+  const body = readFileSync(new URL('./fixtures/apply-quantity-limited.json', import.meta.url), 'utf8');
+  const { worker, cleanup } = setup(cartServer(() => new Response(body)));
+  assert.deepEqual(await worker.applyQuantities([{ productId: P1, quantity: 1 }]), [
+    { productId: P1, reason: 'OUT_OF_STOCK', requestedAmount: 1, addedAmount: 0 },
+  ]);
+  cleanup();
+});
+
+test('a malformed limitedItems is a ShapeError', async () => {
+  for (const bad of ['{"limitedItems":"x"}', '{"limitedItems":[{}]}']) {
+    const { worker, cleanup } = setup(cartServer(() => new Response(bad)));
+    await assert.rejects(() => worker.applyQuantities([{ productId: P1, quantity: 1 }]), ShapeError);
+    cleanup();
+  }
 });

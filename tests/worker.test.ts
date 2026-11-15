@@ -337,3 +337,10 @@ test('a timed out request reports a timeout, other failures do not', async () =>
   const failed = fakePage({ fetchError: new TypeError('Failed to fetch') }).page;
   await assert.rejects(() => createWorker(failed).getJson('/orders'), /request failed in page/);
 });
+
+test('no checkout or order path is allowed', () => {
+  assertAllowed('/api/cart/v1/carts/active');
+  for (const p of ['/checkout', '/checkout/summary', '/api/checkout/v1/orders', '/api/order/v6/orders', '/api/cart/v1/carts/active/apply-quantity', '/api/cart/v1/carts/active/items', '/api/cart/v1/carts/active/checkout-start']) {
+    assert.throws(() => assertAllowed(p), p);
+  }
+});
