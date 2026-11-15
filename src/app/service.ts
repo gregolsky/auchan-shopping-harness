@@ -18,7 +18,7 @@ import type { Spawn } from './claude.ts';
 import { parseNote } from './fallback.ts';
 import type { Op } from './ops.ts';
 import {
-  answer as answerLine, applyOps, approvedLines, emptyTrip, ListProblem, loadTrip, needsQuestion, openQuestions, saveTrip, setIncluded, tripFromDraft,
+  answer as answerLine, applyOps, approvedLines, chooseProduct, dropUnmatched, emptyTrip, ListProblem, loadTrip, needsQuestion, openQuestions, saveTrip, setIncluded, tripFromDraft,
 } from './trip.ts';
 import type { Correction, Trip, TripLine } from './trip.ts';
 
@@ -178,6 +178,19 @@ export function createService(d: ServiceDeps) {
     } else safeEmit({ type: 'state' });
   }
 
+  /** Applies operations of the pending proposal: corrections are recorded, added terms are drafted; `left` stays pending. */
+  function takeOps(ops: Op[], left: Trip['proposal']): Trip {
+    const r = applyOps({ ...trip, proposal: left }, ops);
+    record(r.corrections);
+    let next = r.trip;
+    if (r.addTerms.length > 0) {
+      const draft = withStore((s) => draftTerms(s, r.addTerms, false));
+      next = tripFromDraft(next, draft, noteMap(r.addTerms));
+      if (draft.blocked?.length) next = { ...next, messages: [...next.messages, `Pominięto zablokowane produkty: ${draft.blocked.join(', ')}.`] };
+    }
+    return commit(settle(next));
+  }
+
   const view = {
     state() {
       const { ordersAt, promotionsAt } = withStore((s) => ({ ordersAt: s.lastSyncFinishedAt('orders'), promotionsAt: s.lastSyncFinishedAt('promotions') }));
@@ -247,21 +260,35 @@ export function createService(d: ServiceDeps) {
       if (frozen()) return hold();
       const p = trip.proposal;
       if (p === null || p.id !== proposalId) return trip;
-      const r = applyOps({ ...trip, proposal: null }, p.ops);
-      record(r.corrections);
-      let next = r.trip;
-      if (r.addTerms.length > 0) {
-        const draft = withStore((s) => draftTerms(s, r.addTerms, false));
-        next = tripFromDraft(next, draft, noteMap(r.addTerms));
-        if (draft.blocked?.length) next = { ...next, messages: [...next.messages, `Pominięto zablokowane produkty: ${draft.blocked.join(', ')}.`] };
-      }
-      return commit(settle(next));
+      return takeOps(p.ops, null);
+    },
+
+    /** One operation of the pending proposal: taken through the same path as apply, or dropped. The rest stays pending. */
+    proposalOp(proposalId: string, index: number, accept: boolean): Trip {
+      if (frozen()) return hold();
+      const p = trip.proposal;
+      if (p === null || p.id !== proposalId || !Number.isInteger(index) || index < 0 || index >= p.ops.length) return trip;
+      const rest = p.ops.filter((_, i) => i !== index);
+      const left = rest.length > 0 ? { ...p, ops: rest } : null;
+      return accept ? takeOps([p.ops[index]!], left) : commit(settle({ ...trip, proposal: left }));
     },
 
     reject(proposalId: string): Trip {
       if (frozen()) return hold();
       if (trip.proposal === null || trip.proposal.id !== proposalId) return trip;
       return commit(settle({ ...trip, proposal: null }));
+    },
+
+    chooseProduct(lineKey: string, productId: string): Trip {
+      if (frozen()) return hold();
+      const r = chooseProduct(trip, lineKey, productId);
+      record(r.corrections);
+      return commit(settle(r.trip));
+    },
+
+    dropUnmatched(term: string): Trip {
+      if (frozen()) return hold();
+      return commit(dropUnmatched(trip, term));
     },
 
     answer(lineKey: string, productId: string | null): Trip {

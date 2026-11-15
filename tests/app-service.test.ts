@@ -563,3 +563,80 @@ test('note in fallback mode skips the choose stage', async () => {
   await svc.note({ note: 'chleb', includeUsual: false });
   assert.deepEqual(events.flatMap((e) => (e.type === 'working' ? [e.stage] : [])), ['parse', 'draft', 'done']);
 });
+
+const twoOps = { parse: parseMilk, choose: { ops: [{ op: 'choose', lineKey: 't:mleko', productId: C }, { op: 'setQuantity', lineKey: 't:chleb', quantity: 3 }] } };
+
+test('proposalOp accepts one operation through the correction path and keeps the rest of the proposal', async () => {
+  const { svc, store } = setup({ claude: twoOps });
+  const t = await svc.note({ note: 'mleko, chleb', includeUsual: false });
+  const id = t.proposal!.id;
+  const r = svc.proposalOp(id, 0, true);
+  assert.equal(r.lines.find((l) => l.lineKey === 't:mleko')!.productId, C);
+  assert.equal(r.lines.find((l) => l.lineKey === 't:chleb')!.quantity, 1);
+  assert.deepEqual(r.proposal?.ops, [{ op: 'setQuantity', lineKey: 't:chleb', quantity: 3 }]);
+  assert.equal(r.proposal?.id, id);
+  assert.deepEqual(store.corrections().map((c) => [c.term, c.chosenProductId]), [['mleko', C]]);
+  assert.equal(r.step, 'doprecyzowanie');
+});
+
+test('proposalOp dropping the last operation clears the proposal and changes nothing else', async () => {
+  const { svc, store } = setup({ claude: twoOps });
+  const t = await svc.note({ note: 'mleko, chleb', includeUsual: false });
+  svc.proposalOp(t.proposal!.id, 0, false);
+  const r = svc.proposalOp(t.proposal!.id, 0, false);
+  assert.equal(r.proposal, null);
+  assert.equal(r.lines.find((l) => l.lineKey === 't:mleko')!.productId, A);
+  assert.equal(r.lines.find((l) => l.lineKey === 't:chleb')!.quantity, 1);
+  assert.deepEqual(store.corrections(), []);
+  assert.equal(r.step, 'zatwierdzenie');
+});
+
+test('proposalOp accepting an add operation drafts the new term', async () => {
+  const { svc } = setup({ claude: { parse: { ops: [{ op: 'add', term: 'mleko', quantity: 1 }] }, choose: { ops: [{ op: 'add', term: 'chleb', quantity: 2 }] } } });
+  const t = await svc.note({ note: 'mleko', includeUsual: false });
+  const r = svc.proposalOp(t.proposal!.id, 0, true);
+  assert.equal(r.proposal, null);
+  assert.ok(r.lines.some((l) => l.lineKey === 't:chleb'));
+});
+
+test('proposalOp ignores a wrong id or index', async () => {
+  const { svc } = setup({ claude: twoOps });
+  const t = await svc.note({ note: 'mleko, chleb', includeUsual: false });
+  for (const args of [['nope', 0], [t.proposal!.id, 2], [t.proposal!.id, -1], [t.proposal!.id, 0.5]] as const) {
+    assert.equal(svc.proposalOp(args[0], args[1], true).proposal?.ops.length, 2);
+  }
+  assert.equal(svc.state().trip.lines.find((l) => l.lineKey === 't:mleko')!.productId, A);
+});
+
+test('chooseProduct takes a candidate, records the correction and clears the question', async () => {
+  const { svc, store } = setup();
+  const t = await svc.note({ note: 'mleko', includeUsual: false });
+  const key = t.lines[0].lineKey;
+  assert.ok(t.lines[0].question);
+  const r = svc.chooseProduct(key, C);
+  assert.equal(r.lines[0].productId, C);
+  assert.equal(r.lines[0].question, null);
+  assert.equal(r.step, 'zatwierdzenie');
+  assert.deepEqual(store.corrections().map((c) => c.chosenProductId), [C]);
+  assert.equal(svc.chooseProduct(key, 'not-a-candidate').lines[0].productId, C);
+  assert.equal(svc.chooseProduct('nope', A).lines.length, 1);
+});
+
+test('chooseProduct is refused once the cart is being filled or paid', async () => {
+  const { svc, events } = setup();
+  const t = await svc.note({ note: 'chleb', includeUsual: false });
+  svc.answer(t.lines[0].lineKey, B);
+  await svc.approve();
+  await done(events);
+  const before = svc.state().trip.lines;
+  svc.chooseProduct(t.lines[0].lineKey, A);
+  svc.proposalOp('x', 0, true);
+  assert.deepEqual(svc.state().trip.lines, before);
+});
+
+test('dropUnmatched removes a term the user no longer wants listed', async () => {
+  const { svc } = setup({ claude: { parse: { ops: [{ op: 'add', term: 'chleb', quantity: 1 }, { op: 'unmatched', term: 'kawior', hint: 'Dodaj ręcznie' }] }, choose: { ops: [] } } });
+  const t = await svc.note({ note: 'chleb, kawior', includeUsual: false });
+  assert.deepEqual(t.unmatched.map((u) => u.term), ['kawior']);
+  assert.deepEqual(svc.dropUnmatched('kawior').unmatched, []);
+});
