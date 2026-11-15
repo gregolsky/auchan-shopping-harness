@@ -168,3 +168,11 @@ test('summary uses Polish plurals', () => {
   assert.equal(text(22), 'Gotowe: 22 produkty.');
   assert.equal(text(12), 'Gotowe: 12 produktów.');
 });
+
+test('the page has a polite status panel with a CSS-only spinner that stops for reduced motion', () => {
+  const html = readFileSync('public/index.html', 'utf8');
+  const css = readFileSync('public/app.css', 'utf8');
+  assert.match(html, /id="working"[^>]*role="status"[^>]*aria-live="polite"/);
+  assert.match(css, /\.spinner\{[^}]*animation:spin/);
+  assert.match(css, /prefers-reduced-motion:reduce\)\{\.spinner\{animation:none/);
+});

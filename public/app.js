@@ -167,7 +167,7 @@ export function start() {
     if (!response.ok) throw new Error(data.error || 'Nie udało się wykonać operacji.');
     return data;
   }
-  async function run(path, body) {
+  async function run(path, body, failure) {
     try {
       tell('');
       const result = await api(path, body);
@@ -176,21 +176,31 @@ export function start() {
       else if (result?.started === false) tell(result.reason || 'Operacja nie została rozpoczęta.');
       await refresh();
       return result;
-    } catch (error) { tell(error.message); return null; }
+    } catch (error) { tell(failure ? failure(error.message) : error.message); return null; }
   }
   async function refresh() {
     try { const first = state === null; state = await api('/api/state'); selected = nextSelected(selected, viewModel(state).stepIndex, first); render(); }
     catch (error) { tell(error.message); }
   }
 
-  /** Runs one Claude call at a time; a second click while it is in flight does nothing. */
+  /** Runs one Claude call at a time; a second click while it is in flight does nothing. A visible panel counts the seconds. */
+  const panel = document.querySelector('#working');
+  let working = null;
+  function showWorking() {
+    if (working === null) { panel.hidden = true; return; }
+    const view = workingPanel(working.text, Math.floor((Date.now() - working.startedAt) / 1000));
+    panel.hidden = false;
+    panel.querySelector('.working-text').textContent = view.text;
+    panel.querySelector('.working-elapsed').textContent = view.elapsed;
+    panel.querySelector('.working-hint').textContent = view.slow || view.hint;
+    panel.classList.toggle('slow', view.slow !== null);
+  }
   async function withClaude(kind, work) {
     if (pending !== null) return;
-    pending = kind; render();
-    try { await work(); } finally { pending = null; render(); }
+    pending = kind; working = { text: START_TEXT[kind], startedAt: Date.now() }; showWorking(); render();
+    const timer = setInterval(showWorking, 1000);
+    try { await work(); } finally { clearInterval(timer); pending = null; working = null; showWorking(); render(); }
   }
-  const claudeNote = () => { const status = claudeStatus(pending); return status.working ? element('p', 'meta', status.text) : null; };
-
   function renderSteps(model) {
     steps.replaceChildren();
     STEPS.forEach((name, i) => {
@@ -242,8 +252,7 @@ export function start() {
     const budget = element('input'); budget.type = 'text'; budget.inputMode = 'decimal'; budget.placeholder = 'Opcjonalnie'; budget.id = 'budget'; budget.value = draftForm.budget; budget.addEventListener('input', () => { draftForm.budget = budget.value; });
     const budgetLabel = element('label', '', 'Budżet w zł'); budgetLabel.htmlFor = 'budget';
     append(form, note, usualLabel, budgetLabel, budget,
-      button('Ułóż szkic →', async () => { const parsed = parseBudget(budget.value); if (!parsed.ok) { tell(parsed.error); return; } const body = { note: note.value, includeUsual: usual.checked }; if (parsed.grosze !== undefined) body.budgetGrosze = parsed.grosze; await withClaude('note', async () => { await run('/api/note', body); selected = 1; }); }, 'button', state.busy === 'fill' || claudeStatus(pending).disableNote));
-    if (claudeNote()) form.append(claudeNote());
+      button('Ułóż szkic →', async () => { const parsed = parseBudget(budget.value); if (!parsed.ok) { tell(parsed.error); return; } const body = { note: note.value, includeUsual: usual.checked }; if (parsed.grosze !== undefined) body.budgetGrosze = parsed.grosze; await withClaude('note', async () => { const result = await run('/api/note', body, (m) => failureText('note', m)); if (result) { selected = Math.max(1, viewModel(state).stepIndex); tell(doneSummary(viewModel(state))); } }); }, 'button', state.busy === 'fill' || claudeStatus(pending).disableNote));
     const results = card('Wybrane produkty', 'Sprawdź nazwę, ilość i ocenę dopasowania.');
     const model = viewModel(state);
     const blockedNotice = state.trip.messages?.find((m) => m.startsWith('Pominięto zablokowane produkty:'));
@@ -374,8 +383,7 @@ export function start() {
     const box = card('Powiedz, co zmienić', 'Możesz opisać zmianę własnymi słowami. Zobaczysz propozycję przed zastosowaniem.');
     const input = element('textarea', 'short-textarea'); input.setAttribute('aria-label', 'Polecenie dla Claude'); input.placeholder = 'Na przykład: wybierz większe opakowanie sera';
     input.value = draftForm.ask; input.addEventListener('input', () => { draftForm.ask = input.value; });
-    append(box, input, button('Zaproponuj zmianę', () => withClaude('ask', async () => { const result = await run('/api/ask', { text: input.value }); if (result) draftForm.ask = ''; }), 'quiet', state.busy === 'fill' || claudeStatus(pending).disableAsk));
-    if (claudeNote()) box.append(claudeNote());
+    append(box, input, button('Zaproponuj zmianę', () => withClaude('ask', async () => { const result = await run('/api/ask', { text: input.value }, (m) => failureText('ask', m)); if (result) { draftForm.ask = ''; tell(doneSummary(viewModel(state))); } }), 'quiet', state.busy === 'fill' || claudeStatus(pending).disableAsk));
     target.append(box);
   }
   function render() {
@@ -396,6 +404,7 @@ export function start() {
   document.querySelector('#new-trip').addEventListener('click', async () => { if (state.busy === 'fill') return; const result = await run('/api/trip/reset', {}); if (result?.step === 'dane') { selected = 0; rulesOpen = false; report = null; logs = []; draftForm.note = null; draftForm.usual = false; draftForm.budget = ''; draftForm.ask = ''; render(); } });
   const events = new EventSource(`/api/events?t=${encodeURIComponent(token)}`);
   events.addEventListener('state', () => { void refresh(); });
+  events.addEventListener('working', (event) => { if (working !== null) { working.text = JSON.parse(event.data).text; showWorking(); } });
   events.addEventListener('progress', (event) => { progress = JSON.parse(event.data); if (selected === 4) render(); });
   events.addEventListener('log', (event) => { logs.push(JSON.parse(event.data).text); if (selected === 4 || selected === 0) render(); });
   events.addEventListener('report', (event) => { report = JSON.parse(event.data).report; selected = 5; render(); });
