@@ -321,7 +321,9 @@ export function createService(d: ServiceDeps) {
       const p = trip.proposal;
       if (p === null || p.id !== proposalId || !Number.isInteger(index) || index < 0 || index >= p.ops.length) return trip;
       const rest = p.ops.filter((_, i) => i !== index);
-      const left = rest.length > 0 ? { ...p, ops: rest } : null;
+      // A new id per step: a second click sent before the page re-rendered carries the old id and an index that
+      // now points at a different operation, so it must be ignored rather than applied.
+      const left = rest.length > 0 ? { ...p, id: randomUUID(), ops: rest } : null;
       return accept ? takeOps([p.ops[index]!], left) : commit(settle({ ...trip, proposal: left }));
     },
 

@@ -595,16 +595,27 @@ test('proposalOp accepts one operation through the correction path and keeps the
   assert.equal(r.lines.find((l) => l.lineKey === 't:mleko')!.productId, C);
   assert.equal(r.lines.find((l) => l.lineKey === 't:chleb')!.quantity, 1);
   assert.deepEqual(r.proposal?.ops, [{ op: 'setQuantity', lineKey: 't:chleb', quantity: 3 }]);
-  assert.equal(r.proposal?.id, id);
+  assert.notEqual(r.proposal?.id, id);
   assert.deepEqual(store.corrections().map((c) => [c.term, c.chosenProductId]), [['mleko', C]]);
   assert.equal(r.step, 'doprecyzowanie');
+});
+
+test('proposalOp ignores a stale second click whose index now points at another operation', async () => {
+  const { svc, store } = setup({ claude: twoOps });
+  const t = await svc.note({ note: 'mleko, chleb', includeUsual: false });
+  const id = t.proposal!.id;
+  svc.proposalOp(id, 1, false); // drop the setQuantity; the choose is now at index 0
+  const r = svc.proposalOp(id, 0, true); // stale click meant for the old index 0 of the old proposal
+  assert.equal(r.lines.find((l) => l.lineKey === 't:mleko')!.productId, A);
+  assert.equal(r.proposal?.ops.length, 1);
+  assert.deepEqual(store.corrections(), []);
 });
 
 test('proposalOp dropping the last operation clears the proposal and changes nothing else', async () => {
   const { svc, store } = setup({ claude: twoOps });
   const t = await svc.note({ note: 'mleko, chleb', includeUsual: false });
-  svc.proposalOp(t.proposal!.id, 0, false);
-  const r = svc.proposalOp(t.proposal!.id, 0, false);
+  const first = svc.proposalOp(t.proposal!.id, 0, false);
+  const r = svc.proposalOp(first.proposal!.id, 0, false);
   assert.equal(r.proposal, null);
   assert.equal(r.lines.find((l) => l.lineKey === 't:mleko')!.productId, A);
   assert.equal(r.lines.find((l) => l.lineKey === 't:chleb')!.quantity, 1);
