@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { writeFileSync } from 'node:fs';
 import { main, formatReport, type FillDeps } from '../src/fill-cli.ts';
 import { openStore, type Store } from '../src/store.ts';
-import { LoginRequired, type Worker } from '../src/worker.ts';
+import { Blocked, LoginRequired, type Worker } from '../src/worker.ts';
 import type { CartAccess } from '../src/http-worker.ts';
 import type { Product, PriceObservation } from '../src/types.ts';
 import { fakeCart, type FakeCart } from './helpers/fake-cart.ts';
@@ -145,4 +146,37 @@ test('formatReport puts check-before-paying first and never contains a cookie or
   assert.match(text, /Razem w koszyku: 12,59 zł/);
   assert.equal(lines.at(-1), 'Zapłać na https://zakupy.auchan.pl/checkout');
   assert.doesNotMatch(text, /cookie|token|session/i);
+});
+
+test('a 403 never invites a rerun', async (t) => {
+  const cart = fakeCart({});
+  cart.applyQuantities = async () => { throw new Blocked('403'); };
+  const { log, deps } = setup(cart);
+  quiet(t, log);
+  assert.equal(await main([], deps), 1);
+  assert.match(log.err.join('\n'), /Do not rerun/);
+  assert.doesNotMatch(log.err.join('\n'), /bezpieczne/);
+});
+
+test('a second fill is refused while a live pid holds the lock, a stale lock is replaced', async (t) => {
+  const busy = setup(fakeCart({}));
+  writeFileSync(busy.lockFile, String(process.pid));
+  quiet(t, busy.log);
+  assert.equal(await main([], busy.deps), 1);
+  assert.equal(busy.log.opened, 0);
+  assert.equal(existsSync(busy.lockFile), true); // not ours to remove
+  assert.match(busy.log.err[0], /Inny fill/);
+
+  const stale = setup(fakeCart({}));
+  writeFileSync(stale.lockFile, '999999999');
+  quiet(t, stale.log);
+  assert.equal(await main([], stale.deps), 0);
+  assert.equal(existsSync(stale.lockFile), false);
+});
+
+test('the lock is removed even when close throws', async (t) => {
+  const s = setup(fakeCart({}), { worker: { close: async () => { throw new Error('close failed'); } } });
+  quiet(t, s.log);
+  await main([], s.deps).catch(() => {});
+  assert.equal(existsSync(s.lockFile), false);
 });

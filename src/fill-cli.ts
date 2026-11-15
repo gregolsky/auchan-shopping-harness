@@ -2,12 +2,13 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Store } from './store.ts';
-import { browserLogin, type Worker } from './worker.ts';
+import { browserLogin, Blocked, type Worker } from './worker.ts';
 import { createHttpWorker, type CartAccess } from './http-worker.ts';
 import { describeFailure, ensureStateDir, liveDeps as syncDeps, withLogin } from './cli.ts';
 import { fillCart } from './fill.ts';
 import { buildDraft } from './draft.ts';
 import type { FillReport, PriceNote } from './cart.ts';
+import { lockHeld } from './lock.ts';
 import { LOCK_PATH, SESSION_PATH } from './dbpath.ts';
 
 export interface FillDeps {
@@ -18,6 +19,8 @@ export interface FillDeps {
 
 const CHECKOUT = 'https://zakupy.auchan.pl/checkout';
 const NO_BASKET = 'Brak zatwierdzonego koszyka z ostatnich 24 godzin: zatwierdź koszyk (approve_basket) i uruchom ponownie';
+const LOG_IN = 'Log in in the browser window and leave it open; the fill continues on its own';
+const BUSY = 'Inny fill już trwa (blokada .state/fill.lock): poczekaj, aż się skończy';
 const RERUN_SAFE = 'Ponowne uruchomienie jest bezpieczne: wczyta koszyk od nowa i doda tylko to, czego jeszcze brakuje.';
 
 const liveDeps: FillDeps = {
@@ -36,7 +39,9 @@ function note(n: PriceNote): string {
 }
 
 /** substitutes: product id -> names of up to 2 alternatives. The cart has no names; lines are named from the basket. */
-export function formatReport(r: FillReport & { sent: number }, unmatched: string[], substitutes: Record<string, string[]> = {}): string {
+export function formatReport(
+  r: FillReport & { sent: number }, unmatched: string[], substitutes: Record<string, string[]> = {}, names: Record<string, string> = {},
+): string {
   const out: string[] = [];
   const section = (title: string, rows: string[]) => {
     if (rows.length) out.push(`${title}:`, ...rows.map((x) => `  - ${x}`), '');
@@ -51,13 +56,22 @@ export function formatReport(r: FillReport & { sent: number }, unmatched: string
   section('Dodaj sam na Auchan', unmatched);
   section('Było już w koszyku', [
     ...r.alreadyEnough.map((l) => `${l.name} x ${qty(l.quantity)}`),
-    ...r.extras.map((l) => `produkt spoza koszyka ${l.productId} x ${qty(l.quantity)}`),
+    ...r.extras.map((l) => `${names[l.productId] ?? `produkt spoza koszyka ${l.productId}`} x ${qty(l.quantity)}`),
   ]);
   section('Niewielkie podwyżki', r.smallRises.map(note));
   out.push(`Dodano produktów: ${r.added.length}`);
   out.push(`Razem w koszyku: ${r.cartTotalGrosze === null ? 'nieznana kwota' : zl(r.cartTotalGrosze)}`);
   out.push(`Zapłać na ${CHECKOUT}`);
   return out.join('\n');
+}
+
+/** Names of cart lines outside the basket, where the store knows them. */
+function extraNames(store: Store, ids: string[]): Record<string, string> {
+  const want = new Set(ids);
+  const out: Record<string, string> = {};
+  if (!want.size) return out;
+  for (const f of store.productFacts()) if (want.has(f.productId)) out[f.productId] = f.name;
+  return out;
 }
 
 function substitutesFor(store: Store, lines: { term: string | null; productId: string; quantity: number }[]): Record<string, string[]> {
@@ -84,6 +98,10 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
   let runId: number | undefined;
   try {
     store = deps.openStore();
+    if (lockHeld(lockFile)) {
+      console.error(BUSY);
+      return 1;
+    }
     const basket = store.latestApprovedBasket();
     if (!basket) {
       console.error(NO_BASKET);
@@ -97,8 +115,10 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
     worker = await deps.openWorker();
     const cart = worker;
     // A rerun after login starts from a fresh read, so nothing is added twice.
-    const report = await withLogin(cart, () =>
-      fillCart(cart, basket.lines, { onProgress: (sent, total) => console.log(`Dodawanie do koszyka: ${sent}/${total}`) }),
+    const report = await withLogin(
+      cart,
+      () => fillCart(cart, basket.lines, { onProgress: (sent, total) => console.log(`Dodawanie do koszyka: ${sent}/${total}`) }),
+      LOG_IN,
     );
     if (!report) {
       store.finishFill(runId, { status: 'failed', sent: 0, missing: 0, checkBeforePaying: 0 });
@@ -109,17 +129,31 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
     });
     runId = undefined;
     const lines = [...report.missing, ...report.outOfStock];
-    console.log(formatReport(report, basket.unmatched, substitutesFor(store, lines)));
+    let subs: Record<string, string[]> = {};
+    let names: Record<string, string> = {};
+    try {
+      subs = substitutesFor(store, lines);
+      names = extraNames(store, report.extras.map((e) => e.productId));
+    } catch {
+      // The report is worth more than its extras.
+    }
+    console.log(formatReport(report, basket.unmatched, subs, names));
     return 0;
   } catch (err) {
     if (runId !== undefined) store?.finishFill(runId, { status: 'failed', sent: 0, missing: 0, checkBeforePaying: 0 });
     console.error(describeFailure(err, 'fill'));
-    console.error(RERUN_SAFE);
+    if (!(err instanceof Blocked)) console.error(RERUN_SAFE);
     return 1;
   } finally {
-    await worker?.close();
-    store?.close();
-    if (locked) rmSync(lockFile, { force: true });
+    try {
+      if (locked) rmSync(lockFile, { force: true });
+    } finally {
+      try {
+        await worker?.close();
+      } finally {
+        store?.close();
+      }
+    }
   }
 }
 

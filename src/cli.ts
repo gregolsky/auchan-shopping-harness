@@ -54,12 +54,12 @@ export function describeFailure(err: unknown, action: 'sync' | 'fill' = 'sync'):
 }
 
 /** Auchan's login does not survive a browser restart, so it must happen in this window. Undefined if the user gave up. */
-export async function withLogin<T>(worker: Worker, work: () => Promise<T>): Promise<T | undefined> {
+export async function withLogin<T>(worker: Worker, work: () => Promise<T>, message: string = LOG_IN): Promise<T | undefined> {
   try {
     return await work();
   } catch (err) {
     if (!(err instanceof LoginRequired)) throw err;
-    console.error(LOG_IN);
+    console.error(message);
     if (!(await worker.waitForLogin())) return undefined;
     return await work();
   }
