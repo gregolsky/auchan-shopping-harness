@@ -104,3 +104,47 @@ test('the default pace is 5 seconds', async () => {
   const r = await run({ show: () => ({ status: 200, title: 't', state: stateOf(1) }) }, ['a', 'b']);
   assert.ok(r.clock.sleeps.includes(5000));
 });
+
+const REASON_403 = 'Auchan odmówił dostępu (403) — przerywam bez ponawiania.';
+
+function statusPage(statusFor: (url: string) => number, loggedIn = false) {
+  const gotos: string[] = [];
+  const page: PageLike = {
+    async goto(u) { gotos.push(u); const s = statusFor(u); return { status: () => s }; },
+    async evaluate(fn: any) { return (loggedIn ? (String(fn).includes('isLoggedIn') ? true : stateOf(1)) : false) as never; },
+    async title() { return 'Auchan'; },
+    url: () => 'about:blank',
+    async close() {},
+  };
+  return { page, gotos };
+}
+
+for (const code of [403, 429, 500]) {
+  test(`${code} on the home page stops everything at once: no login wait, no search`, async () => {
+    const clock = new Clock();
+    const fp = statusPage(() => code);
+    const statuses: SearchStatus[] = [];
+    const s = createBrowserSearch({ openPage: async () => fp.page, onStatus: (x) => statuses.push(x), sleep: clock.sleep, now: clock.now, pollMs: 100 });
+    const results = await s.search(['a', 'b']);
+    assert.deepEqual(results.map((x) => x.status), ['stopped', 'stopped']);
+    assert.deepEqual(fp.gotos, ['https://zakupy.auchan.pl/']);
+    assert.ok(!statuses.some((x) => x.kind === 'login'));
+    assert.equal(clock.sleeps.length, 0);
+    const stop = statuses.find((x) => x.kind === 'stopped');
+    assert.ok(stop && stop.kind === 'stopped');
+    if (code === 403) assert.equal(stop.reason, REASON_403);
+    else assert.match(stop.reason, new RegExp(`\\(${code}\\)`));
+  });
+}
+
+test('403 on a search page stops the remaining terms with the reason', async () => {
+  const clock = new Clock();
+  const fp = statusPage((u) => (u.includes('q=b') ? 403 : 200), true);
+  const statuses: SearchStatus[] = [];
+  const s = createBrowserSearch({ openPage: async () => fp.page, onStatus: (x) => statuses.push(x), sleep: clock.sleep, now: clock.now, pollMs: 100, loginWaitMs: 0 });
+  const results = await s.search(['a', 'b', 'c']);
+  assert.equal(results[1].status, 'stopped');
+  assert.equal(results[2].status, 'stopped');
+  assert.equal(results[0].status, 'found');
+  assert.ok(statuses.some((x) => x.kind === 'stopped' && x.reason === REASON_403));
+});

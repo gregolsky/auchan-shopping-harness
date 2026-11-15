@@ -51,6 +51,7 @@ export async function main(args: string[], deps: SearchDeps = liveDeps): Promise
       const search = deps.createSearch((s) => {
         if (s.kind === 'login') deps.log('Zaloguj się w oknie przeglądarki i zostaw je otwarte…');
         else if (s.kind === 'captcha') deps.log('Rozwiąż weryfikację w oknie przeglądarki…');
+        else if (s.kind === 'stopped') deps.log(s.reason);
         else deps.log(`Szukam: ${cleanText(s.term)} (${s.index}/${s.total})…`);
       });
       let results: SearchResult[];

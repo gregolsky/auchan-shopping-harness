@@ -761,7 +761,8 @@ test('a 403 stops the search at once, with no retry, and says so', async () => {
   await t.svc.searchAuchan();
   await searchEnd(t.events);
   assert.equal(searchEvents(t.events).at(-1)!.status, 'stopped');
-  assert.equal(log.filter((u) => u.includes('/search')).length, 1, 'one request, never repeated');
+  assert.equal(log.filter((u) => u.startsWith('http')).length, 1, 'one request (the home page), never repeated');
+  assert.equal(log.filter((u) => u.includes('/search')).length, 0);
   assert.equal(t.svc.state().busy, null);
   assert.deepEqual(t.svc.state().trip.unmatched.map((u) => u.term), ['parówki', 'kawior']);
   assert.match(t.svc.state().trip.messages.at(-1)!, /zatrzymano/i);

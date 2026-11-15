@@ -528,6 +528,7 @@ export function createService(d: ServiceDeps) {
       onStatus: (s) => {
         if (s.kind === 'login') announce({ type: 'search', status: 'login' });
         else if (s.kind === 'captcha') announce({ type: 'search', status: 'captcha', term: cleanText(s.term) });
+        else if (s.kind === 'stopped') safeEmit({ type: 'log', text: s.reason });
         else announce({ type: 'search', status: 'searching', term: cleanText(s.term), index: s.index, total: s.total });
       },
     });

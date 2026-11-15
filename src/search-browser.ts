@@ -12,6 +12,7 @@ export interface PageLike {
 export type SearchStatus =
   | { kind: 'login' }
   | { kind: 'captcha'; term: string }
+  | { kind: 'stopped'; reason: string }
   | { kind: 'searching'; term: string; index: number; total: number };
 
 export interface SearchResult {
@@ -35,6 +36,11 @@ export interface BrowserSearchOptions {
 
 export const MAX_SEARCH_TERMS = 10;
 const CAPTCHA_TITLE = /confirm you are human/i;
+
+const stopReason = (status: number): string =>
+  status === 403 ? 'Auchan odmówił dostępu (403) — przerywam bez ponawiania.'
+    : status === 429 ? 'Auchan prosi o zwolnienie tempa (429) — przerywam bez ponawiania.'
+    : `Auchan odpowiedział błędem (${status}) — przerywam bez ponawiania.`;
 
 /**
  * Searches in a visible browser window. It never works around bot protection: a captcha is solved by the user,
@@ -111,7 +117,18 @@ export function createBrowserSearch(o: BrowserSearchOptions): { search(terms: st
       page = await o.openPage();
       const p = page;
 
-      if ((await navigate(p, `${ORIGIN}/`)) === null) return stopRest();
+      // A refusal on any navigation stops the run: the captcha page (checked by title) is the only non-2xx the user may solve.
+      const refused = async (status: number | null): Promise<boolean> => {
+        if (status === null) return true;
+        if (status >= 200 && status < 300) return false;
+        if (status !== 403 && status !== 429 && (await isCaptcha(p))) return false;
+        o.onStatus({ kind: 'stopped', reason: stopReason(status) });
+        return true;
+      };
+
+      const home = await navigate(p, `${ORIGIN}/`);
+      if (home === null) return stopRest();
+      if (await refused(home)) return stopRest();
       if (!(await loggedIn(p))) {
         o.onStatus({ kind: 'login' });
         if (!(await waitUntil(() => loggedIn(p), loginWaitMs))) return stopRest();
@@ -121,12 +138,11 @@ export function createBrowserSearch(o: BrowserSearchOptions): { search(terms: st
         const term = terms[i];
         o.onStatus({ kind: 'searching', term, index: i + 1, total: terms.length });
         const status = await navigate(p, `${ORIGIN}/search?q=${encodeURIComponent(term)}`);
-        if (status === null || status === 403) return stopRest();
+        if (status === null) return stopRest();
+        if (await refused(status)) return stopRest();
         if (await isCaptcha(p)) {
           o.onStatus({ kind: 'captcha', term });
           if (!(await waitUntil(async () => !(await isCaptcha(p)), captchaWaitMs))) return stopRest();
-        } else if (status < 200 || status >= 300) {
-          return stopRest(); // an error page that is not the captcha: stop, no retry
         }
         const state = await readState(p);
         const n = entityCount(state);
