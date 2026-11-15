@@ -103,12 +103,21 @@ const ROUTES: Record<string, Route> = {
   '/api/ask': post((s, b) => s.ask(str(b.text, 2000))),
   '/api/apply': post((s, b) => s.apply(key(b.proposalId))),
   '/api/reject': post((s, b) => s.reject(key(b.proposalId))),
+  '/api/proposal/op': post((s, b) => {
+    if (typeof b.index !== 'number' || !Number.isInteger(b.index) || b.index < 0 || b.index > 1000 || typeof b.accept !== 'boolean') throw bad();
+    return s.proposalOp(key(b.proposalId), b.index, b.accept);
+  }),
+  '/api/unmatched/remove': post((s, b) => s.dropUnmatched(str(b.term, 200))),
   '/api/answer': post((s, b) => {
     if (b.productId !== null && typeof b.productId !== 'string') throw bad();
     return s.answer(key(b.lineKey), b.productId === null ? null : key(b.productId));
   }),
   '/api/line': post((s, b) => {
     const lineKey = key(b.lineKey);
+    if (b.productId !== undefined) {
+      if (Object.keys(b).length !== 2) throw bad();
+      return s.chooseProduct(lineKey, key(b.productId));
+    }
     const change: { quantity?: number; remove?: true; included?: boolean } = {};
     if (b.quantity !== undefined) change.quantity = qty(b.quantity);
     if (b.remove !== undefined) {
