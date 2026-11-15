@@ -238,6 +238,15 @@ export function createAppServer(o: { service: AppService; token: string; publicD
   return server;
 }
 
+/** What the app does when it is killed: stop a running fill cleanly, close the server, exit. */
+export function createStop(service: Pick<AppService, 'shutdown'>, server: http.Server, exit: (code: number) => void = (code) => process.exit(code)): () => void {
+  return () => {
+    service.shutdown();
+    server.close(() => exit(0));
+    server.closeAllConnections();
+  };
+}
+
 export async function main(): Promise<void> {
   const token = randomBytes(16).toString('hex');
   const broadcaster = createBroadcaster();
@@ -258,13 +267,8 @@ export async function main(): Promise<void> {
     server.listen(requested ? Number(requested) : 0, '127.0.0.1', resolve);
   });
   console.log(`Zakupy: http://127.0.0.1:${(server.address() as AddressInfo).port}/?t=${token}`);
-  const stop = () => {
-    service.shutdown();
-    server.close(() => process.exit(0));
-    server.closeAllConnections();
-  };
-  process.on('SIGINT', stop);
-  process.on('SIGTERM', stop);
+  const stop = createStop(service, server);
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(sig, stop);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

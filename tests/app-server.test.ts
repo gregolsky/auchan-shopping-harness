@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
-import { createAppServer, createBroadcaster } from '../src/app/server.ts';
+import { createAppServer, createBroadcaster, createStop } from '../src/app/server.ts';
 
 const TOKEN = 'a'.repeat(32);
 type Call = [string, unknown[]];
@@ -302,4 +302,27 @@ test('service errors come back as a fixed message, never a stack', async () => {
     assert.ok(logged.length > 0);
     assert.ok(!logged.join('\n').includes('tajny tekst'));
   } finally { console.error = orig; s.close(); }
+});
+
+test('icon.svg is served as an SVG with the security headers', async () => {
+  const s = await start();
+  try {
+    const r = await fetch(s.base + `/icon.svg?t=${TOKEN}`);
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-type') ?? '', /^image\/svg\+xml/);
+    assert.match(r.headers.get('content-security-policy') ?? '', /default-src 'self'/);
+    assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
+  } finally { s.close(); }
+});
+
+test('the stop function shuts the service down, closes the server and exits', async () => {
+  const server = http.createServer();
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const order: string[] = [];
+  const exited = new Promise<number>((resolve) => {
+    createStop({ shutdown: () => void order.push('shutdown') }, server, (code) => { order.push('exit'); resolve(code); })();
+  });
+  assert.equal(await exited, 0);
+  assert.deepEqual(order, ['shutdown', 'exit']);
+  assert.equal(server.listening, false);
 });
