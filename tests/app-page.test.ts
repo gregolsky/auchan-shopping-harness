@@ -1,7 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionNote } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionNote, categoryFor, groupByCategory } from '../public/app.js';
+
+test('catalog category paths map to stable shopping sections and unknown paths stay in Inne', () => {
+  assert.equal(categoryFor(['Artykuły spożywcze', 'Sery']).key, 'dairy');
+  assert.equal(categoryFor(['Artykuły spożywcze', 'Mrożonki', 'Mrożone warzywa']).key, 'frozen');
+  assert.equal(categoryFor(['Artykuły spożywcze', 'Owoce, warzywa i zioła']).key, 'produce');
+  assert.equal(categoryFor(['Artykuły spożywcze', 'Sypkie i produkty zbożowe']).key, 'pantry');
+  assert.equal(categoryFor(['Dla zwierząt', 'Karma dla kota']).key, 'pet');
+  assert.equal(categoryFor(['Artykuły spożywcze', 'Pieczywo i wyroby cukiernicze', 'Wypieki słodkie']).key, 'snack');
+  assert.equal(categoryFor(['Higiena i kosmetyki']).key, 'care');
+  assert.deepEqual(categoryFor([]), { key: 'other', label: 'Inne', icon: 'other' });
+  assert.equal(categoryFor(['Nowa sekcja']).key, 'other');
+});
+
+test('grouping keeps a stable category order and original order within each category', () => {
+  const rows = [{ id: 1, categoryPath: ['Artykuły spożywcze', 'Sery'] }, { id: 2, categoryPath: ['Artykuły spożywcze', 'Sypkie i produkty zbożowe'] }, { id: 3, categoryPath: ['Artykuły spożywcze', 'Sery'] }];
+  assert.deepEqual(groupByCategory(rows).map((g) => [g.category.key, g.items.map((r) => r.id)]), [['dairy', [1, 3]], ['pantry', [2]]]);
+});
 
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,
   reason: 'bought before', confidence: 'medium', confidenceReason: 'not bought before', included: true, kind: 'item',

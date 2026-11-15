@@ -1,4 +1,36 @@
 export const STEPS = ['Dane', 'Lista', 'Przegląd', 'Doprecyzowanie', 'Zatwierdzenie', 'Koszyk', 'Płatność'];
+const CATEGORY_ORDER = ['produce', 'dairy', 'meat', 'bread', 'drink', 'snack', 'frozen', 'pantry', 'care', 'pet', 'other'];
+const CATEGORY_LABELS = { produce: 'Warzywa i owoce', dairy: 'Nabiał', meat: 'Mięso, wędliny i ryby', bread: 'Pieczywo', drink: 'Napoje', snack: 'Słodycze i przekąski', frozen: 'Mrożonki', pantry: 'Suche i spiżarnia', care: 'Chemia i higiena', pet: 'Zwierzęta', other: 'Inne' };
+const categoryText = (value) => String(value || '').toLocaleLowerCase('pl').normalize('NFD').replace(/\p{M}/gu, '').replace(/ł/g, 'l').trim();
+
+/** Stable catalog grouping; a missing or new branch gets the visible Inne fallback. */
+export function categoryFor(categoryPath) {
+  const path = Array.isArray(categoryPath) ? categoryPath.map(categoryText) : [];
+  const [root, branch, detail] = path;
+  let key = 'other';
+  if (path.some((part) => part.includes('mrozonk') || part.includes('mrozone'))) key = 'frozen';
+  else if (detail?.includes('wypieki slodkie')) key = 'snack';
+  else if (root === 'dla zwierzat') key = 'pet';
+  else if (root === 'chemia i srodki czystosci' || root === 'higiena i kosmetyki') key = 'care';
+  else if (['mleko, nabial i jaja', 'sery'].includes(branch) || detail === 'zamienniki nabialu') key = 'dairy';
+  else if (branch === 'owoce, warzywa i ziola') key = 'produce';
+  else if (['mieso i drob', 'wedliny', 'ryby i owoce morza'].includes(branch)) key = 'meat';
+  else if (branch === 'pieczywo i wyroby cukiernicze') key = 'bread';
+  else if (['napoje', 'soki, nektary', 'napoje, soki i syropy bio'].includes(branch) || root === 'kawa, herbata i kakao') key = 'drink';
+  else if (['slodycze', 'slone przekaski', 'bakalie', 'wypieki'].includes(branch)) key = 'snack';
+  else if (root === 'artykuly spozywcze' || root === 'zdrowa zywnosc') key = 'pantry';
+  return { key, label: CATEGORY_LABELS[key], icon: key };
+}
+
+export function groupByCategory(items) {
+  const groups = new Map();
+  items.forEach((item) => {
+    const category = categoryFor(item.categoryPath);
+    if (!groups.has(category.key)) groups.set(category.key, { category, items: [] });
+    groups.get(category.key).items.push(item);
+  });
+  return [...groups.values()].sort((a, b) => CATEGORY_ORDER.indexOf(a.category.key) - CATEGORY_ORDER.indexOf(b.category.key));
+}
 // The server keeps six steps; its 'szkic' is Lista without lines and Przegląd with lines (see stepIndexOf).
 const KEYS = ['dane', 'szkic', 'doprecyzowanie', 'zatwierdzenie', 'koszyk', 'platnosc'];
 const FIRST_CART = 5;
