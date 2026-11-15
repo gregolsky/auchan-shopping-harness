@@ -59,21 +59,24 @@ function describe(err: unknown, action: 'sync' | 'fill'): string {
 }
 
 /** Auchan's login does not survive a browser restart, so it must happen in this window. Undefined if the user gave up. */
-export async function withLogin<T>(worker: Worker, work: () => Promise<T>, message: string = LOG_IN): Promise<T | undefined> {
+export async function withLogin<T>(worker: Worker, work: () => Promise<T>, message: string = LOG_IN, say: (line: string) => void = (l) => console.error(l)): Promise<T | undefined> {
   try {
     return await work();
   } catch (err) {
     if (!(err instanceof LoginRequired)) throw err;
-    console.error(message);
+    say(message);
     if (!(await worker.waitForLogin())) return undefined;
     return await work();
   }
 }
 
-async function runSync(which: string | undefined, worker: Worker, store: Store, paceMs: number): Promise<number> {
+export async function runSync(
+  which: string | undefined, worker: Worker, store: Store, paceMs: number,
+  log: (line: string) => void = (l) => log(l), err: (line: string) => void = (l) => err(l),
+): Promise<number> {
   if (which !== 'promotions') {
     const r = await syncOrders(worker, store, { paceMs });
-    console.log(
+    log(
       `orders: imported ${r.imported}, skipped ${r.skipped}, oldest seen ${cleanText(r.oldestSeen ?? 'none')}; ` +
         `zero-quantity lines ${r.skippedZero}, substitutes ${r.substitutes}, missings ${r.missings}, returns ${r.returns}`,
     );
@@ -82,23 +85,20 @@ async function runSync(which: string | undefined, worker: Worker, store: Store, 
     // The session's own region cannot check itself: the expected one comes from a real delivery.
     const expectedRegionId = store.latestOrderRegion();
     if (expectedRegionId === null) {
-      console.error(NO_REGION);
+      err(NO_REGION);
       return 1;
     }
     const r = await syncPromotions(worker, store, { paceMs, expectedRegionId });
-    console.log(`promotions: ${r.products} products from ${r.pages} pages`);
-    if (r.capped.length) console.log(`capped (may be incomplete): ${r.capped.join(', ')}`);
-    if (r.skipped.length) console.log(`skipped: ${r.skipped.join(', ')}`);
+    log(`promotions: ${r.products} products from ${r.pages} pages`);
+    if (r.capped.length) log(`capped (may be incomplete): ${r.capped.join(', ')}`);
+    if (r.skipped.length) log(`skipped: ${r.skipped.join(', ')}`);
   }
   return 0;
 }
 
-export async function main(args: string[], deps: Deps = liveDeps): Promise<number> {
-  const which = args[0];
-  if (which !== undefined && which !== 'orders' && which !== 'promotions' && which !== 'check') {
-    console.error('usage: npm run sync [orders|promotions|check]');
-    return 2;
-  }
+type Out = { log(line: string): void; err(line: string): void };
+
+async function runSyncJob(which: string | undefined, deps: Deps, out: Out): Promise<number> {
   const paceMs = deps.paceMs ?? PACE_MS;
   let store: Store | undefined;
   let worker: Worker | undefined;
@@ -107,19 +107,33 @@ export async function main(args: string[], deps: Deps = liveDeps): Promise<numbe
     worker = await deps.openWorker();
     const open = worker;
     const work = async (): Promise<number> => {
-      if (store) return runSync(which, open, store, paceMs);
+      if (store) return runSync(which, open, store, paceMs, out.log, out.err);
       const { orders } = await checkOrders(open, { paceMs });
-      console.log(`ok: ${orders} orders on the page${orders === 0 ? ', so no order was checked' : ''}`);
+      out.log(`ok: ${orders} orders on the page${orders === 0 ? ', so no order was checked' : ''}`);
       return 0;
     };
-    return (await withLogin(open, work)) ?? 1;
+    return (await withLogin(open, work, LOG_IN, out.err)) ?? 1;
   } catch (err) {
-    console.error(describeFailure(err));
+    out.err(describeFailure(err));
     return 1;
   } finally {
     await worker?.close();
     store?.close();
   }
+}
+
+/** Orders then promotions, reporting through one logger (the app shows both kinds of line the same way). */
+export function syncAll(deps: Deps, log: (line: string) => void): Promise<number> {
+  return runSyncJob(undefined, deps, { log, err: log });
+}
+
+export async function main(args: string[], deps: Deps = liveDeps): Promise<number> {
+  const which = args[0];
+  if (which !== undefined && which !== 'orders' && which !== 'promotions' && which !== 'check') {
+    console.error('usage: npm run sync [orders|promotions|check]');
+    return 2;
+  }
+  return runSyncJob(which, deps, { log: (l) => console.log(l), err: (l) => console.error(l) });
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

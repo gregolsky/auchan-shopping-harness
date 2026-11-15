@@ -107,41 +107,50 @@ function substitutesFor(store: Store, lines: { term: string | null; productId: s
   return result;
 }
 
-export async function main(args: string[], deps: FillDeps = liveDeps): Promise<number> {
-  if (args.length) {
-    console.error('usage: npm run fill');
-    return 2;
-  }
+export interface FillHooks {
+  log(line: string): void;
+  progress(sent: number, total: number): void;
+  /** Failure lines; the CLI prints them on stderr. Defaults to log. */
+  error?(line: string): void;
+  /** Called once the lock is held; returns a cleanup run when the fill ends. The CLI installs its signal handlers here. */
+  onLocked?(h: { lockFile: string; token: string; markFailed(): void }): () => void;
+}
+
+export interface FillResult {
+  code: number;
+  report: (FillReport & { sent: number }) | null;
+  substitutes: Record<string, string[]>;
+  /** The printable report, when there is one. */
+  text: string | null;
+}
+
+export async function runFill(deps: FillDeps, hooks: FillHooks): Promise<FillResult> {
+  const error = hooks.error ?? hooks.log;
   const lockFile = deps.lockFile ?? LOCK_PATH;
   let store: Store | undefined;
   let worker: (Worker & CartAccess) | undefined;
   let token: string | false = false;
   let runId: number | undefined;
   const tally = { sent: 0 };
-  let removeHandlers = () => {};
+  let cleanup = () => {};
+  const fail = (code: number): FillResult => ({ code, report: null, substitutes: {}, text: null });
   try {
     store = deps.openStore();
     // Taken atomically before the basket is read and held for the whole run, so two fills never overlap
     // and the guard hook keeps browser tools away from the shared profile.
     token = acquireLock(lockFile);
     if (!token) {
-      console.error(BUSY);
-      return 1;
+      error(BUSY);
+      return fail(1);
     }
-    const onInterrupt = interruptHandler({
-      lockFile,
-      token,
-      owns: () => true,
-      markFailed: () => {
-        if (runId !== undefined) store?.finishFill(runId, { status: 'failed', sent: tally.sent, missing: 0, checkBeforePaying: 0 });
-      },
-    });
-    for (const sig of SIGNALS) process.on(sig, onInterrupt);
-    removeHandlers = () => SIGNALS.forEach((sig) => process.off(sig, onInterrupt));
+    const markFailed = () => {
+      if (runId !== undefined) store?.finishFill(runId, { status: 'failed', sent: tally.sent, missing: 0, checkBeforePaying: 0 });
+    };
+    if (hooks.onLocked) cleanup = hooks.onLocked({ lockFile, token, markFailed });
     const basket = store.latestApprovedBasket();
     if (!basket) {
-      console.error(NO_BASKET);
-      return 1;
+      error(NO_BASKET);
+      return fail(1);
     }
     runId = store.startFill(basket.basketId);
     worker = await deps.openWorker();
@@ -160,17 +169,18 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
           onPlan: (p) => {
             if (planShown) return;
             planShown = true;
-            console.log(`Do dodania: ${p.count} produktów, ok. ${zl(p.totalGrosze)}`);
+            hooks.log(`Do dodania: ${p.count} produktów, ok. ${zl(p.totalGrosze)}`);
           },
-          onProgress: (sent, total) => console.log(`Dodawanie do koszyka: ${sent}/${total}`),
+          onProgress: (sent, total) => hooks.progress(sent, total),
         });
       },
       LOG_IN,
+      error,
     );
     if (!report) {
-      console.error('Nie zalogowano: wypełnianie przerwane. Część produktów mogła już trafić do koszyka; ponowne uruchomienie doda tylko to, czego brakuje.');
+      error('Nie zalogowano: wypełnianie przerwane. Część produktów mogła już trafić do koszyka; ponowne uruchomienie doda tylko to, czego brakuje.');
       store.finishFill(runId, { status: 'failed', sent: tally.sent, missing: 0, checkBeforePaying: 0 });
-      return 1;
+      return fail(1);
     }
     store.finishFill(runId, {
       status: 'ok', sent: report.sent, missing: report.missing.length + report.outOfStock.length, checkBeforePaying: report.checkBeforePaying.length,
@@ -185,15 +195,16 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
     } catch {
       // The report is worth more than its extras.
     }
-    console.log(formatReport(report, basket.unmatched, subs, names));
-    return 0;
+    const text = formatReport(report, basket.unmatched, subs, names);
+    hooks.log(text);
+    return { code: 0, report, substitutes: subs, text };
   } catch (err) {
     if (runId !== undefined) store?.finishFill(runId, { status: 'failed', sent: tally.sent, missing: 0, checkBeforePaying: 0 });
-    console.error(describeFailure(err, 'fill'));
-    if (!(err instanceof Blocked)) console.error(RERUN_SAFE); // Refused is a Blocked: its own text says what to do
-    return 1;
+    error(describeFailure(err, 'fill'));
+    if (!(err instanceof Blocked)) error(RERUN_SAFE); // Refused is a Blocked: its own text says what to do
+    return fail(1);
   } finally {
-    removeHandlers();
+    cleanup();
     try {
       if (token) releaseLock(lockFile, token);
     } finally {
@@ -204,6 +215,23 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
       }
     }
   }
+}
+
+export async function main(args: string[], deps: FillDeps = liveDeps): Promise<number> {
+  if (args.length) {
+    console.error('usage: npm run fill');
+    return 2;
+  }
+  return (await runFill(deps, {
+    log: (line) => console.log(line),
+    progress: (sent, total) => console.log(`Dodawanie do koszyka: ${sent}/${total}`),
+    error: (line) => console.error(line),
+    onLocked({ lockFile, token, markFailed }) {
+      const onInterrupt = interruptHandler({ lockFile, token, owns: () => true, markFailed });
+      for (const sig of SIGNALS) process.on(sig, onInterrupt);
+      return () => SIGNALS.forEach((sig) => process.off(sig, onInterrupt));
+    },
+  })).code;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
