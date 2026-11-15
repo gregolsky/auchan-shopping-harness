@@ -11,3 +11,7 @@ export function nextSelected(selected: number, stepIndex: number, first?: boolea
 export function claudeStatus(pending: 'note' | 'ask' | null): { working: boolean; text: string | null; disableNote: boolean; disableAsk: boolean };
 export function approveHint(model: any, busy: string | null): string | null;
 export function lineLabel(line: any): string;
+export const START_TEXT: { note: string; ask: string };
+export function workingPanel(text: string, seconds: number): { text: string; elapsed: string; hint: string; slow: string | null };
+export function doneSummary(model: any): string;
+export function failureText(kind: 'note' | 'ask', message: string): string;

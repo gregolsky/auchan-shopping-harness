@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, lineLabel } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, lineLabel, workingPanel, doneSummary, failureText, START_TEXT } from '../public/app.js';
 
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,
   reason: 'bought before', confidence: 'medium', confidenceReason: 'not bought before', included: true, kind: 'item',
@@ -136,4 +136,35 @@ test('proposal texts name the list item they change', () => {
   assert.equal(describeOp({ op: 'choose', lineKey: 't:ser', productId: 'g' }, byKey), 'ser żółty: zamień „Ser żółty Królewski” na „Ser Gouda Auchan 500 g”');
   assert.equal(describeOp({ op: 'remove', lineKey: 't:kurczak' }, byKey), 'pierś z kurczaka: usuń „Kiełbasa”');
   assert.equal(describeOp({ op: 'setQuantity', lineKey: 't:ser', quantity: 3 }, byKey), 'ser żółty: ustaw „Ser żółty Królewski” na 3 szt.');
+});
+
+test('the working panel shows the stage, elapsed seconds and the usual duration; slow after 90 s', () => {
+  const p = workingPanel('Czytam listę (1/3)…', 12);
+  assert.deepEqual(p, { text: 'Czytam listę (1/3)…', elapsed: '12 s', hint: 'Zwykle trwa to 10–30 s.', slow: null });
+  assert.equal(workingPanel('x', 89).slow, null);
+  assert.equal(workingPanel('x', 90).slow, 'Wciąż pracuję — Claude odpowiada wolniej niż zwykle.');
+  assert.equal(START_TEXT.note, 'Czytam listę (1/3)…');
+  assert.equal(START_TEXT.ask, 'Claude przygotowuje propozycję…');
+});
+
+test('after a note the alert summarises products, questions and the Claude proposal, omitting zero parts', () => {
+  const q = { ...line, lineKey: 'a' }, plain = { ...line, lineKey: 'b', question: null }, sug = { ...line, lineKey: 'c', kind: 'suggestion', question: null };
+  const proposal = { id: 'p', ops: [{}, {}, {}], dropped: 0 };
+  assert.equal(doneSummary(viewModel(tripAt('doprecyzowanie', { lines: [q, plain, plain, sug], proposal }))), 'Gotowe: 3 produkty, 1 pytanie, propozycja Claude: 3 zmiany.');
+  assert.equal(doneSummary(viewModel(tripAt('doprecyzowanie', { lines: [plain] }))), 'Gotowe: 1 produkt.');
+  assert.equal(doneSummary(viewModel(tripAt('szkic', { lines: [] }))), 'Gotowe.');
+});
+
+test('a failed note or command says what to do', () => {
+  assert.equal(failureText('note', 'Błąd sieci.'), 'Nie udało się ułożyć szkicu: Błąd sieci. Spróbuj jeszcze raz.');
+  assert.equal(failureText('note', 'Błąd sieci'), 'Nie udało się ułożyć szkicu: Błąd sieci. Spróbuj jeszcze raz.');
+  assert.equal(failureText('ask', 'Błąd.'), 'Nie udało się przygotować propozycji: Błąd. Spróbuj jeszcze raz.');
+});
+
+test('summary uses Polish plurals', () => {
+  const many = (n: number) => Array.from({ length: n }, (_, i) => ({ ...line, lineKey: `k${i}`, question: null }));
+  const text = (n: number) => doneSummary(viewModel(tripAt('szkic', { lines: many(n) })));
+  assert.equal(text(5), 'Gotowe: 5 produktów.');
+  assert.equal(text(22), 'Gotowe: 22 produkty.');
+  assert.equal(text(12), 'Gotowe: 12 produktów.');
 });

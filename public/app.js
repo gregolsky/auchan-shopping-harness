@@ -76,6 +76,32 @@ export function parseBudget(text) {
   return { ok: true, grosze: Math.round(Number(value.replace(',', '.')) * 100) };
 }
 
+const plural = (n, one, few, many) => `${n} ${n === 1 ? one : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? few : many}`;
+
+export const START_TEXT = { note: 'Czytam listę (1/3)…', ask: 'Claude przygotowuje propozycję…' };
+const SLOW_AFTER_SECONDS = 90;
+
+/** The status panel while Claude works: stage text, elapsed seconds, the usual duration, and a warning when it takes too long. */
+export function workingPanel(text, seconds) {
+  return { text, elapsed: `${seconds} s`, hint: 'Zwykle trwa to 10–30 s.', slow: seconds >= SLOW_AFTER_SECONDS ? 'Wciąż pracuję — Claude odpowiada wolniej niż zwykle.' : null };
+}
+
+/** What the alert says when a note is done: counts of products, questions and the held Claude proposal; zero parts are left out. */
+export function doneSummary(model) {
+  const parts = [];
+  if (model.lines.length) parts.push(plural(model.lines.length, 'produkt', 'produkty', 'produktów'));
+  if (model.questions.length) parts.push(plural(model.questions.length, 'pytanie', 'pytania', 'pytań'));
+  const ops = model.proposalText.length;
+  if (ops) parts.push(`propozycja Claude: ${plural(ops, 'zmiana', 'zmiany', 'zmian')}`);
+  return parts.length ? `Gotowe: ${parts.join(', ')}.` : 'Gotowe.';
+}
+
+/** A failed note or command: what went wrong and what to do. */
+export function failureText(kind, message) {
+  const what = kind === 'note' ? 'Nie udało się ułożyć szkicu' : 'Nie udało się przygotować propozycji';
+  return `${what}: ${String(message).replace(/\.$/, '')}. Spróbuj jeszcze raz.`;
+}
+
 /** Which item of the user's list a line answers: their own words, or why a suggestion was made. */
 export function lineLabel(line) {
   if (line.term) return `z Twojej listy: ${line.note ? `${line.term} — ${line.note}` : line.term}`;
