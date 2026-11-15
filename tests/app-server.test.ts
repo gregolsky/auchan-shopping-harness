@@ -279,11 +279,13 @@ test('the events stream sends state and progress events as SSE', async () => {
     await reader.read(); // initial comment flushes headers
     s.broadcaster.emit({ type: 'state' });
     s.broadcaster.emit({ type: 'progress', sent: 1, total: 3 });
+    s.broadcaster.emit({ type: 'working', stage: 'parse', text: 'Czytam listę (1/3)…' });
     let text = '';
     const dec = new TextDecoder();
-    while (!text.includes('progress')) text += dec.decode((await reader.read()).value);
+    while (!text.includes('Czytam')) text += dec.decode((await reader.read()).value);
     assert.match(text, /event: state\ndata: \{"type":"state"\}\n\n/);
     assert.match(text, /event: progress\ndata: \{"type":"progress","sent":1,"total":3\}\n\n/);
+    assert.match(text, /event: working\ndata: \{"type":"working","stage":"parse","text":"Czytam listę \(1\/3\)…"\}\n\n/);
     await reader.cancel();
     for (let i = 0; i < 50 && s.broadcaster.size() > 0; i++) await new Promise((x) => setTimeout(x, 20));
     assert.equal(s.broadcaster.size(), 0);

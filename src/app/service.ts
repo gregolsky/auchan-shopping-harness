@@ -27,6 +27,7 @@ export type AppEvent =
   | { type: 'progress'; sent: number; total: number }
   | { type: 'report'; report: unknown }
   | { type: 'state' }
+  | { type: 'working'; stage: 'parse' | 'draft' | 'choose' | 'done'; text: string }
   | { type: 'done'; code: number };
 
 export interface ServiceDeps {
@@ -190,9 +191,11 @@ export function createService(d: ServiceDeps) {
       const mine = ++generation;
       const stale = () => frozen() || mine !== generation;
       let t: Trip = { ...emptyTrip(d.now()), note: input.note, ...(trip.blocked ? { blocked: true } : {}) };
+      d.emit({ type: 'working', stage: 'parse', text: 'Czytam listę (1/3)…' });
       const parsed = await askClaude(d.spawn, 'parse', t, input.note);
       if (stale()) return frozen() ? hold() : trip;
       const mode: Trip['mode'] = parsed === null ? 'fallback' : 'claude';
+      d.emit({ type: 'working', stage: 'draft', text: 'Dobieram produkty z historii i promocji (2/3)…' });
       const items = parsed === null
         ? parseNote(input.note)
         : parsed.ops.flatMap((o) => (o.op === 'add' ? [{ term: o.term, quantity: o.quantity, note: o.note ?? '' }] : []));
@@ -212,6 +215,7 @@ export function createService(d: ServiceDeps) {
       if (t.lines.length === 0 && t.unmatched.length === 0 && !draft.blocked?.length) t = { ...t, messages: [...t.messages, 'Nie rozpoznano żadnych pozycji.'] };
 
       if (mode === 'claude' && t.lines.length > 0) {
+        d.emit({ type: 'working', stage: 'choose', text: 'Claude sprawdza dopasowania (3/3)…' });
         const chosen = await askClaude(d.spawn, 'choose', t, input.note);
         if (stale()) return frozen() ? hold() : trip;
         if (chosen === null) {
@@ -223,13 +227,16 @@ export function createService(d: ServiceDeps) {
       }
       if (drop > 0) t = { ...t, messages: [...t.messages, dropped(drop)] };
       if (t.mode === 'fallback') t = askEveryDoubtfulLine(t);
+      d.emit({ type: 'working', stage: 'done', text: 'Gotowe.' });
       return commit(settle({ ...t, step: 'szkic' }));
     },
 
     async ask(text: string): Promise<Trip> {
       if (frozen()) return hold();
       const before = generation;
+      d.emit({ type: 'working', stage: 'choose', text: 'Claude przygotowuje propozycję…' });
       const r = await askClaude(d.spawn, 'adhoc', trip, text);
+      d.emit({ type: 'working', stage: 'done', text: 'Gotowe.' });
       if (frozen()) return hold();
       if (before !== generation) return trip;
       if (r === null) return commit({ ...trip, messages: [...trip.messages, 'Claude jest niedostępny — nie mogę wykonać polecenia.'] });

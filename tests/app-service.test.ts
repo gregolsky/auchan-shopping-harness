@@ -229,7 +229,7 @@ test('approve fills the fake cart and emits progress then report then done; a se
   assert.match((await svc.sync()).reason!, /trwa/);
   await done(events);
   assert.deepEqual((c as FakeCart).quantities, Object.fromEntries(t.lines.map((l) => [l.productId, l.quantity])));
-  const types = events.map((e) => e.type).filter((x) => x !== 'state' && x !== 'log');
+  const types = events.map((e) => e.type).filter((x) => x !== 'state' && x !== 'log' && x !== 'working');
   assert.deepEqual(types, ['progress', 'report', 'done']);
   const rep = events.find((e) => e.type === 'report') as { type: 'report'; report: any };
   assert.match(rep.report.text, /Zapłać na https:\/\/zakupy.auchan.pl\/checkout/);
@@ -543,4 +543,23 @@ test('after payment the trip is frozen: line, answer, apply, ask and note are re
   assert.deepEqual(svc.state().trip.lines, before);
   assert.equal(spawned.length, calls, 'Claude is not called');
   assert.equal(svc.state().trip.messages.at(-1), 'Te zakupy są już w koszyku. Kliknij „Nowe zakupy”, żeby zacząć od nowa.');
+});
+
+test('note emits working stages in order; ask emits its own text', async () => {
+  const { svc, events } = setup({ claude: { parse: parseMilk, choose: { ops: [] }, adhoc: { ops: [] } } });
+  await svc.note({ note: 'mleko, chleb', includeUsual: false });
+  const working = () => events.flatMap((e) => (e.type === 'working' ? [[e.stage, e.text]] : []));
+  assert.deepEqual(working(), [
+    ['parse', 'Czytam listę (1/3)…'], ['draft', 'Dobieram produkty z historii i promocji (2/3)…'],
+    ['choose', 'Claude sprawdza dopasowania (3/3)…'], ['done', 'Gotowe.'],
+  ]);
+  events.length = 0;
+  await svc.ask('weź tańsze');
+  assert.deepEqual(working(), [['choose', 'Claude przygotowuje propozycję…'], ['done', 'Gotowe.']]);
+});
+
+test('note in fallback mode skips the choose stage', async () => {
+  const { svc, events } = setup();
+  await svc.note({ note: 'chleb', includeUsual: false });
+  assert.deepEqual(events.flatMap((e) => (e.type === 'working' ? [e.stage] : [])), ['parse', 'draft', 'done']);
 });
