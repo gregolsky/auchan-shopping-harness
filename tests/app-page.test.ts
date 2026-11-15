@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary } from '../public/app.js';
 
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,
   reason: 'bought before', confidence: 'medium', confidenceReason: 'not bought before', included: true, kind: 'item',
@@ -283,4 +283,33 @@ test('lineCard never lists a low candidate as an alternative', () => {
   const card = lineCard({ lineKey: 't:x', term: 'x', name: 'a', productId: 'a', quantity: 1, lineCostGrosze: 100, confidence: 'high', confidenceReason: '', kind: 'item', included: true, question: null,
     candidates: [c('a', 'high'), c('b', 'low'), c('c', 'medium')] } as any);
   assert.deepEqual(card.alternatives.map((a: any) => a.productId), ['c']);
+});
+
+const mlLine = { ...cardLine, lineKey: 't:marchew', term: 'marchew', name: 'Marchew 1 kg' };
+const kurczak = { ...cardLine, lineKey: 't:kurczak', term: 'pierś z kurczaka', name: 'Pierś kurczaka' };
+
+test('proposalNote counts the changes shown at products and names each line', () => {
+  const trip = { lines: [mlLine, kurczak], proposal: { id: 'p', ops: [
+    { op: 'setQuantity', lineKey: 't:marchew', quantity: 2 }, { op: 'remove', lineKey: 't:kurczak' }, { op: 'add', term: 'chleb', quantity: 1 }] } };
+  const n = proposalNote(trip)!;
+  assert.equal(n.intro, 'Jeszcze 2 zmiany przy produktach:');
+  assert.deepEqual(n.items, [{ lineKey: 't:marchew', name: 'marchew', what: 'ilość 2' }, { lineKey: 't:kurczak', name: 'pierś z kurczaka', what: 'usuń' }]);
+  assert.equal(n.text, 'Jeszcze 2 zmiany przy produktach: marchew (ilość 2), pierś z kurczaka (usuń).');
+  assert.equal(proposalNote({ lines: [mlLine], proposal: { id: 'p', ops: [{ op: 'add', term: 'x', quantity: 1 }] } }), null);
+  assert.equal(proposalNote({ lines: [], proposal: null }), null);
+  const one = proposalNote({ lines: [mlLine], proposal: { id: 'p', ops: [{ op: 'remove', lineKey: 't:marchew' }] } })!;
+  assert.equal(one.intro, 'Jeszcze 1 zmiana przy produktach:');
+});
+
+test('proposal buttons say what accepting does for each kind', () => {
+  assert.deepEqual(proposalButtons({ op: 'unmatched', term: 'x' }), { accept: 'OK, dodam sam na Auchan', skip: 'Pomiń' });
+  assert.deepEqual(proposalButtons({ op: 'add', term: 'x', quantity: 1 }), { accept: 'Dodaj do listy', skip: 'Pomiń' });
+  assert.deepEqual(proposalButtons({ op: 'remove', lineKey: 'a' }), { accept: 'Weź to', skip: 'Pomiń' });
+});
+
+test('accept-all summary says what the number contains', () => {
+  const ops = [{ op: 'unmatched', term: 'a' }, { op: 'unmatched', term: 'b' }, { op: 'setQuantity', lineKey: 'x', quantity: 2 }, { op: 'remove', lineKey: 'y' }, { op: 'add', term: 'c', quantity: 1 }];
+  assert.equal(acceptAllSummary(ops), '2 do dodania ręcznie, 1 do dodania do listy, 1 zmiana ilości, 1 usunięcie');
+  assert.equal(acceptAllSummary([]), '');
+  assert.equal(acceptAllSummary([{ op: 'remove', lineKey: 'y' }, { op: 'remove', lineKey: 'z' }, { op: 'choose', lineKey: 'q', productId: 'p' }]), '1 zamiana produktu, 2 usunięcia');
 });

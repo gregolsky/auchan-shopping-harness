@@ -141,6 +141,45 @@ export function proposalView(trip) {
   });
   return { count: ops.length, byLine, loose };
 }
+/** The line by line part of a pending proposal: how many changes sit on product cards and what each one does. */
+export function proposalNote(trip) {
+  const view = proposalView(trip);
+  const lines = new Map((trip?.lines || []).map((l) => [l.lineKey, l]));
+  const what = (op, line) => ({
+    remove: 'usuń', setQuantity: `ilość ${op.quantity}`, ask: 'pytanie',
+    choose: `zamiana na ${(line.candidates || []).find((c) => c.productId === op.productId)?.name || 'inny produkt'}`,
+  }[op.op] || 'zmiana');
+  const items = Object.entries(view.byLine).map(([lineKey, ops]) => {
+    const line = lines.get(lineKey);
+    return { lineKey, name: line.term || line.name, what: ops.map(({ op }) => what(op, line)).join(', ') };
+  });
+  if (!items.length) return null;
+  const count = Object.values(view.byLine).reduce((n, ops) => n + ops.length, 0);
+  const intro = `Jeszcze ${plural(count, 'zmiana', 'zmiany', 'zmian')} przy produktach:`;
+  return { intro, items, text: `${intro} ${items.map((i) => `${i.name} (${i.what})`).join(', ')}.` };
+}
+
+/** Button labels for a proposal row: accepting an unmatched term only means the user adds it on Auchan themselves. */
+export function proposalButtons(op) {
+  if (op.op === 'unmatched') return { accept: 'OK, dodam sam na Auchan', skip: 'Pomiń' };
+  if (op.op === 'add') return { accept: 'Dodaj do listy', skip: 'Pomiń' };
+  return { accept: 'Weź to', skip: 'Pomiń' };
+}
+
+/** One line saying what "accept all" contains. */
+export function acceptAllSummary(ops) {
+  const n = (kind) => ops.filter((o) => o.op === kind).length;
+  const p = (kind, one, few, many) => (n(kind) ? [plural(n(kind), one, few, many)] : []);
+  return [
+    ...(n('unmatched') ? [`${n('unmatched')} do dodania ręcznie`] : []),
+    ...(n('add') ? [`${n('add')} do dodania do listy`] : []),
+    ...p('choose', 'zamiana produktu', 'zamiany produktu', 'zamian produktu'),
+    ...p('setQuantity', 'zmiana ilości', 'zmiany ilości', 'zmian ilości'),
+    ...p('remove', 'usunięcie', 'usunięcia', 'usunięć'),
+    ...p('ask', 'pytanie', 'pytania', 'pytań'),
+  ].join(', ');
+}
+
 export const acceptAllText = (count) => `Przyjmij wszystkie propozycje (${count})`;
 
 /** Everything one product card shows, so the DOM code only has to place it. */
@@ -278,6 +317,7 @@ export function start() {
   function lineCardNode(line, ops) {
     const view = lineCard(line, ops);
     const node = element('article', `line-card${view.held ? ' waiting' : ''}`);
+    node.dataset.lineKey = line.lineKey; node.tabIndex = -1;
     node.append(element('div', 'meta from-list', view.label));
     const info = element('div', 'line-info');
     append(info, element('span', 'line-name', view.name), element('span', 'price', view.priceText), element('span', `badge ${view.badge.level}`, view.badge.text));
@@ -460,17 +500,37 @@ export function start() {
     } catch (error) { tell(error.message); }
   }
   /** Claude's pending changes: one button for all of them, and the ones that belong to no line. The rest sit on the product cards. */
+  /** Scrolls to a product card, focuses it for keyboard users and flashes it briefly. */
+  function showLine(lineKey) {
+    const node = [...document.querySelectorAll('.line-card')].find((n) => n.dataset.lineKey === lineKey);
+    if (!node) return;
+    node.scrollIntoView({ block: 'center' });
+    node.focus({ preventScroll: true });
+    node.classList.add('flash');
+    setTimeout(() => node.classList.remove('flash'), 1600);
+  }
   function renderProposal() {
     const proposal = state.trip.proposal;
     if (!proposal || ![1, 2, 3].includes(selected)) return;
     const view = proposalView(state.trip);
     const box = card('Claude proponuje zmiany', 'Przy produktach widać każdą zmianę osobno — możesz ją wziąć albo zostawić obecny wybór.');
-    view.loose.forEach(({ index, text }) => {
+    const note = proposalNote(state.trip);
+    if (note) {
+      const p = element('p', 'proposal-note', `${note.intro} `);
+      note.items.forEach((item, i) => {
+        p.append(button(`${item.name} (${item.what})`, () => showLine(item.lineKey), 'link-button'), i < note.items.length - 1 ? ', ' : '.');
+      });
+      box.append(p);
+    }
+    view.loose.forEach(({ index, op, text }) => {
       const row = element('div', 'proposal');
-      append(row, element('span', 'line-name', text), append(element('div', 'actions'), button('Weź to', () => proposalOp(index, true), 'small'), button('Pomiń', () => proposalOp(index, false), 'small quiet')));
+      const labels = proposalButtons(op);
+      append(row, element('span', 'line-name', text), append(element('div', 'actions'), button(labels.accept, () => proposalOp(index, true), 'small'), button(labels.skip, () => proposalOp(index, false), 'small quiet')));
       box.append(row);
     });
     if (proposal.dropped) box.append(element('p', 'meta', `Pominięto ${proposal.dropped} nieprawidłowych zmian.`));
+    const summary = acceptAllSummary(proposal.ops || []);
+    if (summary) box.append(element('p', 'meta', `W tym: ${summary}.`));
     append(box, button(acceptAllText(view.count), () => run('/api/apply', { proposalId: proposal.id })), button('Odrzuć wszystkie', () => run('/api/reject', { proposalId: proposal.id }), 'quiet'));
     target.append(box);
   }

@@ -21,3 +21,6 @@ export function lineCard(line: any, ops?: { index: number; op: any }[]): any;
 export function proposalView(trip: any): { count: number; byLine: Record<string, { index: number; op: any }[]>; loose: { index: number; op: any; text: string }[] };
 export function unmatchedCard(item: { term: string; hint?: string }): { title: string; hint: string | null };
 export function acceptAllText(count: number): string;
+export function proposalNote(trip: any): { intro: string; items: { lineKey: string; name: string; what: string }[]; text: string } | null;
+export function proposalButtons(op: any): { accept: string; skip: string };
+export function acceptAllSummary(ops: any[]): string;
