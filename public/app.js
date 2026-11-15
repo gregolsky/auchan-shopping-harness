@@ -652,7 +652,7 @@ export function start() {
     const results = card('3. Przegląd', 'Sprawdź nazwę, ilość i ocenę dopasowania.');
     const model = viewModel(state);
     const blockedNotice = state.trip.messages?.find((m) => m.startsWith('Pominięto zablokowane produkty:'));
-    if (blockedNotice) results.append(element('p', 'message blocked', `⛔ ${blockedNotice}`));
+    if (blockedNotice) results.append(append(element('p', 'message blocked'), iconNode('warning'), element('span', '', blockedNotice)));
     if (!model.lines.length) results.append(element('p', 'empty', 'Produkty pojawią się tu po ułożeniu szkicu.'));
     appendGroupedProducts(results, model.lines);
     if (model.suggestions.length) {
@@ -756,7 +756,7 @@ export function start() {
       if (!blocked.length) blockedBox.append(element('p', 'empty', 'Brak zablokowanych produktów.'));
       blocked.forEach((item) => {
         const row = element('div', 'line row');
-        append(row, element('span', 'line-name', `⛔ ${item.name}`), button('Odblokuj', async () => {
+        append(row, append(element('span', 'blocked-product-name'), iconNode('warning'), element('span', 'line-name', item.name)), button('Odblokuj', async () => {
           const changed = await run('/api/blocked/remove', { productId: item.productId });
           if (changed?.changed) render();
         }, 'small danger', state.busy !== null));

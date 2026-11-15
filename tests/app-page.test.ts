@@ -27,7 +27,7 @@ test('every shopping category and the empty thumbnail has a vector icon', () => 
   }
   assert.deepEqual(iconPaths('unknown'), iconPaths('other'));
   const js = readFileSync('public/app.js', 'utf8');
-  assert.doesNotMatch(js, /🛒/);
+  assert.doesNotMatch(js, /🛒|⛔/);
 });
 
 test('payment report separates status sections, counts rows and keeps product categories when known', () => {
