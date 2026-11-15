@@ -6,7 +6,7 @@ import type { Product, PriceObservation } from '../src/types.ts';
 import { replayOrder, replayLatest } from '../tools/replay.ts';
 
 const lineOf = (productId: string): DraftLine => ({
-  term: null, productId, name: productId, quantity: 1, lineCostGrosze: 100, reason: '', guess: false, capped: false, lastBought: null, alternatives: [],
+  term: null, productId, name: productId, quantity: 1, lineCostGrosze: 100, reason: '', guess: false, capped: false, lastBought: null, confidence: 'high', confidenceReason: '', alternatives: [],
 });
 const draftOf = (ids: string[]): Draft => ({ items: ids.map(lineOf), stockUps: [], promotions: [], addOns: [], unmatched: [], totalGrosze: 0, overBudgetGrosze: null });
 

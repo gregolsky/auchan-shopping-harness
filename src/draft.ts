@@ -1,5 +1,5 @@
 import { matchesTerm, rankCandidates } from './candidates.ts';
-import type { Candidate } from './candidates.ts';
+import type { Candidate, Confidence } from './candidates.ts';
 import { lineCost, parseOffer } from './pricing.ts';
 import { capQuantity, isUsual, lastBoughtText, stockUp } from './rules.ts';
 import { normaliseTerm } from './store.ts';
@@ -21,7 +21,10 @@ export interface DraftLine {
   guess: boolean;
   capped: boolean;
   lastBought: string | null;
-  alternatives: { productId: string; name: string; lineCostGrosze: number }[];
+  confidence: Confidence;
+  /** Why a medium or low line is doubtful; "" for high. */
+  confidenceReason: string;
+  alternatives: { productId: string; name: string; lineCostGrosze: number; confidence: Confidence }[];
 }
 
 export interface Draft {
@@ -59,11 +62,11 @@ function savingNote(f: ProductFacts): string {
   return s ? `; ${s.savingPercent}% below its usual unit price at quantity ${s.quantity}` : '';
 }
 
-function line(f: Buyable, p: { term: string | null; quantity: number; reason: string; guess?: boolean; capped?: boolean; alternatives?: DraftLine['alternatives'] }, now: Date): DraftLine {
+function line(f: Buyable, p: { term: string | null; quantity: number; reason: string; guess?: boolean; capped?: boolean; alternatives?: DraftLine['alternatives']; confidence?: Confidence; confidenceReason?: string }, now: Date): DraftLine {
   return {
     term: p.term, productId: f.productId, name: f.name, quantity: p.quantity, lineCostGrosze: costAt(f, p.quantity),
     reason: p.reason, guess: p.guess ?? false, capped: p.capped ?? false, lastBought: lastBoughtText(f, now),
-    alternatives: p.alternatives ?? [],
+    confidence: p.confidence ?? 'high', confidenceReason: p.confidenceReason ?? '', alternatives: p.alternatives ?? [],
   };
 }
 
@@ -98,9 +101,9 @@ export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: Inte
     const cap = capQuantity(top, quantity);
     let reason = basisReason(top, term) + savingNote(top);
     if (cap.capped) reason += `; capped at ${cap.quantity} because it is perishable`;
-    const alternatives = ranked.slice(1, 4).filter(buyable).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, capped(c)) }));
+    const alternatives = ranked.slice(1, 4).filter(buyable).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, capped(c)), confidence: c.confidence }));
     used.add(top.productId);
-    items.push(line(top, { term, quantity: cap.quantity, reason, guess: top.guess, capped: cap.capped, alternatives }, now));
+    items.push(line(top, { term, quantity: cap.quantity, reason, guess: top.guess, capped: cap.capped, alternatives, confidence: top.confidence, confidenceReason: top.confidenceReason }, now));
   }
 
   // A wrong-brand product or one replaced by a live preferred product stays out of every group.

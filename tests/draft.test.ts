@@ -251,3 +251,26 @@ test('without usual products, a wrong-brand or twice-replaced product is in no g
   const d2 = buildDraft(input([]), [a, fact('b', { name: 'Napój Beta' })], [learnedRule()], now);
   assert.deepEqual([...d2.items, ...d2.stockUps, ...d2.promotions, ...d2.addOns], []);
 });
+
+test('a term line carries the candidate confidence and each alternative its own', () => {
+  const facts = [
+    fact('onion', { name: 'Cebula złota Warzywa Auchan 1 kg', timesBought: 5 }),
+    fact('chips', { name: "Chipsy o smaku zielonej cebulki Lay's 190 g", timesBought: 2 }),
+  ];
+  const d = buildDraft(input([{ term: 'cebula', quantity: 1 }]), facts, [], now);
+  assert.equal(d.items[0].productId, 'onion');
+  assert.equal(d.items[0].confidence, 'high');
+  assert.equal(d.items[0].confidenceReason, '');
+  assert.equal(d.items[0].alternatives[0].confidence, 'low');
+
+  const only = buildDraft(input([{ term: 'cebula', quantity: 1 }]), [facts[1]], [], now);
+  assert.equal(only.items[0].confidence, 'low');
+  assert.equal(only.items[0].confidenceReason, 'term only in the flavour');
+});
+
+test('lines not built from a term are high confidence', () => {
+  const d = buildDraft(input([], true), [usual('u', { offerText: '2 za 1', requiredQuantity: 2 })], [], now);
+  const all = [...d.items, ...d.stockUps, ...d.promotions, ...d.addOns];
+  assert.ok(all.length > 0);
+  for (const l of all) { assert.equal(l.confidence, 'high'); assert.equal(l.confidenceReason, ''); }
+});

@@ -223,6 +223,8 @@ test('draft_basket returns the groups from a seeded store', async () => {
       const d = await draft(c);
       assert.equal(d.items.length, 1);
       assert.equal(d.items[0].productId, 'm2');
+      assert.match(d.items[0].confidence, /^(high|medium|low)$/);
+      assert.equal(typeof d.items[0].confidenceReason, 'string');
       assert.equal(d.totalGrosze, 200);
       assert.deepEqual(d.unmatched, []);
       assert.match(d.lastSyncAt, /^\d{4}-/);
