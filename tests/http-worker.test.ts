@@ -250,6 +250,15 @@ test('applyQuantities asks for a login when the session expired since the last t
   cleanup();
 });
 
+test('applyQuantities asks for a login when /orders says the session is anonymous even with a token', async () => {
+  const { worker, calls, cleanup } = setup((url) =>
+    url.endsWith('/orders') ? new Response(page({ session: { isLoggedIn: false, csrf: { token: 't1' } } })) : new Response('{}'),
+  );
+  await assert.rejects(() => worker.applyQuantities([{ productId: P1, quantity: 1 }]), LoginRequired);
+  assert.equal(calls.filter((c) => c.init.method === 'POST').length, 0);
+  cleanup();
+});
+
 test('applyQuantities fetches a fresh CSRF token on every call', async () => {
   const { worker, calls, cleanup } = setup(cartServer());
   await worker.applyQuantities([{ productId: P1, quantity: 1 }]);

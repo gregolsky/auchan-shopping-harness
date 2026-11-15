@@ -76,7 +76,7 @@ export interface CartAccess {
   applyQuantities(changes: CartChange[]): Promise<LimitedItem[]>;
 }
 export const MAX_BATCH = 10;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** A 4xx other than 401, 403 and 429: Auchan refused the request itself. */
 export class Rejected extends Error {
@@ -187,7 +187,8 @@ export function createHttpWorker(o: HttpOptions): Worker & CartAccess {
         }
       }
       csrf = undefined; // a stale token must not survive a page that has none (an expired session)
-      await loadState('/orders'); // a fresh token for every batch
+      const state = await loadState('/orders'); // a fresh token for every batch
+      if (state?.session?.isLoggedIn === false) throw new LoginRequired();
       if (!csrf) throw new LoginRequired('no CSRF token in page state: session not logged in');
       const meta = { itemListName: 'search', favorite: false, pageViewId: crypto.randomUUID(), pageType: 'search' };
       const { text } = await request(APPLY_QUANTITY_PATH, {

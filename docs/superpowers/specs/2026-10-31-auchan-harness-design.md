@@ -136,7 +136,7 @@ A pick with no intent or history behind it is marked as a guess in the draft.
 - `apply-quantity` is additive (re-tested 2026-11-15).
 - The worker reads the cart, calculates the difference from the approved basket, and sends only that difference. Retries and crash recovery therefore cannot add items twice.
 - The fill only adds. Basket products already in the cart at or above the approved quantity, and products not in the basket, are left alone and listed in the report. The harness never lowers or removes anything during a fill; choosing to remove them at review comes with the stage 4 app.
-- There are no automatic retries. Any error stops the fill; a rerun reads the cart again and sends only what is still missing.
+- There are only two automatic re-sends, both safe because each starts from a fresh cart read: after a rejected batch the products are re-sent one at a time, and after a login the fill restarts. Any other error stops the fill; a rerun reads the cart again and sends only what is still missing.
 - After filling, the worker compares quantities, prices and the total with the approved basket and reports any difference.
 
 ## Error handling

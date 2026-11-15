@@ -11,6 +11,7 @@ import type { CartAccess } from '../src/http-worker.ts';
 import type { Product, PriceObservation } from '../src/types.ts';
 import { fakeCart, type FakeCart } from './helpers/fake-cart.ts';
 
+const A = '00000000-0000-4000-8000-000000000001', B = '00000000-0000-4000-8000-000000000002', C = '00000000-0000-4000-8000-000000000003';
 const mk = (id: string, name: string): Product => ({
   productId: id, retailerProductId: `r-${id}`, name, brand: 'M', categoryPath: ['X'], unitLabel: 'kg', size: '1 l', inCatalogue: true,
 });
@@ -22,10 +23,10 @@ const price = (id: string, grosze: number): PriceObservation => ({
 function seed(s: Store, approve = true) {
   s.savePromotions({
     regionId: 'r1',
-    products: [mk('a', 'Mleko 2%'), mk('b', 'Chleb'), mk('c', 'Mleko 3%')],
-    prices: [price('a', 199), price('b', 250), price('c', 210)],
+    products: [mk(A, 'Mleko 2%'), mk(B, 'Chleb'), mk(C, 'Mleko 3%')],
+    prices: [price(A, 199), price(B, 250), price(C, 210)],
   });
-  if (approve) s.approveBasket([{ term: 'mleko', productId: 'a', quantity: 2 }, { term: null, productId: 'b', quantity: 1 }], ['ser']);
+  if (approve) s.approveBasket([{ term: 'mleko', productId: A, quantity: 2 }, { term: null, productId: B, quantity: 1 }], ['ser']);
 }
 
 function setup(cart: CartAccess & Partial<FakeCart>, opts: { seed?: boolean; worker?: Partial<Worker> } = {}) {
@@ -67,14 +68,14 @@ test('fill refuses with no approved basket', async (t) => {
 test('fill refuses a basket older than 24 hours', async (t) => {
   const { log, deps, store } = setup(fakeCart({}), { seed: false });
   seed(store, false);
-  store.approveBasket([{ term: null, productId: 'a', quantity: 1 }], [], new Date(Date.now() - 25 * 3600_000));
+  store.approveBasket([{ term: null, productId: A, quantity: 1 }], [], new Date(Date.now() - 25 * 3600_000));
   quiet(t, log);
   assert.equal(await main([], deps), 1);
   assert.equal(log.opened, 0);
 });
 
 test('fill prints progress and the report, and records a fill run', async (t) => {
-  const cart = fakeCart({ b: 1 }, { outOfStock: ['a'] });
+  const cart = fakeCart({ [B]: 1 }, { outOfStock: [A] });
   const { log, deps } = setup(cart);
   quiet(t, log);
   assert.equal(await main([], deps), 0);
@@ -94,7 +95,7 @@ test('fill adds what is missing and counts it from the final cart', async (t) =>
   const { log, deps } = setup(cart);
   quiet(t, log);
   assert.equal(await main([], deps), 0);
-  assert.deepEqual(cart.quantities, { a: 2, b: 1 });
+  assert.deepEqual(cart.quantities, { [A]: 2, [B]: 1 });
   assert.match(log.out.join('\n'), /Dodano produktów: 2\nRazem w koszyku: 3,00 zł/);
 });
 
@@ -110,7 +111,7 @@ test('fill resumes after login', async (t) => {
   quiet(t, log);
   assert.equal(await main([], deps), 0);
   assert.equal(log.waited, 1);
-  assert.deepEqual(cart.quantities, { a: 2, b: 1 });
+  assert.deepEqual(cart.quantities, { [A]: 2, [B]: 1 });
 });
 
 test('the lock file exists during the fill and is gone afterwards, also after a failure', async (t) => {
@@ -133,10 +134,10 @@ test('the lock file exists during the fill and is gone afterwards, also after a 
 });
 
 test('formatReport puts check-before-paying first and never contains a cookie or token', () => {
-  const line = { term: null, productId: 'a', name: 'Mleko', quantity: 2, approvedPriceGrosze: 199 };
+  const line = { term: null, productId: A, name: 'Mleko', quantity: 2, approvedPriceGrosze: 199 };
   const text = formatReport({
     added: [line], alreadyEnough: [], extras: [], missing: [{ ...line, productId: 'm', name: 'Masło' }], outOfStock: [{ ...line, productId: 'o', name: 'Ser' }],
-    checkBeforePaying: [{ productId: 'a', name: 'Mleko', approvedGrosze: 199, nowGrosze: 259, risePercent: 30.1 }],
+    checkBeforePaying: [{ productId: A, name: 'Mleko', approvedGrosze: 199, nowGrosze: 259, risePercent: 30.1 }],
     smallRises: [], cartTotalGrosze: 1259, sent: 1,
   }, ['jajka'], { m: ['Masło B', 'Masło C', 'Masło D'] });
   const lines = text.split('\n');
@@ -179,4 +180,50 @@ test('the lock is removed even when close throws', async (t) => {
   quiet(t, s.log);
   await main([], s.deps).catch(() => {});
   assert.equal(existsSync(s.lockFile), false);
+});
+
+test('two fills started together never double the quantities: one refuses', async (t) => {
+  const cart = fakeCart({});
+  const one = setup(cart);
+  const two = setup(cart);
+  two.deps.lockFile = one.lockFile;
+  quiet(t, one.log);
+  quiet(t, two.log);
+  const codes = await Promise.all([main([], one.deps), main([], two.deps)]);
+  assert.deepEqual([...codes].sort(), [0, 1]);
+  assert.deepEqual(cart.quantities, { [A]: 2, [B]: 1 });
+  assert.equal(one.log.opened + two.log.opened, 1);
+  assert.equal(existsSync(one.lockFile), false);
+});
+
+test('giving up on login says nothing was added and exits 1', async (t) => {
+  const cart = fakeCart({});
+  cart.readCart = async () => { throw new LoginRequired(); };
+  const { log, deps } = setup(cart, { worker: { waitForLogin: async () => false } });
+  quiet(t, log);
+  assert.equal(await main([], deps), 1);
+  assert.ok(log.err.includes('Nie zalogowano: nic nie dodano poza tym, co już było w koszyku.'));
+  assert.deepEqual(log.finished, [{ status: 'failed', sent: 0, missing: 0, checkBeforePaying: 0 }]);
+});
+
+test('a login needed on the second batch restarts from a fresh read and adds nothing twice', async (t) => {
+  const ids = Array.from({ length: 15 }, (_, i) => `00000000-0000-4000-8000-${(100 + i).toString(16).padStart(12, '0')}`);
+  const cart = fakeCart({});
+  const s = setup(cart, { seed: false });
+  s.store.savePromotions({
+    regionId: 'r1',
+    products: ids.map((id, i) => mk(id, `P${i}`)),
+    prices: ids.map((id) => price(id, 100)),
+  });
+  s.store.approveBasket(ids.map((id, i) => ({ term: null, productId: id, quantity: i + 1 })), []);
+  const real = cart.applyQuantities;
+  let calls = 0;
+  cart.applyQuantities = async (c) => {
+    if (++calls === 2) throw new LoginRequired();
+    return real(c);
+  };
+  quiet(t, s.log);
+  assert.equal(await main([], s.deps), 0);
+  assert.equal(s.log.waited, 1);
+  assert.deepEqual(cart.quantities, Object.fromEntries(ids.map((id, i) => [id, i + 1])));
 });

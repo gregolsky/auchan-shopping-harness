@@ -1,5 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Store } from './store.ts';
 import { browserLogin, Blocked, type Worker } from './worker.ts';
@@ -8,7 +7,7 @@ import { describeFailure, ensureStateDir, liveDeps as syncDeps, withLogin } from
 import { fillCart } from './fill.ts';
 import { buildDraft } from './draft.ts';
 import type { FillReport, PriceNote } from './cart.ts';
-import { lockHeld } from './lock.ts';
+import { acquireLock } from './lock.ts';
 import { LOCK_PATH, SESSION_PATH } from './dbpath.ts';
 
 export interface FillDeps {
@@ -98,19 +97,18 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
   let runId: number | undefined;
   try {
     store = deps.openStore();
-    if (lockHeld(lockFile)) {
+    // Taken atomically before the basket is read and held for the whole run, so two fills never overlap
+    // and the guard hook keeps browser tools away from the shared profile.
+    if (!acquireLock(lockFile)) {
       console.error(BUSY);
       return 1;
     }
+    locked = true;
     const basket = store.latestApprovedBasket();
     if (!basket) {
       console.error(NO_BASKET);
       return 1;
     }
-    // Held for the whole run, so the guard hook keeps browser tools away from the shared profile.
-    mkdirSync(dirname(lockFile), { recursive: true });
-    writeFileSync(lockFile, String(process.pid), { mode: 0o600 });
-    locked = true;
     runId = store.startFill(basket.basketId);
     worker = await deps.openWorker();
     const cart = worker;
@@ -121,6 +119,7 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
       LOG_IN,
     );
     if (!report) {
+      console.error('Nie zalogowano: nic nie dodano poza tym, co już było w koszyku.');
       store.finishFill(runId, { status: 'failed', sent: 0, missing: 0, checkBeforePaying: 0 });
       return 1;
     }

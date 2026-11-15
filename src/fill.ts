@@ -1,15 +1,18 @@
-import { MAX_BATCH, Rejected, type CartAccess, type CartChange, type LimitedItem } from './http-worker.ts';
+import { MAX_BATCH, Rejected, UUID, type CartAccess, type CartChange, type LimitedItem } from './http-worker.ts';
 import { compareCart, parseCart, planFill, type BasketLine, type FillReport } from './cart.ts';
 
 export interface FillOptions {
   onProgress?(sent: number, total: number): void;
 }
 
+const sendable = (c: CartChange): boolean => UUID.test(c.productId) && Number.isFinite(c.quantity) && c.quantity > 0 && c.quantity <= 100;
 const isOutOfStock = (l: LimitedItem) => l.addedAmount === 0 || l.reason === 'OUT_OF_STOCK';
 
 export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOptions = {}): Promise<FillReport & { sent: number }> {
   const before = parseCart(await cart.readCart());
   const plan = planFill(basket, before.lines);
+  // Changes applyQuantities would refuse are skipped up front, so they cannot stop the fill partway; they end in `missing`.
+  plan.send = plan.send.filter(sendable);
   const total = plan.send.length;
   const outOfStock = new Set<string>();
   let sent = 0;
@@ -41,7 +44,7 @@ export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOp
       const settled = processed + chunk.length;
       const ids = new Set(chunk.map((c) => c.productId));
       const fresh = parseCart(await cart.readCart());
-      for (const change of planFill(basket.filter((b) => ids.has(b.productId)), fresh.lines).send) {
+      for (const change of planFill(basket.filter((b) => ids.has(b.productId)), fresh.lines).send.filter(sendable)) {
         try {
           await send([change]);
         } catch (e2) {
