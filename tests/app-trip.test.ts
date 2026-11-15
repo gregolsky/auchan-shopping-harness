@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   emptyTrip, tripFromDraft, applyOps, answer, setIncluded, openQuestions, needsQuestion,
-  approvedLines, totalGrosze, saveTrip, loadTrip, lineViews, lineKeyFor,
+  approvedLines, totalGrosze, saveTrip, loadTrip, lineViews, lineKeyFor, chooseProduct, dropUnmatched,
 } from '../src/app/trip.ts';
 import type { Draft, DraftLine } from '../src/draft.ts';
 
@@ -361,4 +361,34 @@ test('a trip saved before images existed still loads', () => {
   for (const l of t.lines) { delete l.imageUrl; delete l.imageAlt; for (const c of l.candidates) { delete c.imageUrl; delete c.imageAlt; } }
   writeFileSync(file, JSON.stringify(t));
   assert.equal(loadTrip(file)!.lines[0].imageUrl ?? null, null);
+});
+
+test('chooseProduct picks any candidate, clears a question and a hold, and records a correction only when it differs', () => {
+  const d = draft();
+  d.items[0] = dl({ term: 'kurczak', productId: 'K', name: 'Pasztet', confidence: 'low', alternatives: [{ productId: 'F', name: 'Filet', lineCostGrosze: 100, confidence: 'medium' }] });
+  const t = tripFromDraft(emptyTrip(NOW), d, {});
+  const key = t.lines[0]!.lineKey;
+  const r = chooseProduct(t, key, 'F');
+  assert.equal(r.trip.lines[0]!.productId, 'F');
+  assert.equal(r.trip.lines[0]!.question, null);
+  assert.equal(r.trip.lines[0]!.included, true);
+  assert.equal(r.trip.lines[0]!.held, false);
+  assert.deepEqual(r.corrections, [{ term: 'kurczak', proposedProductId: 'K', chosenProductId: 'F' }]);
+  assert.deepEqual(chooseProduct(t, key, 'K').corrections, []);
+  const plain = chooseProduct(base(), CHEESE, 'B');
+  assert.equal(plain.trip.lines[0]!.productId, 'B');
+  assert.equal(plain.trip.lines[0]!.lineCostGrosze, 800);
+});
+
+test('chooseProduct ignores an unknown line or a product that is not a candidate of the line', () => {
+  const t = base();
+  assert.equal(chooseProduct(t, CHEESE, 'ZZZ').trip, t);
+  assert.equal(chooseProduct(t, 'nope', 'A').trip, t);
+  assert.deepEqual(chooseProduct(t, CHEESE, 'ZZZ').corrections, []);
+});
+
+test('dropUnmatched removes one term by its normalised form', () => {
+  const t = { ...base(), unmatched: [{ term: 'Kawior', hint: '' }, { term: 'trufle', hint: 'x' }] };
+  assert.deepEqual(dropUnmatched(t, 'kawior').unmatched, [{ term: 'trufle', hint: 'x' }]);
+  assert.equal(dropUnmatched(t, 'nic').unmatched.length, 2);
 });

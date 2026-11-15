@@ -178,6 +178,21 @@ export function answer(trip: Trip, lineKey: string, productId: string | null): {
   return { trip: { ...trip, lines: trip.lines.map((l) => (l === line ? picked : l)) }, corrections };
 }
 
+/** The user picked any candidate of a line (also outside its question): the line takes it and stops being asked or held. */
+export function chooseProduct(trip: Trip, lineKey: string, productId: string): { trip: Trip; corrections: Correction[] } {
+  const line = trip.lines.find((l) => l.lineKey === lineKey);
+  const picked = line === undefined ? null : pick(line, productId);
+  if (line === undefined || picked === null) return { trip, corrections: [] };
+  const corrections: Correction[] = line.term !== null && productId !== line.proposedProductId
+    ? [{ term: line.term, proposedProductId: line.proposedProductId, chosenProductId: productId }] : [];
+  return { trip: { ...trip, lines: trip.lines.map((l) => (l === line ? picked : l)) }, corrections };
+}
+
+export function dropUnmatched(trip: Trip, term: string): Trip {
+  const n = normaliseTerm(term);
+  return { ...trip, unmatched: trip.unmatched.filter((u) => normaliseTerm(u.term) !== n) };
+}
+
 export function setIncluded(trip: Trip, lineKey: string, included: boolean): Trip {
   return { ...trip, lines: trip.lines.map((l) => (l.lineKey === lineKey ? { ...l, included, held: false } : l)) };
 }
