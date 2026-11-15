@@ -132,7 +132,7 @@ test('a candidate ranks and costs at its own cap', () => {
   const d = buildDraft(input([{ term: 'ser', quantity: 3 }]), facts, [], now);
   assert.equal(d.items[0].productId, 'often');
   assert.equal(d.items[0].lineCostGrosze, 1800);
-  assert.deepEqual(d.items[0].alternatives.map((a) => [a.productId, a.lineCostGrosze]), [['tin', 1500], ['rare', 700]]);
+  assert.deepEqual(d.items[0].alternatives.map((a) => [a.productId, a.lineCostGrosze]), [['rare', 700], ['tin', 1500]]);
 });
 
 test('a perishable promotion is skipped when the cap cannot reach the offer', () => {
@@ -273,4 +273,15 @@ test('lines not built from a term are high confidence', () => {
   const all = [...d.items, ...d.stockUps, ...d.promotions, ...d.addOns];
   assert.ok(all.length > 0);
   for (const l of all) { assert.equal(l.confidence, 'high'); assert.equal(l.confidenceReason, ''); }
+});
+
+test('alternatives list confident matches before doubtful ones', () => {
+  const facts = [
+    fact('top', { name: 'Kawa top', timesBought: 9 }),
+    fact('flavour', { name: 'Napój o smaku kawa', timesBought: 8 }),
+    fact('mix', { name: 'Kawa z mlekiem', timesBought: 7 }),
+    fact('ok', { name: 'Kawa mielona' }),
+  ];
+  const d = buildDraft(input([{ term: 'kawa', quantity: 1 }]), facts, [{ term: 'kawa', brand: null, preferredProductId: null, acceptedProductIds: ['ok'], learnedProductIds: [], replacedProductIds: [] }], now);
+  assert.deepEqual(d.items[0].alternatives.map((a) => a.productId), ['ok', 'mix', 'flavour']);
 });

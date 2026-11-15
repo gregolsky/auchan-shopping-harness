@@ -41,6 +41,8 @@ export interface Draft {
 type Buyable = ProductFacts & { latestPriceGrosze: number };
 const buyable = <T extends ProductFacts>(f: T): f is T & { latestPriceGrosze: number } => f.inCatalogue && f.latestPriceGrosze !== null;
 
+const CONF_RANK = { high: 0, medium: 1, low: 2 };
+
 /** An offer counts only once the quantity reaches what it requires. */
 function costAt(f: Buyable, quantity: number): number {
   const reached = f.requiredQuantity === null || quantity >= f.requiredQuantity;
@@ -101,7 +103,7 @@ export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: Inte
     const cap = capQuantity(top, quantity);
     let reason = basisReason(top, term) + savingNote(top);
     if (cap.capped) reason += `; capped at ${cap.quantity} because it is perishable`;
-    const alternatives = ranked.slice(1, 4).filter(buyable).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, capped(c)), confidence: c.confidence }));
+    const alternatives = ranked.slice(1, 4).filter(buyable).sort((a, b) => CONF_RANK[a.confidence] - CONF_RANK[b.confidence]).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, capped(c)), confidence: c.confidence }));
     used.add(top.productId);
     items.push(line(top, { term, quantity: cap.quantity, reason, guess: top.guess, capped: cap.capped, alternatives, confidence: top.confidence, confidenceReason: top.confidenceReason }, now));
   }

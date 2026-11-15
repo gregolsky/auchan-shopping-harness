@@ -306,3 +306,40 @@ test('a preferred product that does not match the term is high confidence', () =
   assert.equal(r[0].confidence, 'high');
   assert.equal(r[0].confidenceReason, '');
 });
+
+test('every mixture connector after the term makes a line medium', () => {
+  for (const [term, name] of [
+    ['marchew', 'Marchew z groszkiem Auchan 450 g'], ['szynka', 'Szynka ze szpinakiem Auchan 100 g'],
+    ['banan', 'Banan w czekoladzie Auchan 100 g'], ['marchew', 'Marchew w occie Auchan 300 g'],
+    ['kurczak', 'Kurczak i warzywa Auchan 400 g'], ['kurczak', 'Kurczak oraz warzywa Auchan 400 g'],
+    ['ogórek', 'Ogórek na kanapki Auchan 300 g'], ['jogurt', 'Jogurt po grecku Auchan 150 g'], ['banan', 'Banan we frużelinie Auchan 100 g'],
+  ]) {
+    assert.deepEqual(conf(term, name), { confidence: 'medium', reason: 'mixed with another ingredient' }, name);
+  }
+});
+
+test('a connector the term itself contains is not penalised, nor one that ends the name', () => {
+  assert.equal(conf('pierś z kurczaka', 'Pierś z kurczaka filet Auchan 1 kg').confidence, 'high');
+  assert.equal(conf('banan w czekoladzie', 'Banan w czekoladzie Auchan 100 g').confidence, 'high');
+  assert.equal(conf('marchew', 'Marchew z').confidence, 'high');
+});
+
+test('more flavour and pet markers are low; a marker after the term or inside another word is not', () => {
+  assert.equal(conf('jogurt', 'Napój smakowy jogurt Auchan 1 l').confidence, 'low');
+  assert.equal(conf('cytryna', 'Woda aromatyzowana cytryna Auchan 1 l').confidence, 'low');
+  assert.equal(conf('kurczak', 'Przysmak dla psa kurczak Auchan 100 g').reason, 'pet product');
+  assert.equal(conf('kurczak', 'Karma dla kotki kurczak Auchan 100 g').confidence, 'low');
+  assert.equal(conf('kurczak', 'Kurczak dla zwierząt Auchan 100 g').confidence, 'low');
+  assert.equal(conf('cebula', 'Cebula o smaku grillowym Auchan 1 kg').confidence, 'high');
+  assert.equal(conf('ketchup', 'Ketchup Kotlin 950 g').confidence, 'high');
+});
+
+test('a product the user chose is capped at medium for flavour or pet doubts', () => {
+  const facts = [fact('chips', { name: CHIPS, timesBought: 3 })];
+  for (const r of [rule({ preferredProductId: 'chips' }), rule({ acceptedProductIds: ['chips'], learnedProductIds: ['chips'] }), rule({ acceptedProductIds: ['chips'] })]) {
+    const c = rankCandidates('cebula', 1, facts, r)[0];
+    assert.equal(c.confidence, 'medium');
+    assert.equal(c.confidenceReason, 'term only in the flavour');
+  }
+  assert.equal(rankCandidates('cebula', 1, facts, null)[0].confidence, 'low');
+});

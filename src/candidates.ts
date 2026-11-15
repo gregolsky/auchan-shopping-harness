@@ -30,25 +30,26 @@ function wordMatcher(w: string): (h: string) => boolean {
   return (h) => h.startsWith(stem) && h.length >= Math.min(w.length, 4) && h.length <= stem.length + 2;
 }
 
-const FLAVOUR_WORDS = new Set(['smaku', 'smak', 'aromat', 'aromatem', 'aromacie']);
-const PET_WORDS = new Set(['kota', 'kotow', 'psa', 'psow', 'kociat', 'szczeniat', 'karma', 'przysmak', 'przysmaki']);
+const FLAVOUR_WORDS = new Set(['smaku', 'smak', 'aromat', 'aromatem', 'aromacie', 'smakowy', 'smakowe', 'smakowa', 'aromatyzowany', 'aromatyzowana', 'aromatyzowane']);
+const PET_WORDS = new Set(['kota', 'kotow', 'kot', 'kotka', 'kotki', 'psa', 'psow', 'pies', 'psy', 'kociat', 'szczeniat', 'zwierzat', 'karma', 'przysmak', 'przysmaki']);
+const CONNECTORS = new Set(['z', 'ze', 'w', 'we', 'i', 'oraz', 'na', 'po']);
 const RANK: Record<Confidence, number> = { high: 0, medium: 1, low: 2 };
 
 /**
  * How sure we are that a product that matches the term is the thing meant. A flavour before the matched word or a pet
- * product is low; a term deep in the name, a mixture ("Marchew z groszkiem") or an unbought product is medium.
+ * product is low (medium when the user chose the product); a term deep in the name, a mixture ("Marchew z groszkiem") or an unbought product is medium.
  */
-export function matchConfidence(term: string, f: Pick<ProductFacts, 'name' | 'brand'>, boughtBefore: boolean): { confidence: Confidence; reason: string } {
+export function matchConfidence(term: string, f: Pick<ProductFacts, 'name' | 'brand'>, boughtBefore: boolean, chosen = false): { confidence: Confidence; reason: string } {
   const termWords = normaliseTerm(term).split(' ').filter(Boolean);
   const nameWords = normaliseTerm(f.name).split(/[\s\-\/]+/).filter(Boolean);
   const first = termWords.length > 0 ? nameWords.findIndex(wordMatcher(termWords[0])) : -1;
   const last = termWords.length > 0 ? nameWords.findIndex(wordMatcher(termWords[termWords.length - 1])) : -1;
 
-  if (first >= 0 && nameWords.slice(0, first).some((w) => FLAVOUR_WORDS.has(w))) return { confidence: 'low', reason: 'term only in the flavour' };
-  if (nameWords.some((w) => PET_WORDS.has(w) && !termWords.includes(w))) return { confidence: 'low', reason: 'pet product' };
+  if (first >= 0 && nameWords.slice(0, first).some((w) => FLAVOUR_WORDS.has(w))) return { confidence: chosen ? 'medium' : 'low', reason: 'term only in the flavour' };
+  if (nameWords.some((w) => PET_WORDS.has(w) && !termWords.includes(w))) return { confidence: chosen ? 'medium' : 'low', reason: 'pet product' };
   if (first < 0 || first >= 2) return { confidence: 'medium', reason: 'term not at the start of the name' };
   const next = last >= 0 ? nameWords[last + 1] : undefined;
-  if ((next === 'z' || next === 'ze') && last + 2 < nameWords.length && !termWords.some((w) => w === 'z' || w === 'ze')) {
+  if (next !== undefined && CONNECTORS.has(next) && last + 2 < nameWords.length && !termWords.includes(next)) {
     return { confidence: 'medium', reason: 'mixed with another ingredient' };
   }
   if (!boughtBefore) return { confidence: 'medium', reason: 'not bought before' };
@@ -79,7 +80,7 @@ export function rankCandidates(term: string, quantity: number | ((f: ProductFact
     const reached = f.requiredQuantity === null || q >= f.requiredQuantity;
     const cost = lineCost(f.latestPriceGrosze, reached ? parseOffer(f.offerText) : null, q);
     // A product the user chose through a rule, without the term matching it, is high: they chose it.
-    const { confidence, reason } = matched ? matchConfidence(term, f, f.timesBought > 0 || isAccepted || learned.has(f.productId)) : { confidence: 'high' as const, reason: '' };
+    const { confidence, reason } = matched ? matchConfidence(term, f, f.timesBought > 0 || isAccepted || learned.has(f.productId), isPreferred || isAccepted || learned.has(f.productId)) : { confidence: 'high' as const, reason: '' };
     out.push({
       ...f, lineCostGrosze: cost, unitPriceGrosze: unitPriceGrosze(cost, q, f.size), basis, guess: basis === 'value',
       confidence, confidenceReason: reason,
