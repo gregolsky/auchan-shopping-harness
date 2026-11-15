@@ -283,3 +283,47 @@ test('fixtures carry no real location data', () => {
     for (const m of text.matchAll(/"retailerRegionId": "([^"]+)"/g)) assert.equal(m[1], 'PL_00000_TEST');
   }
 });
+
+import { parseImage } from '../src/parse.ts';
+
+const U1 = '00000000-0000-4000-8000-000000000001';
+const U2 = '10000000-0000-4000-8000-000000000001';
+const good = (size = '500x500', ext = 'jpg') => `https://zakupy.auchan.pl/images-v3/${U1}/${U2}/${size}.${ext}`;
+
+test('parseImage normalises the size to 300x300 and cleans the description', () => {
+  assert.deepEqual(parseImage([{ src: good(), description: 'Pack\u0007 shot' }]), { url: good('300x300'), alt: 'Pack shot' });
+  assert.equal(parseImage([{ src: good('64x64', 'webp') }])?.url, good('300x300', 'webp'));
+  assert.equal(parseImage([{ src: good(), description: 'x'.repeat(400) }])?.alt?.length, 300);
+  assert.equal(parseImage([{ src: good(), description: '' }])?.alt, null);
+});
+
+test('parseImage only takes the first image and refuses hostile or malformed urls', () => {
+  assert.equal(parseImage(undefined), null);
+  assert.equal(parseImage([]), null);
+  assert.equal(parseImage([{ src: 'https://evil.example/images-v3/' + U1 + '/' + U2 + '/300x300.jpg' }]), null);
+  assert.equal(parseImage([{ src: 'javascript:alert(1)' }]), null);
+  assert.equal(parseImage([{ src: `https://zakupy.auchan.pl/images-v3/${U1}/../${U2}/300x300.jpg` }]), null);
+  assert.equal(parseImage([{ src: good() + '?x=1' }]), null);
+  assert.equal(parseImage([{ src: 'http://zakupy.auchan.pl/images-v3/' + U1 + '/' + U2 + '/300x300.jpg' }]), null);
+  assert.equal(parseImage([{ src: 42 }]), null);
+  assert.equal(parseImage([{ src: 'https://evil.example/x.jpg' }, { src: good() }]), null);
+  assert.equal(parseImage('nope'), null);
+});
+
+test('orders carry the first image of each product', () => {
+  const { products } = parseDecoratedOrder(fx('order-decorated.json'));
+  const withImage = products.filter((p) => p.imageUrl);
+  assert.equal(withImage.length, 2);
+  assert.match(withImage[0].imageUrl!, /\/300x300\.jpg$/);
+  assert.equal(withImage[0].imageAlt, 'Synthetic pack shot of a test product.');
+  assert.equal(withImage[1].imageAlt!.length, 300);
+  assert.ok(products.filter((p) => !p.imageUrl).every((p) => p.imageUrl === null && p.imageAlt === null));
+});
+
+test('promotions carry the first image of each product', () => {
+  const { products } = parsePromotionsState(fx('promotions-state.json'), '2026-11-01T10:00:00Z');
+  const withImage = products.filter((p) => p.imageUrl);
+  assert.ok(withImage.length >= 1);
+  assert.match(withImage[0].imageUrl!, /^https:\/\/zakupy\.auchan\.pl\/images-v3\/.+\/300x300\.jpg$/);
+  assert.ok(products.some((p) => p.imageUrl === null && p.imageAlt === null));
+});

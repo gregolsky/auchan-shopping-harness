@@ -7,6 +7,8 @@ export interface Product {
   unitLabel: string | null;
   size: string | null;
   inCatalogue: boolean;
+  imageUrl?: string | null;
+  imageAlt?: string | null;
 }
 
 export interface PriceObservation {

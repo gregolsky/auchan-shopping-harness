@@ -83,7 +83,15 @@
           },
           "size": {
             "value": "0.1kg"
-          }
+          },
+          "images": [
+            {
+              "description": "Synthetic pack shot\u0007 of a test product.",
+              "src": "https://zakupy.auchan.pl/images-v3/00000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000001/500x500.jpg",
+              "fopSrcset": "",
+              "bopSrcset": ""
+            }
+          ]
         },
         "95bba835-bad9-40df-a7ec-7766ac0d3354": {
           "additionalProductCharge": null,
@@ -173,7 +181,8 @@
           },
           "size": {
             "value": "0.45kg"
-          }
+          },
+          "images": []
         },
         "7cfe67c6-7802-49e3-b53a-6fa223423947": {
           "additionalProductCharge": null,
@@ -277,7 +286,15 @@
               "uom": "KG",
               "value": "0.6"
             }
-          }
+          },
+          "images": [
+            {
+              "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "src": "https://zakupy.auchan.pl/images-v3/00000000-0000-4000-8000-000000000002/10000000-0000-4000-8000-000000000002/500x500.jpg",
+              "fopSrcset": "",
+              "bopSrcset": ""
+            }
+          ]
         },
         "ea770b17-22c3-4eff-9905-0011a83995e9": {
           "additionalProductCharge": null,

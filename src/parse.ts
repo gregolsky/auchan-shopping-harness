@@ -43,7 +43,24 @@ export function parseGrosze(v: string | number): number {
 
 const money = (m: unknown, path: string): number => parseGrosze(obj(m, path).amount);
 
+const IMAGE_URL = /^https:\/\/zakupy\.auchan\.pl\/images-v3\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/\d{2,4}x\d{2,4}\.(jpg|jpeg|png|webp)$/;
+
+export function validImageUrl(v: unknown): string | null {
+  return typeof v === 'string' && IMAGE_URL.test(v) ? v : null;
+}
+
+/** The first image only: a strictly checked Auchan image URL at 300x300, and its description. Anything else is no image. */
+export function parseImage(images: unknown): { url: string; alt: string | null } | null {
+  if (!Array.isArray(images) || images.length === 0 || images[0] === null || typeof images[0] !== 'object') return null;
+  const first = images[0] as Obj;
+  const url = validImageUrl(first.src);
+  if (url === null) return null;
+  const alt = typeof first.description === 'string' ? cleanText(first.description).trim().slice(0, 300) : '';
+  return { url: url.replace(/\/\d+x\d+(\.[a-z]+)$/, '/300x300$1'), alt: alt === '' ? null : alt };
+}
+
 function toProduct(p: Obj, unitLabel: string | null): Product {
+  const image = parseImage(p.images);
   return {
     productId: str(p.productId, 'product.productId'),
     retailerProductId: str(p.retailerProductId, 'product.retailerProductId'),
@@ -53,6 +70,8 @@ function toProduct(p: Obj, unitLabel: string | null): Product {
     unitLabel,
     size: typeof p.size?.value === 'string' && p.size.value.trim() !== '' ? p.size.value.trim() : null,
     inCatalogue: Boolean(p.isInCurrentCatalog),
+    imageUrl: image?.url ?? null,
+    imageAlt: image?.alt ?? null,
   };
 }
 
@@ -112,6 +131,7 @@ export function parseDecoratedOrder(json: unknown): {
           retailerProductId: entity.retailerProductId ?? line.retailerProductId,
           name: entity.name ?? line.name,
           isInCurrentCatalog: line.isInCurrentCatalog,
+          images: entity.images,
         },
         unit?.unitLabel ? str(unit.unitLabel, 'pricePerUnit.unitLabel') : null,
       ),

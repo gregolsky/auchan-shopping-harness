@@ -333,7 +333,15 @@
           "catchWeight": false
         },
         "featured": "false",
-        "isNew": false
+        "isNew": false,
+        "images": [
+          {
+            "description": "Synthetic pack shot\u0007 of a test product.",
+            "src": "https://zakupy.auchan.pl/images-v3/00000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000001/500x500.jpg",
+            "fopSrcset": "",
+            "bopSrcset": ""
+          }
+        ]
       },
       "d6f34376-6a75-4335-83ba-ac4f7478bb71": {
         "productId": "d6f34376-6a75-4335-83ba-ac4f7478bb71",
@@ -389,7 +397,8 @@
           }
         },
         "featured": "false",
-        "isNew": false
+        "isNew": false,
+        "images": []
       },
       "4d99971b-6c8f-4f61-8082-b4feb76ef9d0": {
         "productId": "4d99971b-6c8f-4f61-8082-b4feb76ef9d0",
@@ -430,7 +439,15 @@
           "catchWeight": false
         },
         "featured": "false",
-        "isNew": false
+        "isNew": false,
+        "images": [
+          {
+            "description": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "src": "https://zakupy.auchan.pl/images-v3/00000000-0000-4000-8000-000000000002/10000000-0000-4000-8000-000000000002/500x500.jpg",
+            "fopSrcset": "",
+            "bopSrcset": ""
+          }
+        ]
       },
       "c59cec16-22af-4baa-bd13-6dc8a3b9dbd8": {
         "productId": "c59cec16-22af-4baa-bd13-6dc8a3b9dbd8",
