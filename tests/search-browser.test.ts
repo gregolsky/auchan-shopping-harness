@@ -117,7 +117,7 @@ function statusPage(statusFor: (url: string) => number, loggedIn = false) {
     async goto(u) { gotos.push(u); const s = statusFor(u); return { status: () => s }; },
     async evaluate(fn: any) { return (loggedIn ? (String(fn).includes('isLoggedIn') ? true : stateOf(1)) : false) as never; },
     async title() { return 'Auchan'; },
-    url: () => 'about:blank',
+    url: () => gotos.at(-1) ?? 'about:blank',
     async close() {},
   };
   return { page, gotos };
@@ -207,5 +207,24 @@ test('a captcha on the home page shows the captcha status, not the login prompt'
   }, ['a']);
   assert.ok(loggedIn);
   assert.deepEqual(r.statuses.filter((s) => s.kind === 'captcha' || s.kind === 'login').map((s) => s.kind), ['captcha']);
+  assert.equal(r.results[0].status, 'found');
+});
+
+test('results are read only from the search page of this term; any other page stops the run with a reason', async () => {
+  for (const shown of ['https://zakupy.auchan.pl/koszyk', 'https://zakupy.auchan.pl/search?q=inne', 'https://zakupy.auchan.pl/search', 'not a url', 'https://zakupy.auchan.pl/produkty/search?q=a']) {
+    const clock = new Clock();
+    const fp = fakePage({ show: () => ({ status: 200, title: 't', state: stateOf(1) }) }, clock);
+    const page: PageLike = { ...fp.page, url: () => (fp.gotos.length > 1 ? shown : 'https://zakupy.auchan.pl/') };
+    const statuses: SearchStatus[] = [];
+    const s = createBrowserSearch({ openPage: async () => page, onStatus: (x) => statuses.push(x), sleep: clock.sleep, now: clock.now, pollMs: 100 });
+    const results = await s.search(['a', 'b']);
+    assert.deepEqual(results.map((x) => x.status), ['stopped', 'stopped'], shown);
+    assert.deepEqual(statuses.filter((x) => x.kind === 'stopped'), [{ kind: 'stopped', reason: 'Okno przeglądarki pokazuje inną stronę — przerwano wyszukiwanie.' }], shown);
+    assert.equal(fp.gotos.filter((g) => g.includes('/search?')).length, 1, shown);
+  }
+});
+
+test('the term is compared as decoded text: spaces and Polish letters match', async () => {
+  const r = await run({ show: () => ({ status: 200, title: 't', state: stateOf(1) }) }, ['mleko 2% łaciate']);
   assert.equal(r.results[0].status, 'found');
 });

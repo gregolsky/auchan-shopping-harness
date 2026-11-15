@@ -50,6 +50,18 @@ function hasCaptchaMarker(): boolean {
   return !!doc?.querySelector('iframe[src*="captcha" i], [id*="captcha" i], [class*="captcha" i], #challenge-container, [id*="awswafcaptcha" i]');
 }
 
+const WRONG_PAGE = 'Okno przeglądarki pokazuje inną stronę — przerwano wyszukiwanie.';
+
+/** Whether the window shows the search page for exactly this term; anything else (the user navigated, a redirect) is not read. */
+function onSearchPage(p: PageLike, term: string): boolean {
+  try {
+    const u = new URL(p.url());
+    return u.pathname === '/search' && u.searchParams.get('q') === term;
+  } catch {
+    return false;
+  }
+}
+
 const stopReason = (status: number): string =>
   status === 403 ? 'Auchan odmówił dostępu (403) — przerywam bez ponawiania.'
     : status === 429 ? 'Auchan prosi o zwolnienie tempa (429) — przerywam bez ponawiania.'
@@ -179,6 +191,10 @@ export function createBrowserSearch(o: BrowserSearchOptions): { search(terms: st
           o.onStatus({ kind: 'captcha', term });
           if (!(await waitUntil(async () => !(await isCaptcha(p)), captchaWaitMs))) return stopRest();
           await settleAfterCaptcha(p, async () => entityCount(await readState(p)) !== null);
+        }
+        if (!onSearchPage(p, term)) {
+          o.onStatus({ kind: 'stopped', reason: WRONG_PAGE });
+          return stopRest();
         }
         const state = await readState(p);
         const n = entityCount(state);
