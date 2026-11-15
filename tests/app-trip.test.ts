@@ -148,7 +148,7 @@ test('approvedLines returns included lines and throws on a duplicate product', (
   ]);
   const dup = applyOps(t, [{ op: 'choose', lineKey: CHEESE, productId: 'B' }]).trip;
   dup.lines[1] = { ...dup.lines[1]!, productId: 'B' };
-  assert.throws(() => approvedLines(dup), /B/);
+  assert.throws(() => approvedLines(dup), /Ten sam produkt jest na liście dwa razy: Mleko\. Usuń jedną pozycję\./);
   const bad = base();
   bad.lines[0] = { ...bad.lines[0]!, quantity: 21 };
   assert.throws(() => approvedLines(bad));

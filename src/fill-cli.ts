@@ -120,6 +120,8 @@ export interface FillHooks {
   /** Takes the printable report instead of log (the CLI prints it with log, the app shows it in its own panel). */
   report?(text: string): void;
   /** Called once the lock is held; returns a cleanup run when the fill ends. The CLI installs its signal handlers here. */
+  /** The login prompt; defaults to the CLI's English text on the error channel. */
+  loginPrompt?: { text: string; say(line: string): void };
   onLocked?(h: { lockFile: string; token: string; markFailed(): void }): () => void;
 }
 
@@ -129,6 +131,8 @@ export interface FillResult {
   substitutes: Record<string, string[]>;
   /** The printable report, when there is one. */
   text: string | null;
+  /** The error that stopped the fill, if one did (never carries cookies). */
+  failure?: unknown;
 }
 
 export async function runFill(deps: FillDeps, hooks: FillHooks): Promise<FillResult> {
@@ -140,7 +144,7 @@ export async function runFill(deps: FillDeps, hooks: FillHooks): Promise<FillRes
   let runId: number | undefined;
   const tally = { sent: 0 };
   let cleanup = () => {};
-  const fail = (code: number): FillResult => ({ code, report: null, substitutes: {}, text: null });
+  const fail = (code: number, failure?: unknown): FillResult => ({ code, report: null, substitutes: {}, text: null, failure });
   try {
     store = deps.openStore();
     // Taken atomically before the basket is read and held for the whole run, so two fills never overlap
@@ -184,8 +188,8 @@ export async function runFill(deps: FillDeps, hooks: FillHooks): Promise<FillRes
           onProgress: (sent, total) => hooks.progress(sent, total),
         });
       },
-      LOG_IN,
-      error,
+      hooks.loginPrompt?.text ?? LOG_IN,
+      hooks.loginPrompt?.say ?? error,
     );
     if (!report) {
       error('Nie zalogowano: wypełnianie przerwane. Część produktów mogła już trafić do koszyka; ponowne uruchomienie doda tylko to, czego brakuje.');
@@ -217,7 +221,7 @@ export async function runFill(deps: FillDeps, hooks: FillHooks): Promise<FillRes
     if (runId !== undefined) store?.finishFill(runId, { status: 'failed', sent: tally.sent, missing: 0, checkBeforePaying: 0 });
     error(describeFailure(err, 'fill'));
     if (!(err instanceof Blocked)) error(RERUN_SAFE); // Refused is a Blocked: its own text says what to do
-    return fail(1);
+    return fail(1, err);
   } finally {
     cleanup();
     try {

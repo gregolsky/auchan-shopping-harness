@@ -5,10 +5,12 @@ import type { Draft } from '../draft.ts';
 import { syncAll } from '../cli.ts';
 import type { Deps } from '../cli.ts';
 import { BUSY, formatReport, runFill } from '../fill-cli.ts';
+import { Blocked, LoginRequired, RateLimited, Refused } from '../worker.ts';
 import type { FillDeps } from '../fill-cli.ts';
 import { acquireLock, lockHeld, releaseLock } from '../lock.ts';
 import { LOCK_PATH } from '../dbpath.ts';
 import { zl } from '../money.ts';
+import { cleanText } from '../parse.ts';
 import { normaliseTerm } from '../store.ts';
 import type { IntentRule, Store } from '../store.ts';
 import { askClaude } from './claude.ts';
@@ -16,7 +18,7 @@ import type { Spawn } from './claude.ts';
 import { parseNote } from './fallback.ts';
 import type { Op } from './ops.ts';
 import {
-  answer as answerLine, applyOps, approvedLines, emptyTrip, loadTrip, needsQuestion, openQuestions, saveTrip, setIncluded, tripFromDraft,
+  answer as answerLine, applyOps, approvedLines, emptyTrip, ListProblem, loadTrip, needsQuestion, openQuestions, saveTrip, setIncluded, tripFromDraft,
 } from './trip.ts';
 import type { Correction, Trip, TripLine } from './trip.ts';
 
@@ -48,6 +50,21 @@ const CONF_RANK = { high: 0, medium: 1, low: 2 };
 
 const ALREADY_IN_CART = 'Te zakupy są już w koszyku. Zacznij nowe zakupy, żeby dodać coś jeszcze.';
 const FROZEN = 'Trwa dodawanie do koszyka — poczekaj na koniec.';
+const FROZEN_PAID = 'Te zakupy są już w koszyku. Kliknij „Nowe zakupy”, żeby zacząć od nowa.';
+export const BLOCKED_REASON = 'Auchan odrzucił zapytanie. Nie zatwierdzaj ponownie — sprawdź koszyk na Auchan i zacznij nowe zakupy.';
+const LOGIN_PROMPT = 'Zaloguj się w oknie przeglądarki i zostaw je otwarte — dodawanie ruszy samo.';
+
+/** The fill's failure in Polish for the kinds the user meets; anything else keeps the CLI's text. */
+function failureText(err: unknown): string | null {
+  if (err instanceof Refused) return `Auchan odrzucił zmianę koszyka (${cleanText(err.productName)}). Część produktów mogła już trafić do koszyka — sprawdź koszyk, usuń ten produkt z listy i spróbuj ponownie.`;
+  if (err instanceof RateLimited) {
+    const wait = err.retrySeconds === undefined ? 'później' : `za ${Math.max(1, Math.ceil(err.retrySeconds / 60))} min`;
+    return `Auchan prosi o zwolnienie tempa, więc dodawanie zatrzymano. Spróbuj ponownie ${wait}.`;
+  }
+  if (err instanceof Blocked) return BLOCKED_REASON;
+  if (err instanceof LoginRequired) return 'Auchan nadal nie widzi logowania: zaloguj się w oknie przeglądarki i spróbuj ponownie.';
+  return null;
+}
 
 const refuse = (reason: string): Start => ({ started: false, reason });
 const dropped = (n: number) => `pominięto ${n} nieprawidłowych zmian`;
@@ -109,10 +126,11 @@ export function createService(d: ServiceDeps) {
     return { ...t, step: openQuestions(t).length > 0 || t.proposal !== null ? 'doprecyzowanie' : 'zatwierdzenie' };
   }
 
-  const frozen = () => busy === 'fill' || trip.step === 'koszyk';
+  const frozen = () => busy === 'fill' || trip.step === 'koszyk' || trip.step === 'platnosc';
   /** While the cart is being filled the trip stays as it is; the page is told why. */
   function hold(): Trip {
-    if (trip.messages.at(-1) !== FROZEN) commit({ ...trip, messages: [...trip.messages, FROZEN] });
+    const text = trip.step === 'platnosc' ? FROZEN_PAID : FROZEN;
+    if (trip.messages.at(-1) !== text) commit({ ...trip, messages: [...trip.messages, text] });
     return trip;
   }
 
@@ -155,7 +173,7 @@ export function createService(d: ServiceDeps) {
   function invalidateDraft(): void {
     generation++;
     if (['szkic', 'doprecyzowanie', 'zatwierdzenie'].includes(trip.step)) {
-      commit({ ...emptyTrip(d.now()), note: trip.note, step: 'szkic', messages: ['Lista blokowanych produktów zmieniła się. Ułóż szkic ponownie.'] });
+      commit({ ...emptyTrip(d.now()), note: trip.note, step: 'szkic', ...(trip.blocked ? { blocked: true } : {}), messages: ['Lista blokowanych produktów zmieniła się. Ułóż szkic ponownie.'] });
     } else safeEmit({ type: 'state' });
   }
 
@@ -171,7 +189,7 @@ export function createService(d: ServiceDeps) {
       if (frozen()) return hold();
       const mine = ++generation;
       const stale = () => frozen() || mine !== generation;
-      let t: Trip = { ...emptyTrip(d.now()), note: input.note };
+      let t: Trip = { ...emptyTrip(d.now()), note: input.note, ...(trip.blocked ? { blocked: true } : {}) };
       const parsed = await askClaude(d.spawn, 'parse', t, input.note);
       if (stale()) return frozen() ? hold() : trip;
       const mode: Trip['mode'] = parsed === null ? 'fallback' : 'claude';
@@ -264,13 +282,14 @@ export function createService(d: ServiceDeps) {
     async approve(): Promise<Start> {
       if (busy !== null) return refuse('Inna operacja trwa: poczekaj, aż się skończy.');
       if (trip.step === 'koszyk' || trip.step === 'platnosc') return refuse(ALREADY_IN_CART);
+      if (trip.blocked) return refuse(BLOCKED_REASON);
       if (trip.proposal !== null) return refuse('Najpierw zastosuj albo odrzuć propozycję zmian.');
       if (openQuestions(trip).length > 0) return refuse('Najpierw odpowiedz na pytania o produkty.');
       let lines;
       try {
         lines = approvedLines(trip);
       } catch (e) {
-        return refuse(`Lista zakupów jest niepoprawna: ${e instanceof Error ? e.message : String(e)}`);
+        return refuse(e instanceof ListProblem ? e.message : `Lista zakupów jest niepoprawna: ${e instanceof Error ? e.message : String(e)}`);
       }
       if (lines.length === 0) return refuse('Nic nie jest zaznaczone do zamówienia.');
       try {
@@ -373,6 +392,7 @@ export function createService(d: ServiceDeps) {
         report: () => {},
         progress: (sent, total) => safeEmit({ type: 'progress', sent, total }),
         error: (text) => { problems.push(text); safeEmit({ type: 'log', text }); },
+        loginPrompt: { text: LOGIN_PROMPT, say: (text) => safeEmit({ type: 'log', text }) },
         onLocked: ({ lockFile, token, markFailed }) => {
           active = { markFailed, release: () => releaseLock(lockFile, token) };
           return () => { active = null; };
@@ -392,7 +412,10 @@ export function createService(d: ServiceDeps) {
         if (mine) commit({ ...trip, step: 'platnosc', reportText: text });
       } else {
         busy = null;
-        if (mine) commit({ ...trip, step: 'zatwierdzenie', messages: [...trip.messages, `Wypełnianie nie powiodło się: ${problems.join(' ') || 'nieznany błąd'}`] });
+        const polish = failureText(result?.failure);
+        const text = polish ?? (problems.join(' ') || 'nieznany błąd');
+        const stopped403 = result?.failure instanceof Blocked && !(result.failure instanceof Refused) && !(result.failure instanceof RateLimited);
+        if (mine) commit({ ...trip, step: 'zatwierdzenie', ...(stopped403 ? { blocked: true } : {}), messages: [...trip.messages, `Wypełnianie nie powiodło się: ${text}`] });
       }
     } catch (e) {
       console.error(`Błąd zapisu po wypełnianiu: ${e instanceof Error ? e.message : String(e)}`);

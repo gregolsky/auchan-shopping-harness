@@ -19,6 +19,8 @@ export interface Proposal { id: string; ops: Op[]; dropped: number; source: 'cla
 export interface Trip {
   note: string; step: Step; mode: 'claude' | 'fallback'; lines: TripLine[]; unmatched: { term: string; hint: string }[];
   messages: string[]; proposal: Proposal | null; updatedAt: string; reportText?: string | null;
+  /** Auchan answered the fill with a block (403): approving again is refused until a new trip is started. */
+  blocked?: boolean;
 }
 export interface Correction { term: string; proposedProductId: string | null; chosenProductId: string | null; reason?: string }
 
@@ -171,13 +173,16 @@ export const openQuestions = (trip: Trip): TripLine[] => trip.lines.filter((l) =
 
 export const needsQuestion = (line: TripLine): boolean => line.confidence !== 'high';
 
+/** A problem the user can fix in the list; its text is shown as it is. */
+export class ListProblem extends Error {}
+
 export function approvedLines(trip: Trip): { term: string | null; productId: string; quantity: number }[] {
   const seen = new Set<string>();
   const out: { term: string | null; productId: string; quantity: number }[] = [];
   for (const l of trip.lines) {
     if (!l.included) continue;
     if (!Number.isInteger(l.quantity) || l.quantity < 1 || l.quantity > 20) throw new Error(`Invalid quantity for ${l.productId}`);
-    if (seen.has(l.productId)) throw new Error(`Product ${l.productId} appears twice`);
+    if (seen.has(l.productId)) throw new ListProblem(`Ten sam produkt jest na liście dwa razy: ${l.name}. Usuń jedną pozycję.`);
     seen.add(l.productId);
     out.push({ term: l.term, productId: l.productId, quantity: l.quantity });
   }
@@ -237,7 +242,7 @@ function validTrip(v: unknown): v is Trip {
     && isArr(v.lines, validLine) && v.lines.length <= 200 && new Set(v.lines.map((l) => l.lineKey)).size === v.lines.length
     && isArr(v.unmatched, (u): u is { term: string; hint: string } => isRec(u) && isStr(u.term) && isStr(u.hint))
     && isArr(v.messages, isStr) && v.messages.length <= 200 && v.messages.every((m) => m.length <= 2000)
-    && validProposal(v.proposal) && isStr(v.updatedAt)
+    && validProposal(v.proposal) && isStr(v.updatedAt) && (v.blocked === undefined || typeof v.blocked === 'boolean')
     && (v.reportText === undefined || v.reportText === null || (isStr(v.reportText) && v.reportText.length <= MAX_REPORT));
 }
 

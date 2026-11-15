@@ -8,7 +8,7 @@ import type { AppEvent } from '../src/app/service.ts';
 import type { Spawn } from '../src/app/claude.ts';
 import { saveTrip } from '../src/app/trip.ts';
 import { openStore, type Store } from '../src/store.ts';
-import type { Worker } from '../src/worker.ts';
+import { Blocked, LoginRequired, RateLimited, Refused, type Worker } from '../src/worker.ts';
 import type { CartAccess } from '../src/http-worker.ts';
 import type { Product, PriceObservation } from '../src/types.ts';
 import { fakeCart, type FakeCart } from './helpers/fake-cart.ts';
@@ -447,4 +447,100 @@ test('the app report lists a blocked product already in the cart first, and leav
   const rep = events.find((e) => e.type === 'report') as { type: 'report'; report: any };
   assert.match(rep.report.text, /Sprawdź przed zapłatą:\n  - Mleko 3% — zablokowany produkt w koszyku, usuń go na Auchan/);
   assert.equal((cart as FakeCart).quantities[C], 1);
+});
+
+async function failingFill(error: Error, cartExtra: Partial<FakeCart> = {}) {
+  const cart = fakeCart({});
+  cart.applyQuantities = async () => { throw error; };
+  const s = setup({ cart: Object.assign(cart, cartExtra) });
+  const t = await s.svc.note({ note: 'chleb', includeUsual: false });
+  s.svc.answer(t.lines[0].lineKey, B);
+  assert.equal((await s.svc.approve()).started, true);
+  await done(s.events);
+  return s;
+}
+
+test('a blocked (403) fill keeps a flag that refuses approving again, and a new trip clears it', async () => {
+  const { svc, make, tripFile } = await failingFill(new Blocked('HTTP 403'));
+  const s = svc.state();
+  assert.equal(s.trip.blocked, true);
+  assert.equal(s.trip.step, 'zatwierdzenie');
+  assert.equal(s.trip.messages.at(-1), 'Wypełnianie nie powiodło się: Auchan odrzucił zapytanie. Nie zatwierdzaj ponownie — sprawdź koszyk na Auchan i zacznij nowe zakupy.');
+  const r = await svc.approve();
+  assert.equal(r.started, false);
+  assert.equal(r.reason, 'Auchan odrzucił zapytanie. Nie zatwierdzaj ponownie — sprawdź koszyk na Auchan i zacznij nowe zakupy.');
+  assert.equal(make().state().trip.blocked, true, 'the flag survives a restart');
+  assert.equal((await svc.note({ note: 'chleb', includeUsual: false })).blocked, true, 'a new draft does not lift it');
+  assert.equal(svc.reset().blocked, undefined);
+  assert.equal(existsSync(tripFile), false);
+});
+
+test('fill failures that the user meets are shown in Polish', async () => {
+  const cases: [Error, RegExp, boolean | undefined][] = [
+    [new Refused(B, 'Chleb'), /Auchan odrzucił zmianę koszyka \(Chleb\)/, undefined],
+    [new RateLimited(429, 120), /zwolnienie tempa.*za 2 min/, undefined],
+    [new LoginRequired(), /zaloguj się w oknie przeglądarki/, undefined],
+  ];
+  for (const [err, re, blocked] of cases) {
+    const { svc } = await failingFill(err);
+    const last = svc.state().trip.messages.at(-1)!;
+    assert.match(last, re);
+    assert.doesNotMatch(last, /Auchan refused|slow down|Log in|Fill failed/);
+    assert.equal(svc.state().trip.blocked, blocked, err.name);
+  }
+});
+
+test('the login prompt during a fill is Polish and is not part of the failure text', async () => {
+  const cart = fakeCart({});
+  let first = true;
+  const real = cart.readCart;
+  cart.readCart = async () => { if (first) { first = false; throw new LoginRequired(); } return real(); };
+  cart.applyQuantities = async () => { throw new Error('boom'); };
+  const { svc, events } = setup({ cart });
+  const t = await svc.note({ note: 'chleb', includeUsual: false });
+  svc.answer(t.lines[0].lineKey, B);
+  await svc.approve();
+  await done(events);
+  const logs = events.flatMap((e) => (e.type === 'log' ? [e.text] : []));
+  assert.ok(logs.includes('Zaloguj się w oknie przeglądarki i zostaw je otwarte — dodawanie ruszy samo.'));
+  const last = svc.state().trip.messages.at(-1)!;
+  assert.doesNotMatch(last, /Zaloguj/);
+  assert.match(last, /boom/);
+});
+
+test('a product listed twice is refused with its name', async () => {
+  const { svc } = setup();
+  const t = await svc.note({ note: 'chleb', includeUsual: false });
+  const first = t.lines[0];
+  // Force a second line with the same product by editing the saved trip.
+  const dupe = { ...first, lineKey: 't:inny', term: 'inny' };
+  const s = setup();
+  const file = s.tripFile;
+  saveTrip(file, { ...t, step: 'zatwierdzenie', proposal: null, lines: [{ ...first, question: null }, { ...dupe, question: null }] });
+  const again = s.make();
+  const r = await again.approve();
+  assert.equal(r.started, false);
+  assert.equal(r.reason, `Ten sam produkt jest na liście dwa razy: ${first.name}. Usuń jedną pozycję.`);
+});
+
+test('after payment the trip is frozen: line, answer, apply, ask and note are refused pointing to Nowe zakupy', async () => {
+  const { svc, events, spawned } = setup({ claude: { adhoc: { ops: [{ op: 'say', text: 'x' }] } } });
+  const t = await svc.note({ note: 'chleb', includeUsual: false });
+  svc.answer(t.lines[0].lineKey, B);
+  await svc.approve();
+  await done(events);
+  assert.equal(svc.state().trip.step, 'platnosc');
+  const key = t.lines[0].lineKey;
+  const before = svc.state().trip.lines;
+  const calls = spawned.length;
+  svc.line(key, { quantity: 5 });
+  svc.line(key, { remove: true });
+  svc.answer(key, null);
+  svc.apply('x');
+  await svc.ask('zmień');
+  const after = await svc.note({ note: 'mleko', includeUsual: false });
+  assert.equal(after.step, 'platnosc');
+  assert.deepEqual(svc.state().trip.lines, before);
+  assert.equal(spawned.length, calls, 'Claude is not called');
+  assert.equal(svc.state().trip.messages.at(-1), 'Te zakupy są już w koszyku. Kliknij „Nowe zakupy”, żeby zacząć od nowa.');
 });
