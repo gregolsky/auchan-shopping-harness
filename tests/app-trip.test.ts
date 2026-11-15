@@ -266,3 +266,45 @@ test('a planner quantity above 20 is clamped to 20, with the cost scaled and the
   assert.match(line.reason, /kupowano często.*ilość ograniczona do 20/);
   assert.doesNotThrow(() => approvedLines(tripFromDraft(emptyTrip(NOW), d, {})));
 });
+
+test('a low-confidence term line is held back with a question until the user answers', () => {
+  const d = draft();
+  d.items[0] = dl({
+    term: 'pierś z kurczaka', productId: 'K', name: 'Kiełbasa z piersi kurczaka', confidence: 'low', confidenceReason: 'product made from the term, not the term itself',
+    alternatives: [1, 2, 3, 4].map((n) => ({ productId: `X${n}`, name: `Filet ${n}`, lineCostGrosze: 100, confidence: 'medium' as const })),
+  });
+  const t = tripFromDraft(emptyTrip(NOW), d, {});
+  const line = t.lines[0]!;
+  assert.equal(line.included, false);
+  assert.deepEqual(line.question, { text: 'Nie mam pewnego dopasowania dla „pierś z kurczaka”. Wybierz produkt albo pomiń.', options: ['X1', 'X2', 'X3'] });
+  assert.equal(t.lines[1]!.included, true);
+  assert.equal(t.lines[1]!.question, null);
+});
+
+test('options put the highest confidence first and fall back to the chosen product', () => {
+  const d = draft();
+  d.items[0] = dl({
+    term: 'kurczak', productId: 'K', name: 'Pasztet z kurczaka', confidence: 'low',
+    alternatives: [{ productId: 'L', name: 'Low', lineCostGrosze: 100, confidence: 'low' }, { productId: 'H', name: 'High', lineCostGrosze: 100, confidence: 'high' }],
+  });
+  assert.deepEqual(tripFromDraft(emptyTrip(NOW), d, {}).lines[0]!.question!.options, ['H', 'K', 'L']);
+});
+
+test('answering a held-back line with a product includes it, and skipping removes it', () => {
+  const d = draft();
+  d.items[0] = dl({ term: 'kurczak', productId: 'K', name: 'Pasztet', confidence: 'low', alternatives: [{ productId: 'F', name: 'Filet', lineCostGrosze: 100, confidence: 'medium' }] });
+  const t = tripFromDraft(emptyTrip(NOW), d, {});
+  const key = t.lines[0]!.lineKey;
+  const picked = answer(t, key, 'F').trip.lines[0]!;
+  assert.equal(picked.productId, 'F');
+  assert.equal(picked.included, true);
+  assert.equal(picked.question, null);
+  assert.equal(answer(t, key, null).trip.lines.some((l) => l.lineKey === key), false);
+});
+
+test('a held-back line stays out of approval and does not count in the total', () => {
+  const d = draft();
+  d.items[0] = dl({ term: 'kurczak', productId: 'K', name: 'Pasztet', confidence: 'low' });
+  const t = tripFromDraft(emptyTrip(NOW), d, {});
+  assert.equal(approvedLines(t).some((l) => l.productId === 'K'), false);
+});

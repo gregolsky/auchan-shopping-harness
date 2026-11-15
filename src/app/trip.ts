@@ -14,6 +14,8 @@ export interface TripLine {
   lineCostGrosze: number; reason: string; confidence: Confidence; confidenceReason: string;
   candidates: TripCandidate[]; proposedProductId: string; question: { text: string; options: string[] } | null;
   included: boolean; kind: 'item' | 'suggestion';
+  /** A low match kept out of the basket until the user picks a product or skips it; it still blocks approval. */
+  held?: boolean;
 }
 export interface Proposal { id: string; ops: Op[]; dropped: number; source: 'claude' | 'fallback' }
 export interface Trip {
@@ -52,6 +54,15 @@ function tripLine(d: DraftLine, kind: TripLine['kind'], notes: Record<string, st
   return line;
 }
 
+const CONFIDENCE_ORDER: Record<Confidence, number> = { high: 0, medium: 1, low: 2 };
+
+/** A low match is not put in the basket silently: the line waits, out of the basket, for a product or a skip. */
+function holdLow(l: TripLine): TripLine {
+  if (l.term === null || l.kind !== 'item' || l.confidence !== 'low') return l;
+  const options = [...l.candidates].sort((a, b) => CONFIDENCE_ORDER[a.confidence] - CONFIDENCE_ORDER[b.confidence]).slice(0, 3).map((c) => c.productId);
+  return { ...l, included: false, held: true, question: { text: `Nie mam pewnego dopasowania dla „${l.term}”. Wybierz produkt albo pomiń.`, options } };
+}
+
 /** Adds lines for new keys only; an existing line (the user's choice, quantity, included flag) is kept untouched. */
 export function tripFromDraft(trip: Trip, draft: Draft, notes: Record<string, string>): Trip {
   const have = new Set(trip.lines.map((l) => l.lineKey));
@@ -61,7 +72,7 @@ export function tripFromDraft(trip: Trip, draft: Draft, notes: Record<string, st
     ...[...draft.stockUps, ...draft.promotions, ...draft.addOns].map((d): [DraftLine, TripLine['kind']] => [d, 'suggestion']),
   ];
   for (const [d, kind] of all) {
-    const l = tripLine(d, kind, notes);
+    const l = holdLow(tripLine(d, kind, notes));
     if (have.has(l.lineKey)) continue;
     have.add(l.lineKey);
     added.push(l);
@@ -93,7 +104,7 @@ function withQuantity(l: TripLine, quantity: number): TripLine {
 function withProduct(l: TripLine, productId: string): TripLine {
   const c = l.candidates.find((x) => x.productId === productId);
   if (!c) return l;
-  return { ...l, productId, name: c.name, lineCostGrosze: c.lineCostGrosze, confidence: 'high', confidenceReason: '', question: null };
+  return { ...l, productId, name: c.name, lineCostGrosze: c.lineCostGrosze, confidence: 'high', confidenceReason: '', question: null, included: l.held ? true : l.included, held: false };
 }
 
 function pick(l: TripLine, productId: string): TripLine | null {
@@ -166,10 +177,10 @@ export function answer(trip: Trip, lineKey: string, productId: string | null): {
 }
 
 export function setIncluded(trip: Trip, lineKey: string, included: boolean): Trip {
-  return { ...trip, lines: trip.lines.map((l) => (l.lineKey === lineKey ? { ...l, included } : l)) };
+  return { ...trip, lines: trip.lines.map((l) => (l.lineKey === lineKey ? { ...l, included, held: false } : l)) };
 }
 
-export const openQuestions = (trip: Trip): TripLine[] => trip.lines.filter((l) => l.included && l.question !== null);
+export const openQuestions = (trip: Trip): TripLine[] => trip.lines.filter((l) => (l.included || l.held === true) && l.question !== null);
 
 export const needsQuestion = (line: TripLine): boolean => line.confidence !== 'high';
 
@@ -230,7 +241,7 @@ function validLine(v: unknown): v is TripLine {
     && v.candidates.some((c) => c.productId === v.productId) && v.candidates.some((c) => c.productId === v.proposedProductId)
     && (v.question === null || (isRec(v.question) && isStr(v.question.text) && isArr(v.question.options, isStr) && v.question.options.length <= 3
       && v.question.options.every((o) => (v.candidates as TripCandidate[]).some((c) => c.productId === o))))
-    && typeof v.included === 'boolean' && (v.kind === 'item' || v.kind === 'suggestion');
+    && typeof v.included === 'boolean' && (v.held === undefined || typeof v.held === 'boolean') && (v.kind === 'item' || v.kind === 'suggestion');
 }
 
 function validProposal(v: unknown): boolean {
