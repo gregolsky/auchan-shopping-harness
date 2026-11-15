@@ -21,12 +21,12 @@ export interface Deps {
 }
 
 /** Order history and the session live here: owner only, whichever command creates it first. */
-function ensureStateDir(file: string): void {
+export function ensureStateDir(file: string): void {
   mkdirSync(dirname(file), { recursive: true });
   chmodSync(dirname(file), 0o700);
 }
 
-const liveDeps: Deps = {
+export const liveDeps: Deps = {
   async openWorker() {
     ensureStateDir(SESSION_PATH);
     return createHttpWorker({ sessionFile: SESSION_PATH, login: () => browserLogin(SESSION_PATH) });
@@ -41,16 +41,28 @@ const liveDeps: Deps = {
 };
 
 /** The one line printed for a failure. Fixed text for the known cases so no response content can leak. */
-export function describeFailure(err: unknown): string {
+export function describeFailure(err: unknown, action: 'sync' | 'fill' = 'sync'): string {
   if (err instanceof LoginRequired) return NOT_LOGGED_IN;
   if (err instanceof RateLimited) {
     const wait = err.retrySeconds === undefined ? 'later' : `in ${Math.max(1, Math.ceil(err.retrySeconds / 60))} min`;
-    return `Auchan asked us to slow down, so the sync stopped. Saved data is kept; run it again ${wait}.`;
+    return `Auchan asked us to slow down, so the ${action} stopped. Saved data is kept; run it again ${wait}.`;
   }
   if (err instanceof Blocked) return 'Auchan refused the request. Do not rerun; the request format may need review.';
   if (err instanceof ProfileBusy) return 'Browser profile is busy: close the other browser first.';
   if (err instanceof ShapeError) return `Unexpected response shape: ${err.message}`;
-  return `Sync failed: ${err instanceof Error ? err.message : String(err)}`;
+  return `${action === 'sync' ? 'Sync' : 'Fill'} failed: ${err instanceof Error ? err.message : String(err)}`;
+}
+
+/** Auchan's login does not survive a browser restart, so it must happen in this window. Undefined if the user gave up. */
+export async function withLogin<T>(worker: Worker, work: () => Promise<T>): Promise<T | undefined> {
+  try {
+    return await work();
+  } catch (err) {
+    if (!(err instanceof LoginRequired)) throw err;
+    console.error(LOG_IN);
+    if (!(await worker.waitForLogin())) return undefined;
+    return await work();
+  }
 }
 
 async function runSync(which: string | undefined, worker: Worker, store: Store, paceMs: number): Promise<number> {
@@ -95,15 +107,7 @@ export async function main(args: string[], deps: Deps = liveDeps): Promise<numbe
       console.log(`ok: ${orders} orders on the page${orders === 0 ? ', so no order was checked' : ''}`);
       return 0;
     };
-    try {
-      return await work();
-    } catch (err) {
-      if (!(err instanceof LoginRequired)) throw err;
-      // Auchan's login does not survive a browser restart, so it must happen in this window.
-      console.error(LOG_IN);
-      if (!(await open.waitForLogin())) return 1;
-      return await work();
-    }
+    return (await withLogin(open, work)) ?? 1;
   } catch (err) {
     console.error(describeFailure(err));
     return 1;
