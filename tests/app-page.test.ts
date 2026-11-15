@@ -382,6 +382,13 @@ test('every link to Auchan opens safely: noopener noreferrer, no referrer', () =
   assert.match(search, /referrerPolicy = 'no-referrer'/);
 });
 
+test('the search button is disabled while a note or an ask call is pending', () => {
+  const state = { trip: { step: 'szkic' }, busy: null, search: { terms: ['a'], recent: [] } };
+  assert.equal(searchButton(state, null).disabled, false);
+  assert.equal(searchButton(state, 'note').disabled, true);
+  assert.equal(searchButton(state, 'ask').disabled, true);
+});
+
 test('the page has a polite search status panel', () => {
   const html = readFileSync('public/index.html', 'utf8');
   assert.match(html, /id="search-status"[^>]*role="status"[^>]*aria-live="polite"/);

@@ -28,4 +28,4 @@ export const MANUAL_HINT: string;
 export function auchanSearchUrl(term: string): string;
 export function searchPanel(event: any, busy: string | null, block?: { until: string; status: number } | null): any;
 export function searchBlockText(block: { until: string; status: number }, timeZone?: string): string;
-export function searchButton(state: any): any;
+export function searchButton(state: any, pending?: string | null): any;

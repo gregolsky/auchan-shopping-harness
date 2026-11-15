@@ -419,7 +419,10 @@ export function createService(d: ServiceDeps) {
         if (block !== null) return refuse(searchBlockText(block));
         region = withStore((s) => s.latestOrderRegion());
         const plan = terms === undefined ? searchPlan() : null;
-        const given = plan !== null ? (opts.force ? [...plan.terms, ...plan.recent] : plan.terms) : [...new Map((terms ?? []).map((x) => x.trim()).filter(Boolean).map((x) => [normaliseTerm(x), x])).values()];
+        // Only terms the plan offers can be searched; anything else a caller sends is dropped.
+        const offered = searchPlan();
+        const allowed = new Set([...offered.terms, ...offered.recent].map(normaliseTerm));
+        const given = plan !== null ? (opts.force ? [...plan.terms, ...plan.recent] : plan.terms) : [...new Map((terms ?? []).map((x) => x.trim()).filter((x) => x !== '' && allowed.has(normaliseTerm(x))).map((x) => [normaliseTerm(x), x])).values()];
         wanted = opts.force || terms === undefined ? given : withStore((s) => given.filter((x) => !s.searchedRecently(x, d.now())));
         if (terms !== undefined && !opts.force && wanted.length < given.length && wanted.length === 0) return refuse('Te hasła były szukane niedawno (w ostatnich 7 dniach). Kliknij ponownie, jeśli chcesz szukać jeszcze raz.');
       } catch (e) {
@@ -604,8 +607,11 @@ export function createService(d: ServiceDeps) {
       busy = null;
       announce({ type: 'search', status: failed ? 'stopped' : 'done', found: found.length, total: terms.length, ...(failedReason !== undefined ? { reason: failedReason } : {}) });
     } catch (e) {
-      lastSearch = null;
+      const text = `Nie udało się zapisać wyników szukania: ${cleanText(e instanceof Error ? e.message : String(e))}`;
       console.error(`Błąd zapisu po szukaniu: ${e instanceof Error ? e.message : String(e)}`);
+      busy = null;
+      announce({ type: 'search', status: 'stopped', reason: text });
+      safeEmit({ type: 'log', text });
     } finally {
       release();
       busy = null;

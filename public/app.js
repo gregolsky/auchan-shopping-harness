@@ -235,10 +235,10 @@ export function searchBlockText(block, timeZone) {
 }
 
 /** The "search on Auchan" button: how many terms it covers, or a forced rerun when all were searched in the last 7 days. */
-export function searchButton(state) {
+export function searchButton(state, pending = null) {
   const search = state.search;
   if (!search || search.block || KEYS.indexOf(state.trip?.step) >= 4) return null;
-  const disabled = Boolean(state.busy);
+  const disabled = Boolean(state.busy) || pending !== null;
   if (search.terms.length > 0) return { label: `Szukaj w Auchan (${search.terms.length})`, force: false, disabled };
   if (search.recent.length > 0) return { label: `Szukaj ponownie (${search.recent.length})`, force: true, disabled };
   return null;
@@ -340,7 +340,7 @@ export function start() {
   }
   /** The button that searches Auchan for the unmatched and doubtful terms; it only ever runs on a click. */
   function searchButtonNode() {
-    const view = searchButton(state);
+    const view = searchButton(state, pending);
     if (view === null) return null;
     return button(view.label, async () => { searchEvent = null; await run('/api/search', view.force ? { force: true } : {}); showSearch(); }, 'quiet', view.disabled);
   }

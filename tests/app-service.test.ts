@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createService } from '../src/app/service.ts';
@@ -794,15 +794,43 @@ test('"search again" (force with no terms) searches the recent terms too', async
   assert.deepEqual(t.svc.state().search.recent, ['kawior']);
   assert.deepEqual(await t.svc.searchAuchan(undefined, { force: true }), { started: true });
   await searchEnd(t.events);
-  assert.deepEqual(log.filter((u) => u.includes('/search?q=')).map((u) => decodeURIComponent(u.split('q=')[1]!)), ['kawior']);
+  assert.deepEqual(log.filter((u) => u.includes('/search?q=')).map((u) => decodeURIComponent(u.split('q=')[1]!).toLowerCase()), ['kawior']);
 });
 
 test('at most 10 terms are searched', async () => {
   const log: string[] = [];
-  const t = await draftWithUnmatched({ page: () => fakeSearchPage({}, { log }) });
-  await t.svc.searchAuchan(Array.from({ length: 14 }, (_, i) => `rzecz${i}`));
+  const names = Array.from({ length: 14 }, (_, i) => `rzecz${i}`);
+  const t = setup({ page: () => fakeSearchPage({}, { log }) });
+  await t.svc.note({ note: names.join('\n'), includeUsual: false });
+  await t.svc.searchAuchan(names);
   await searchEnd(t.events);
   assert.equal(log.filter((u) => u.includes('/search?q=')).length, 10);
+});
+
+test('terms the plan does not offer are dropped from a search request', async () => {
+  const log: string[] = [];
+  const t = await draftWithUnmatched({ page: () => fakeSearchPage(undefined, { log }) });
+  assert.deepEqual(await t.svc.searchAuchan(['czego-nie-ma', 'inna-rzecz']), { started: false, reason: 'Nie ma czego szukać.' });
+  assert.deepEqual(t.svc.state().busy, null);
+  assert.equal(existsSync(t.lockFile), false);
+  assert.equal((await t.svc.searchAuchan(['czego-nie-ma', 'Kawior', 'kawior'])).started, true);
+  await searchEnd(t.events);
+  assert.deepEqual(log.filter((u) => u.includes('/search?q=')).map((u) => decodeURIComponent(u.split('q=')[1]!).toLowerCase()), ['kawior']);
+});
+
+test('a failure to save after the search ends with a stopped event and Polish text, not a silent panel', async () => {
+  const t = await draftWithUnmatched();
+  rmSync(t.tripFile, { force: true });
+  mkdirSync(t.tripFile); // the trip can no longer be written
+  t.events.length = 0;
+  await t.svc.searchAuchan();
+  await searchEnd(t.events);
+  const last = searchEvents(t.events).at(-1)!;
+  assert.equal(last.status, 'stopped');
+  assert.match(last.reason!, /^Nie udało się zapisać wyników szukania/);
+  assert.deepEqual(t.svc.state().search.last, last);
+  assert.equal(t.svc.state().busy, null);
+  assert.equal(existsSync(t.lockFile), false);
 });
 
 test('search is refused while another operation runs, while the fill lock is held and with no synced orders', async () => {
