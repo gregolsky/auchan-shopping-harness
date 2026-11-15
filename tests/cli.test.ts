@@ -366,3 +366,36 @@ test('sync images stops on Blocked with the fixed message', async (t) => {
   assert.equal(await main(['images'], deps), 1);
   assert.match(log.err.join('\n'), /Auchan refused the request/);
 });
+
+test('a usage error for placed without a valid id', async (t) => {
+  const log = { out: [] as string[], err: [] as string[] };
+  quiet(t, log);
+  for (const args of [['placed'], ['placed', 'abc'], ['placed', '1000000000123', 'x']]) {
+    assert.equal(await main(args, { openWorker: async () => null as never, openStore: () => null as never }), 2);
+  }
+});
+
+test('sync placed <id> imports only that id and reports it', async (t) => {
+  const log = { out: [] as string[], err: [] as string[] };
+  quiet(t, log);
+  const { deps, log: l } = setup({ async getJson(path) { l.requests.push(path); return fx('order-decorated.json'); } });
+  // the fixture's own order id is the one asked for
+  const id = Object.keys(fx('order-decorated.json').entities.order)[0];
+  assert.equal(await main(['placed', id], deps), 0);
+  assert.deepEqual(l.requests, [`/api/order/v6/orders/${id}/decorated`]);
+  assert.match(log.out[0], /^placed: 1 imported/);
+});
+
+test('sync orders reports placed orders, in Polish for the app', async () => {
+  const lines: string[] = [];
+  const { deps, store } = setup();
+  const b = store.approveBasket([], []);
+  const id = Object.keys(fx('order-decorated.json').entities.order)[0];
+  store.setFillOrderId(store.startFill(b.basketId), id);
+  const w = { ...(await deps.openWorker()), async getJson() { return fx('order-decorated.json'); } };
+  await runSync('orders', w as Worker, store, 0, (x) => lines.push(x), () => {}, true);
+  assert.ok(lines.includes('zamówienia złożone (przed dostawą): 1'), lines.join('|'));
+  const en: string[] = [];
+  await runSync('orders', w as Worker, store, 0, (x) => en.push(x), () => {});
+  assert.ok(en.includes('placed orders (before delivery): 0'));
+});

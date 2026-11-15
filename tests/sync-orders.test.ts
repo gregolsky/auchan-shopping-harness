@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { openStore } from '../src/store.ts';
 import { ShapeError } from '../src/parse.ts';
 import { parseDecoratedOrder } from '../src/parse.ts';
-import { checkOrders, syncOrderImages, syncOrders } from '../src/sync-orders.ts';
+import { checkOrders, syncOrderImages, syncOrders, syncPlaced } from '../src/sync-orders.ts';
+import { Rejected } from '../src/http-worker.ts';
 import { GET_COMPLETED_ORDERS_QUERY, LoginRequired, Blocked } from '../src/worker.ts';
 
 const decorated = JSON.parse(readFileSync(new URL('./fixtures/order-decorated.json', import.meta.url), 'utf8'));
@@ -255,4 +256,76 @@ test('the image backfill refuses an order body of another shape without leaking 
   seedImageless(store, ['1']);
   const f = fake([], { bad: new Set(['1']) });
   await assert.rejects(syncOrderImages(f.worker, store, opts), (e: Error) => e instanceof ShapeError && !/leaky/.test(e.message));
+});
+
+// --- placed orders (learned before delivery) ---
+function withRuns(ids: string[]) {
+  const store = openStore(':memory:');
+  store.savePromotions({ regionId: 'r', products: [{ productId: 'p', retailerProductId: 'r', name: 'P', brand: '', categoryPath: [], unitLabel: null, size: null, inCatalogue: true }], prices: [] });
+  const { basketId } = store.approveBasket([], []);
+  ids.forEach((id) => store.setFillOrderId(store.startFill(basketId), id));
+  return store;
+}
+const placedWorker = (fail: Record<string, unknown> = {}) => {
+  const calls: string[] = [];
+  return { calls, worker: { async getJson(path: string) {
+    const id = /orders\/([\w-]+)\/decorated/.exec(path)![1];
+    calls.push(id);
+    if (fail[id]) throw fail[id];
+    return decoratedFor(id);
+  } } };
+};
+const counts = (store: any, id: string) => {
+  const rows = (store as any).recentOrders(50).filter((o: any) => o.orderId === id);
+  return rows.length === 1 ? rows[0].lineCount : -1;
+};
+
+test('syncPlaced saves each unseen fill-run order once, as placed', async () => {
+  const store = withRuns(['1000000000123', '1000000000123', '1004669666916']);
+  const w = placedWorker();
+  const r = await syncPlaced(w.worker, store, opts);
+  assert.deepEqual(r, { imported: 2, skipped: 0 });
+  assert.deepEqual(w.calls, ['1000000000123', '1004669666916']);
+  assert.equal(store.orderStatus('1000000000123'), 'placed');
+  assert.ok(counts(store, '1000000000123') > 0);
+  assert.deepEqual(await syncPlaced(w.worker, store, opts), { imported: 0, skipped: 0 }); // already stored: no refetch
+  assert.equal(w.calls.length, 2);
+});
+
+test('syncPlaced skips an order that does not exist, and a body that is not an order', async () => {
+  const store = withRuns(['1000000000123', '1004669666916']);
+  const w = placedWorker({ '1000000000123': new Rejected(404) });
+  const r = await syncPlaced(w.worker, store, opts);
+  assert.deepEqual(r, { imported: 1, skipped: 1 });
+  assert.equal(store.orderStatus('1000000000123'), null);
+});
+
+test('syncPlaced stops on Blocked', async () => {
+  const store = withRuns(['1000000000123', '1004669666916']);
+  const w = placedWorker({ '1000000000123': new Blocked('x') });
+  await assert.rejects(syncPlaced(w.worker, store, opts), Blocked);
+  assert.deepEqual(w.calls, ['1000000000123']);
+});
+
+test('syncPlaced with an explicit id fetches only that one and validates it', async () => {
+  const store = withRuns(['1004669666916']);
+  const w = placedWorker();
+  await syncPlaced(w.worker, store, { ...opts, orderId: '1000000000123' });
+  assert.deepEqual(w.calls, ['1000000000123']);
+  await assert.rejects(syncPlaced(w.worker, store, { ...opts, orderId: '../x' }), /digits/);
+});
+
+test('a placed order is replaced when it arrives as delivered, with no duplicate lines or prices', async () => {
+  const store = withRuns(['1000000000123']);
+  const w = placedWorker();
+  await syncPlaced(w.worker, store, opts);
+  const lines = counts(store, '1000000000123');
+  const f = fake([page(['1000000000123'], null, false)]);
+  const r = await syncOrders(f.worker, store, opts);
+  assert.equal(r.imported, 1);
+  assert.equal(r.skipped, 0);
+  assert.equal(store.orderStatus('1000000000123'), 'delivered');
+  assert.equal(counts(store, '1000000000123'), lines);
+  const again = await syncOrders(fake([page(['1000000000123'], null, false)]).worker, store, opts);
+  assert.equal(again.skipped, 1); // delivered now: skipped as before
 });

@@ -5,7 +5,7 @@ import { openStore, type Store } from './store.ts';
 import { browserLogin, LoginRequired, Blocked, Refused, ProfileBusy, RateLimited, type Worker } from './worker.ts';
 import { createHttpWorker } from './http-worker.ts';
 import { cleanText, ShapeError } from './parse.ts';
-import { checkOrders, syncOrderImages, syncOrders } from './sync-orders.ts';
+import { checkOrders, syncOrderImages, syncOrders, syncPlaced } from './sync-orders.ts';
 import { syncPromotions } from './sync-promotions.ts';
 import { DB_PATH, SESSION_PATH } from './dbpath.ts';
 
@@ -73,7 +73,13 @@ export async function withLogin<T>(worker: Worker, work: () => Promise<T>, messa
 export async function runSync(
   which: string | undefined, worker: Worker, store: Store, paceMs: number,
   log: (line: string) => void = (l) => console.log(l), err: (line: string) => void = (l) => console.error(l),
+  polish = false, placedId?: string,
 ): Promise<number> {
+  if (which === 'placed') {
+    const r = await syncPlaced(worker, store, { paceMs, orderId: placedId });
+    log(`placed: ${r.imported} imported, ${r.skipped} skipped`);
+    return 0;
+  }
   if (which === 'images') {
     const r = await syncOrderImages(worker, store, { paceMs });
     log(`images: ${r.fetched} orders re-read`);
@@ -85,6 +91,8 @@ export async function runSync(
       `orders: imported ${r.imported}, skipped ${r.skipped}, oldest seen ${cleanText(r.oldestSeen ?? 'none')}; ` +
         `zero-quantity lines ${r.skippedZero}, substitutes ${r.substitutes}, missings ${r.missings}, returns ${r.returns}`,
     );
+    const p = await syncPlaced(worker, store, { paceMs });
+    log(polish ? `zamówienia złożone (przed dostawą): ${p.imported}` : `placed orders (before delivery): ${p.imported}`);
   }
   if (which !== 'orders') {
     // The session's own region cannot check itself: the expected one comes from a real delivery.
@@ -101,9 +109,9 @@ export async function runSync(
   return 0;
 }
 
-type Out = { log(line: string): void; err(line: string): void };
+type Out = { log(line: string): void; err(line: string): void; polish?: boolean };
 
-async function runSyncJob(which: string | undefined, deps: Deps, out: Out): Promise<number> {
+async function runSyncJob(which: string | undefined, deps: Deps, out: Out, placedId?: string): Promise<number> {
   const paceMs = deps.paceMs ?? PACE_MS;
   let store: Store | undefined;
   let worker: Worker | undefined;
@@ -112,7 +120,7 @@ async function runSyncJob(which: string | undefined, deps: Deps, out: Out): Prom
     worker = await deps.openWorker();
     const open = worker;
     const work = async (): Promise<number> => {
-      if (store) return runSync(which, open, store, paceMs, out.log, out.err);
+      if (store) return runSync(which, open, store, paceMs, out.log, out.err, out.polish, placedId);
       const { orders } = await checkOrders(open, { paceMs });
       out.log(`ok: ${orders} orders on the page${orders === 0 ? ', so no order was checked' : ''}`);
       return 0;
@@ -129,16 +137,17 @@ async function runSyncJob(which: string | undefined, deps: Deps, out: Out): Prom
 
 /** Orders then promotions, reporting through one logger (the app shows both kinds of line the same way). */
 export function syncAll(deps: Deps, log: (line: string) => void): Promise<number> {
-  return runSyncJob(undefined, deps, { log, err: log });
+  return runSyncJob(undefined, deps, { log, err: log, polish: true });
 }
 
 export async function main(args: string[], deps: Deps = liveDeps): Promise<number> {
   const which = args[0];
-  if (which !== undefined && which !== 'orders' && which !== 'promotions' && which !== 'images' && which !== 'check') {
-    console.error('usage: npm run sync [orders|promotions|images|check]');
+  const placedOk = which === 'placed' && args.length === 2 && /^\d{6,20}$/.test(args[1]);
+  if ((which !== undefined && which !== 'orders' && which !== 'promotions' && which !== 'images' && which !== 'check' && which !== 'placed') || (which === 'placed' && !placedOk)) {
+    console.error('usage: npm run sync [orders|promotions|images|check|placed <orderId>]');
     return 2;
   }
-  return runSyncJob(which, deps, { log: (l) => console.log(l), err: (l) => console.error(l) });
+  return runSyncJob(which, deps, { log: (l) => console.log(l), err: (l) => console.error(l) }, placedOk ? args[1] : undefined);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

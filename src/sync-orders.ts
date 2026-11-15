@@ -1,5 +1,6 @@
 import { parseCompletedOrdersPage, parseDecoratedOrder, ShapeError } from './parse.ts';
 import type { Store } from './store.ts';
+import { Rejected } from './http-worker.ts';
 import { GET_COMPLETED_ORDERS_QUERY, type Worker } from './worker.ts';
 
 const PAGE_SIZE = 20;
@@ -88,14 +89,14 @@ export async function syncOrders(
 
       let pageAllStored = pageInfo.orderIds.length > 0;
       for (const id of pageInfo.orderIds) {
-        if (store.hasOrder(id)) {
+        if (store.orderStatus(id) === 'delivered') {
           skipped++;
           continue;
         }
         pageAllStored = false;
         await pace();
         const parsed = readOrder(await worker.getJson(orderPath(id)), id);
-        store.saveOrder(parsed);
+        store.saveOrder(parsed); // a placed order of the same id is replaced
         imported++;
         skippedZero += parsed.skippedZero;
         substitutes += parsed.substitutes;
@@ -134,4 +135,48 @@ export async function syncOrderImages(
     fetched++;
   }
   return { fetched };
+}
+
+export interface SyncPlacedResult {
+  imported: number;
+  skipped: number;
+}
+
+/**
+ * Orders the user placed after a fill are learned before delivery: each order id recorded on a fill run
+ * (or the one given) that is not stored yet is read once and saved as 'placed'. An order that does not exist
+ * (never paid), has an unexpected body or no lines is skipped silently; a Blocked propagates and stops the step.
+ */
+export async function syncPlaced(
+  worker: Pick<Worker, 'getJson'>,
+  store: Store,
+  opts: SyncOrdersOptions & { orderId?: string },
+): Promise<SyncPlacedResult> {
+  const sleep = opts.sleep ?? defaultSleep;
+  if (opts.orderId !== undefined && !/^\d{6,20}$/.test(opts.orderId)) throw new Error('order id must be 6 to 20 digits');
+  const ids = opts.orderId !== undefined ? (store.hasOrder(opts.orderId) ? [] : [opts.orderId]) : store.fillOrderIdsNotInOrders();
+  let imported = 0;
+  let skipped = 0;
+  let first = true;
+  for (const id of ids) {
+    if (!first) await sleep(opts.paceMs);
+    first = false;
+    let parsed: ReturnType<typeof parseDecoratedOrder>;
+    try {
+      parsed = readOrder(await worker.getJson(orderPath(id)), id);
+    } catch (e) {
+      if (e instanceof Rejected || e instanceof ShapeError) {
+        skipped++;
+        continue;
+      }
+      throw e;
+    }
+    if (parsed.lines.length === 0) {
+      skipped++;
+      continue;
+    }
+    store.saveOrder(parsed, 'placed');
+    imported++;
+  }
+  return { imported, skipped };
 }
