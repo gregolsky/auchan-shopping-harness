@@ -17,3 +17,7 @@ export function doneSummary(model: any): string;
 export function failureText(kind: 'note' | 'ask', message: string): string;
 export function badgeText(line: any): string;
 export function confidenceReasonText(reason: string): string;
+export function lineCard(line: any, ops?: { index: number; op: any }[]): any;
+export function proposalView(trip: any): { count: number; byLine: Record<string, { index: number; op: any }[]>; loose: { index: number; op: any; text: string }[] };
+export function unmatchedCard(item: { term: string; hint?: string }): { title: string; hint: string | null };
+export function acceptAllText(count: number): string;

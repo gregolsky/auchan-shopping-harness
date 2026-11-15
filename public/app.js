@@ -128,6 +128,47 @@ export function describeOp(op, linesByKey) {
   }
 }
 
+const mini = (c) => ({ productId: c.productId, name: c.name, priceText: zl(c.lineCostGrosze), imageUrl: c.imageUrl || null, imageAlt: c.imageAlt || c.name });
+
+/** Claude's pending operations: per line (by lineKey) and the ones not tied to a line; each keeps its index in the proposal. */
+export function proposalView(trip) {
+  const ops = trip?.proposal?.ops || [];
+  const byLine = {}, loose = [];
+  const lines = new Map((trip?.lines || []).map((l) => [l.lineKey, l]));
+  ops.forEach((op, index) => {
+    if (op.lineKey !== undefined && lines.has(op.lineKey)) (byLine[op.lineKey] ||= []).push({ index, op });
+    else loose.push({ index, op, text: describeOp(op, lines) });
+  });
+  return { count: ops.length, byLine, loose };
+}
+export const acceptAllText = (count) => `Przyjmij wszystkie propozycje (${count})`;
+
+/** Everything one product card shows, so the DOM code only has to place it. */
+export function lineCard(line, ops = []) {
+  const find = (id) => (line.candidates || []).find((c) => c.productId === id);
+  const proposals = ops.map(({ index, op }) => {
+    if (op.op === 'remove') return { index, kind: 'remove', text: 'usuń', product: null };
+    if (op.op === 'setQuantity') return { index, kind: 'setQuantity', text: `ilość ${op.quantity}`, product: null };
+    const c = find(op.productId);
+    return { index, kind: 'choose', text: c?.name || op.productId, product: c ? mini(c) : null };
+  });
+  const asked = line.question ? line.question.options.map(find).filter(Boolean).map(mini) : [];
+  const doubtful = line.held || line.confidence !== 'high';
+  return {
+    lineKey: line.lineKey, label: lineLabel(line), name: line.name, priceText: zl(line.lineCostGrosze),
+    imageUrl: line.imageUrl || null, imageAlt: line.imageAlt || line.name,
+    quantity: line.quantity, canDec: line.quantity > 1, canInc: line.quantity < 20,
+    suggestion: line.kind === 'suggestion', included: Boolean(line.included), held: Boolean(line.held),
+    badge: { text: badgeText(line), level: line.held ? 'low' : line.confidence, reason: doubtful ? confidenceReasonText(line.confidenceReason) : null },
+    proposals,
+    question: line.question ? { text: line.question.text, options: asked } : null,
+    alternatives: line.question ? [] : (line.candidates || []).filter((c) => c.productId !== line.productId).slice(0, 3).map(mini),
+  };
+}
+
+/** A term Claude could not match: its own card, with the hint when there is one. */
+export function unmatchedCard(item) { return { title: `Nie znalazłem: ${item.term}`, hint: item.hint || null }; }
+
 function element(tag, className = '', value = '') {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -150,7 +191,12 @@ export function badgeText(line) {
   return { high: 'Pewne', medium: 'Sprawdź wybór', low: 'Niepewne' }[line.confidence] || 'Sprawdź';
 }
 export function confidenceReasonText(reason) { return REASONS[reason] || reason || 'dopasowanie niepewne'; }
-function badge(line) { return element('span', `badge ${line.held ? 'low' : line.confidence}`, badgeText(line)); }
+function thumb(url, alt, className = 'thumb') {
+  if (!url) { const blank = element('span', `${className} placeholder`, '🛒'); blank.setAttribute('aria-hidden', 'true'); return blank; }
+  const img = document.createElement('img');
+  img.alt = alt; img.src = url; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer'; img.className = className;
+  return img;
+}
 
 export function start() {
   const token = new URL(location.href).searchParams.get('t') || '';
@@ -220,23 +266,69 @@ export function start() {
     document.querySelector('#step-help').textContent = rulesOpen ? 'Zobacz zapamiętane wybory i zablokowane produkty.' : HELP[selected];
   }
 
-  function lineRow(line, editable = false) {
-    const row = element('div', 'line');
-    row.append(element('div', 'meta from-list', lineLabel(line)));
-    const heading = element('div', 'row');
-    append(heading, element('span', 'line-name', line.name), element('span', 'price', zl(line.lineCostGrosze)));
-    append(row, heading, badge(line), element('div', 'meta', `${line.quantity} szt.${line.confidence !== 'high' ? ` · Dlaczego sprawdzić: ${confidenceReasonText(line.confidenceReason)}` : ''}`));
-    if (editable) {
-      const actions = element('div', 'actions');
-      if (line.kind === 'suggestion') actions.append(button(line.included ? '✓ W koszyku' : '＋ Dodaj', () => run('/api/line', { lineKey: line.lineKey, included: !line.included }), 'small'));
-      else {
-        actions.append(button('−', () => run('/api/line', { lineKey: line.lineKey, quantity: Math.max(1, line.quantity - 1) }), 'small', line.quantity <= 1));
-        actions.append(button('＋', () => run('/api/line', { lineKey: line.lineKey, quantity: Math.min(20, line.quantity + 1) }), 'small', line.quantity >= 20));
-        actions.append(button('Usuń', () => run('/api/line', { lineKey: line.lineKey, remove: true }), 'small danger'));
-      }
-      row.append(actions);
+  const proposalOp = (index, accept) => run('/api/proposal/op', { proposalId: state.trip.proposal.id, index, accept });
+  /** A clickable mini-card: thumbnail, name and price of one candidate. */
+  function option(product, action) {
+    const node = element('button', 'option');
+    node.type = 'button'; node.addEventListener('click', action);
+    append(node, thumb(product.imageUrl, product.imageAlt, 'thumb small-thumb'), element('span', 'option-name', product.name), element('span', 'price', product.priceText));
+    return node;
+  }
+  /** One product of the list with everything needed to decide next to it: the stepper, Claude's proposal, the question or other candidates. */
+  function lineCardNode(line, ops) {
+    const view = lineCard(line, ops);
+    const node = element('article', `line-card${view.held ? ' waiting' : ''}`);
+    node.append(element('div', 'meta from-list', view.label));
+    const info = element('div', 'line-info');
+    append(info, element('span', 'line-name', view.name), element('span', 'price', view.priceText), element('span', `badge ${view.badge.level}`, view.badge.text));
+    if (view.badge.reason) info.append(element('div', 'meta why', `Dlaczego sprawdzić: ${view.badge.reason}`));
+    node.append(append(element('div', 'line-main'), thumb(view.imageUrl, view.imageAlt), info));
+    if (view.suggestion) node.append(append(element('div', 'actions'), button(view.included ? '✓ W koszyku' : '＋ Dodaj', () => run('/api/line', { lineKey: line.lineKey, included: !view.included }), 'small')));
+    else {
+      const stepper = element('div', 'stepper');
+      stepper.setAttribute('role', 'group'); stepper.setAttribute('aria-label', 'Ilość');
+      const minus = button('−', () => run('/api/line', { lineKey: line.lineKey, quantity: view.quantity - 1 }), 'small', !view.canDec); minus.setAttribute('aria-label', 'Mniej');
+      const plus = button('+', () => run('/api/line', { lineKey: line.lineKey, quantity: view.quantity + 1 }), 'small', !view.canInc); plus.setAttribute('aria-label', 'Więcej');
+      append(stepper, minus, element('span', 'quantity', `${view.quantity} szt.`), plus);
+      node.append(stepper);
     }
-    return row;
+    view.proposals.forEach((p) => {
+      const row = element('div', 'proposal');
+      row.append(element('span', 'proposal-title', 'Claude proponuje:'));
+      if (p.product) append(row, thumb(p.product.imageUrl, p.product.imageAlt, 'thumb small-thumb'), element('span', 'line-name', p.text), element('span', 'price', p.product.priceText));
+      else row.append(element('span', 'line-name', p.text));
+      append(row, append(element('div', 'actions'), button('Weź to', () => proposalOp(p.index, true), 'small'), button('Zostaw obecny', () => proposalOp(p.index, false), 'small quiet')));
+      node.append(row);
+    });
+    if (view.question) {
+      const ask = element('div', 'ask');
+      ask.append(element('p', 'question', view.question.text));
+      const options = element('div', 'options');
+      view.question.options.forEach((o) => options.append(option(o, () => run('/api/answer', { lineKey: line.lineKey, productId: o.productId }))));
+      append(ask, options, button('Pomiń', () => run('/api/answer', { lineKey: line.lineKey, productId: null }), 'small danger'));
+      node.append(ask);
+    } else if (view.alternatives.length) {
+      const others = element('div', 'others');
+      others.append(element('div', 'meta', 'Inne pasujące:'));
+      const options = element('div', 'options');
+      view.alternatives.forEach((o) => options.append(option(o, () => run('/api/line', { lineKey: line.lineKey, productId: o.productId }))));
+      node.append(append(others, options));
+    }
+    if (!view.suggestion && !view.question) node.append(button('Usuń z listy', () => run('/api/line', { lineKey: line.lineKey, remove: true }), 'link-button'));
+    return node;
+  }
+  const opsFor = (line) => proposalView(state.trip).byLine[line.lineKey] || [];
+  const ownTerms = new Set();
+  function unmatchedNode(item) {
+    const view = unmatchedCard(item);
+    const node = element('article', 'line-card unmatched');
+    node.append(element('div', 'line-name', view.title));
+    if (view.hint) node.append(element('p', 'meta', view.hint));
+    const mine = ownTerms.has(item.term);
+    append(node, append(element('div', 'actions'),
+      button(mine ? '✓ Dodam sam na Auchan' : 'Dodam sam na Auchan', () => { ownTerms.add(item.term); render(); }, 'small', mine),
+      button('Usuń', () => run('/api/unmatched/remove', { term: item.term }), 'small danger')));
+    return node;
   }
 
   function renderData() {
@@ -261,14 +353,14 @@ export function start() {
     const blockedNotice = state.trip.messages?.find((m) => m.startsWith('Pominięto zablokowane produkty:'));
     if (blockedNotice) results.append(element('p', 'message blocked', `⛔ ${blockedNotice}`));
     if (!model.lines.length) results.append(element('p', 'empty', 'Produkty pojawią się tu po ułożeniu szkicu.'));
-    model.lines.forEach((l) => results.append(lineRow(l, true)));
+    model.lines.forEach((l) => results.append(lineCardNode(l, opsFor(l))));
     if (model.suggestions.length) {
       results.append(element('h3', '', 'Propozycje · dodawane tylko po Twoim kliknięciu'));
-      model.suggestions.forEach((l) => results.append(lineRow(l, true)));
+      model.suggestions.forEach((l) => results.append(lineCardNode(l, opsFor(l))));
     }
     if (model.unmatched.length) {
       results.append(element('h3', '', 'Nie znaleziono w katalogu'));
-      model.unmatched.forEach((item) => results.append(element('p', 'meta', `${item.term} · dodaj ręcznie w Auchan`)));
+      model.unmatched.forEach((item) => results.append(unmatchedNode(item)));
     }
     if (model.lines.length) results.append(element('div', 'total row', `Szacowana kwota: ${zl(model.total)}`));
     append(grid, form, results); target.append(grid);
@@ -277,26 +369,20 @@ export function start() {
   function renderQuestions() {
     const model = viewModel(state);
     const info = describeQuestions(model);
-    if (model.proposalPending) renderProposal(true);
     const box = card('3. Doprecyzowanie', 'Wybierz produkt tam, gdzie dopasowanie wymaga Twojej decyzji.');
     if (info.intro) box.append(element('p', 'message', info.intro));
     if (info.empty) box.append(element('p', 'empty', info.empty));
     target.append(box);
-    model.questions.forEach((l) => {
-      const row = card(l.question.text);
-      row.prepend(element('div', 'meta from-list', l.label));
-      const options = element('div', 'choices');
-      l.question.options.forEach((id) => options.append(button(l.candidates.find((c) => c.productId === id)?.name || id, () => run('/api/answer', { lineKey: l.lineKey, productId: id }), 'small')));
-      options.append(button('Pomiń produkt', () => run('/api/answer', { lineKey: l.lineKey, productId: null }), 'small danger'));
-      row.append(options); target.append(row);
-    });
+    const view = proposalView(state.trip);
+    state.trip.lines.filter((l) => ((l.included || l.held) && l.question) || view.byLine[l.lineKey]).forEach((l) => target.append(lineCardNode(l, opsFor(l))));
+    model.unmatched.forEach((item) => target.append(unmatchedNode(item)));
     target.append(button('Dalej: zatwierdzenie →', () => { selected = 3; render(); }, 'quiet', !info.canContinue));
   }
   function renderReview() {
     const model = viewModel(state);
     const box = card('4. Zatwierdzenie', 'Ostatnia kontrola przed dodaniem produktów do koszyka Auchan.');
     const included = state.trip.lines.filter((l) => l.included);
-    included.forEach((l) => box.append(lineRow(l)));
+    included.forEach((l) => box.append(lineCardNode(l, opsFor(l))));
     if (!included.length) box.append(element('p', 'empty', 'Lista jest pusta. Wróć do szkicu.'));
     if (model.unmatched.length) append(box, element('h3', '', 'Do dodania ręcznie w Auchan'), ...model.unmatched.map((u) => element('p', 'meta', unmatchedText(u))));
     append(box, element('div', 'total', `Szacowana kwota: ${zl(model.total)}`), model.inCart ? element('p', 'meta', 'Te zakupy są już w koszyku. Zacznij nowe zakupy, żeby dodać coś jeszcze.') : button('✓ Zatwierdź i dodaj do koszyka', async () => { const result = await run('/api/approve', {}); if (result?.started) { selected = 4; render(); } }, 'button', !model.canApprove));
@@ -372,13 +458,19 @@ export function start() {
       target.append(searchBox);
     } catch (error) { tell(error.message); }
   }
-  function renderProposal(early = false) {
+  /** Claude's pending changes: one button for all of them, and the ones that belong to no line. The rest sit on the product cards. */
+  function renderProposal() {
     const proposal = state.trip.proposal;
-    if (!proposal || ![1, 2, 3].includes(selected) || (selected === 2 && !early)) return;
-    const box = card('Propozycja zmian od Claude', 'Zmiany czekają na Twoją decyzję.');
-    viewModel(state).proposalText.forEach((t) => box.append(element('p', 'message', t)));
+    if (!proposal || ![1, 2, 3].includes(selected)) return;
+    const view = proposalView(state.trip);
+    const box = card('Claude proponuje zmiany', 'Przy produktach widać każdą zmianę osobno — możesz ją wziąć albo zostawić obecny wybór.');
+    view.loose.forEach(({ index, text }) => {
+      const row = element('div', 'proposal');
+      append(row, element('span', 'line-name', text), append(element('div', 'actions'), button('Weź to', () => proposalOp(index, true), 'small'), button('Pomiń', () => proposalOp(index, false), 'small quiet')));
+      box.append(row);
+    });
     if (proposal.dropped) box.append(element('p', 'meta', `Pominięto ${proposal.dropped} nieprawidłowych zmian.`));
-    append(box, button('Zastosuj', () => run('/api/apply', { proposalId: proposal.id })), button('Odrzuć', () => run('/api/reject', { proposalId: proposal.id }), 'quiet'));
+    append(box, button(acceptAllText(view.count), () => run('/api/apply', { proposalId: proposal.id })), button('Odrzuć wszystkie', () => run('/api/reject', { proposalId: proposal.id }), 'quiet'));
     target.append(box);
   }
   function renderAsk() {
@@ -397,8 +489,9 @@ export function start() {
     document.querySelector('#new-trip').disabled = state.busy === 'fill' || state.trip.step === 'koszyk';
     renderSteps(model); target.replaceChildren();
     if (rulesOpen) { void renderRules(version); return; }
+    renderProposal();
     [renderData, renderDraft, renderQuestions, renderReview, renderCart, renderPayment][selected]();
-    renderProposal(); renderAsk();
+    renderAsk();
     const messages = (state.trip.messages || []).filter((m) => selected !== 1 || !m.startsWith('Pominięto zablokowane produkty:')).slice(-4);
     if (messages.length) {
       const box = card('Wskazówki'); messages.forEach((m) => box.append(element('p', 'message', m))); target.append(box);

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText } from '../public/app.js';
 
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,
   reason: 'bought before', confidence: 'medium', confidenceReason: 'not bought before', included: true, kind: 'item',
@@ -190,4 +190,90 @@ test('a held line is a pending question, blocks approving and reads "czeka na Tw
 test('the made-from reason is translated', () => {
   assert.equal(confidenceReasonText('product made from the term, not the term itself'), 'to produkt z tego składnika, nie sam składnik');
   assert.equal(confidenceReasonText('mystery'), 'mystery');
+});
+
+const IMG = 'https://zakupy.auchan.pl/images-v3/00000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000001/300x300.jpg';
+const cand = (id: string, name: string, cost: number, extra: object = {}) => ({ productId: id, name, lineCostGrosze: cost, confidence: 'high', ...extra });
+const cardLine = {
+  lineKey: 't:mleko', term: 'mleko', note: 'tłuste', name: 'Mleko 2%', productId: 'a', quantity: 2, lineCostGrosze: 400, reason: '', confidence: 'high', confidenceReason: '',
+  included: true, kind: 'item', question: null, imageUrl: IMG, imageAlt: 'Mleko w kartonie',
+  candidates: [cand('a', 'Mleko 2%', 400), cand('b', 'Mleko 3%', 440, { imageUrl: IMG, imageAlt: 'Trzy' }), cand('c', 'Mleko UHT', 380), cand('d', 'Mleko bez laktozy', 600), cand('e', 'Mleko kozie', 900)],
+};
+
+test('lineCard shows label, thumbnail, price, quantity limits, and up to three other candidates', () => {
+  const c = lineCard(cardLine, []);
+  assert.equal(c.label, 'z Twojej listy: mleko — tłuste');
+  assert.equal(c.name, 'Mleko 2%');
+  assert.equal(c.priceText, '4,00 zł');
+  assert.deepEqual([c.imageUrl, c.imageAlt], [IMG, 'Mleko w kartonie']);
+  assert.deepEqual([c.quantity, c.canDec, c.canInc], [2, true, true]);
+  assert.equal(c.badge.reason, null);
+  assert.equal(c.proposals.length, 0);
+  assert.equal(c.question, null);
+  assert.deepEqual(c.alternatives.map((a: any) => [a.productId, a.priceText]), [['b', '4,40 zł'], ['c', '3,80 zł'], ['d', '6,00 zł']]);
+  assert.deepEqual([c.alternatives[0].imageUrl, c.alternatives[1].imageUrl, c.alternatives[1].imageAlt], [IMG, null, 'Mleko UHT']);
+});
+
+test('lineCard falls back to the name as the picture description and has no image when there is none', () => {
+  const c = lineCard({ ...cardLine, imageUrl: null, imageAlt: null, quantity: 20 }, []);
+  assert.equal(c.imageUrl, null);
+  assert.equal(c.imageAlt, 'Mleko 2%');
+  assert.deepEqual([c.canInc, lineCard({ ...cardLine, quantity: 1 }, []).canDec], [false, false]);
+  assert.equal(lineCard({ ...cardLine, imageUrl: undefined, imageAlt: undefined }, []).imageUrl, null);
+});
+
+test('lineCard explains a doubtful match in Polish', () => {
+  const c = lineCard({ ...cardLine, confidence: 'low', confidenceReason: 'pet product' }, []);
+  assert.deepEqual([c.badge.text, c.badge.level, c.badge.reason], ['Niepewne', 'low', 'produkt dla zwierząt']);
+  assert.equal(lineCard({ ...cardLine, confidence: 'medium', confidenceReason: '' }, []).badge.reason, 'dopasowanie niepewne');
+});
+
+test('lineCard turns Claude operations on the line into a proposal row with the product, removal or quantity', () => {
+  const c = lineCard(cardLine, [{ index: 0, op: { op: 'choose', lineKey: 't:mleko', productId: 'b' } }, { index: 3, op: { op: 'remove', lineKey: 't:mleko' } }, { index: 4, op: { op: 'setQuantity', lineKey: 't:mleko', quantity: 5 } }]);
+  assert.deepEqual(c.proposals.map((p: any) => [p.index, p.kind, p.text]), [[0, 'choose', 'Mleko 3%'], [3, 'remove', 'usuń'], [4, 'setQuantity', 'ilość 5']]);
+  assert.deepEqual([c.proposals[0].product.priceText, c.proposals[0].product.imageUrl], ['4,40 zł', IMG]);
+  assert.equal(c.proposals[1].product, null);
+});
+
+test('lineCard shows the question with its options instead of other candidates, and a held line says it waits', () => {
+  const c = lineCard({ ...cardLine, held: true, included: false, confidence: 'low', question: { text: 'Które?', options: ['c', 'zzz', 'b'] } }, []);
+  assert.equal(c.question.text, 'Które?');
+  assert.deepEqual(c.question.options.map((o: any) => o.productId), ['c', 'b']);
+  assert.deepEqual(c.alternatives, []);
+  assert.equal(c.held, true);
+  assert.equal(c.badge.text, 'Czeka na Twój wybór');
+});
+
+test('lineCard of a suggestion uses the suggestion label and is not a stepper line', () => {
+  const c = lineCard({ ...cardLine, term: null, kind: 'suggestion', included: false, reason: 'on offer: 2 for 1' }, []);
+  assert.equal(c.label, 'propozycja: promocja');
+  assert.equal(c.suggestion, true);
+  assert.equal(c.included, false);
+});
+
+test('proposalView splits operations by line and lists the ones not tied to a line, keeping their index', () => {
+  const ops = [{ op: 'choose', lineKey: 't:mleko', productId: 'b' }, { op: 'add', term: 'chleb', quantity: 2 }, { op: 'unmatched', term: 'kawior', hint: 'x' }, { op: 'remove', lineKey: 't:mleko' }];
+  const v = proposalView({ proposal: { id: 'p', ops }, lines: [cardLine] });
+  assert.equal(v.count, 4);
+  assert.deepEqual(v.byLine['t:mleko'].map((x) => x.index), [0, 3]);
+  assert.deepEqual(v.loose.map((x) => [x.index, x.text]), [[1, 'Dodaj „chleb” × 2'], [2, 'Dodaj ręcznie „kawior”']]);
+  assert.deepEqual(proposalView({ proposal: null, lines: [] }), { count: 0, byLine: {}, loose: [] });
+  assert.equal(acceptAllText(4), 'Przyjmij wszystkie propozycje (4)');
+});
+
+test('unmatchedCard says what was not found and keeps Claude\'s hint', () => {
+  assert.deepEqual(unmatchedCard({ term: 'kawior', hint: 'Nie ma w katalogu' }), { title: 'Nie znalazłem: kawior', hint: 'Nie ma w katalogu' });
+  assert.equal(unmatchedCard({ term: 'kawior', hint: '' }).hint, null);
+});
+
+test('app.js builds the page with textContent only; every image has a description and no referrer', () => {
+  const js = readFileSync('public/app.js', 'utf8');
+  assert.doesNotMatch(js, /innerHTML|outerHTML|insertAdjacentHTML|document\.write/);
+  assert.equal(js.match(/createElement\('img'\)/g)?.length, 1);
+  const i = js.indexOf("createElement('img')");
+  const body = js.slice(i, i + 400);
+  assert.match(body, /\.alt = /);
+  assert.match(body, /referrerPolicy = 'no-referrer'/);
+  assert.match(body, /loading = 'lazy'/);
+  assert.doesNotMatch(js, /\.style\b|setAttribute\('style'/);
 });
