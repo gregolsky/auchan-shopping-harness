@@ -18,6 +18,16 @@ export function capQuantity(facts: ProductFacts, wanted: number): { quantity: nu
   return { quantity, capped: quantity < wanted };
 }
 
+/**
+ * For a quantity the user asked for: a note when it is above what they usually buy of a perishable product.
+ * Their quantity is never cut; null when there is nothing to note or no usual quantity is known.
+ */
+export function perishableNote(facts: ProductFacts, wanted: number): string | null {
+  if (facts.usualQuantity === null) return null;
+  const cap = capQuantity(facts, wanted);
+  return cap.capped ? `łatwo się psuje — zwykle kupujesz ${cap.quantity}` : null;
+}
+
 export function stockUp(facts: ProductFacts): { quantity: number; savingPercent: number } | null {
   if (isPerishable(facts.categoryPath) || facts.pricePoints < 3 || !facts.seenInLatestPromotions) return null;
   if (facts.latestPriceGrosze === null || facts.medianUnitPriceGrosze === null) return null;

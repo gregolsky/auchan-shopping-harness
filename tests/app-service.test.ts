@@ -664,7 +664,7 @@ test('dropUnmatched removes a term the user no longer wants listed', async () =>
 
 test('note drops proposal ops that would change nothing and holds no proposal when none remain', async () => {
   const noop = { ops: [
-    { op: 'choose', lineKey: 't:mleko', productId: A }, { op: 'setQuantity', lineKey: 't:mleko', quantity: 1 },
+    { op: 'choose', lineKey: 't:mleko', productId: A }, { op: 'setQuantity', lineKey: 't:mleko', quantity: 2 },
     { op: 'add', term: 'mleko', quantity: 1 },
   ] };
   const { svc } = setup({ claude: { parse: parseMilk, choose: noop } });

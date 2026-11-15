@@ -90,13 +90,28 @@ test('a learned rule decides the pick and the reason', () => {
   assert.equal(d.items[0].reason, 'your usual choice for kawa');
 });
 
-test('a capped perishable is marked', () => {
+test('a perishable the user asked for keeps their quantity and gets a note when it is above the usual', () => {
   const facts = [fact('m', { name: 'Mleko', categoryPath: ['Produkty', 'Mleko, nabiał i jaja'], usualQuantity: 1, timesBought: 3 })];
   const d = buildDraft(input([{ term: 'mleko', quantity: 4 }]), facts, [], now);
-  assert.equal(d.items[0].quantity, 1);
-  assert.equal(d.items[0].capped, true);
-  assert.match(d.items[0].reason, /capped/);
-  assert.equal(d.items[0].lineCostGrosze, 1000);
+  assert.equal(d.items[0].quantity, 4);
+  assert.equal(d.items[0].capped, false);
+  assert.match(d.items[0].reason, /łatwo się psuje — zwykle kupujesz 1$/);
+  assert.equal(d.items[0].lineCostGrosze, 4000);
+});
+
+test('a perishable with no known usual quantity keeps the user\'s quantity and says nothing', () => {
+  const facts = [fact('m', { name: 'Mleko', categoryPath: ['Produkty', 'Mleko, nabiał i jaja'], timesBought: 3 })];
+  const d = buildDraft(input([{ term: 'mleko', quantity: 4 }]), facts, [], now);
+  assert.equal(d.items[0].quantity, 4);
+  assert.doesNotMatch(d.items[0].reason, /psuje/);
+});
+
+test('lines the planner adds itself are still capped for perishables', () => {
+  const facts = [usual('u', { name: 'Mleko', categoryPath: ['Produkty', 'Mleko, nabiał i jaja'], usualQuantity: 3, boughtInLatest10: 4 })];
+  const d = buildDraft(input([], true), facts, [], now);
+  assert.equal(d.items[0].quantity, 3);
+  const high = [usual('u', { name: 'Mleko', categoryPath: ['Produkty', 'Mleko, nabiał i jaja'], usualQuantity: 1 })];
+  assert.equal(buildDraft(input([], true), high, [], now).items[0].quantity, 1);
 });
 
 test('over budget is a warning number and all lines stay', () => {
@@ -112,18 +127,18 @@ test('over budget is a warning number and all lines stay', () => {
 
 const CHEESE = ['Produkty', 'Sery'];
 
-test('a multibuy the cap cannot reach does not win the ranking', () => {
+test('a multibuy the user\'s quantity reaches wins the ranking; their quantity is not cut', () => {
   const facts = [
     fact('offer', { name: 'Ser gouda', categoryPath: CHEESE, latestPriceGrosze: 1000, offerText: '3 za 15 zł', requiredQuantity: 3 }),
     fact('plain', { name: 'Ser edam', categoryPath: CHEESE, latestPriceGrosze: 700 }),
   ];
   const d = buildDraft(input([{ term: 'ser', quantity: 3 }]), facts, [], now);
-  assert.equal(d.items[0].productId, 'plain');
-  assert.equal(d.items[0].quantity, 1);
-  assert.equal(d.items[0].lineCostGrosze, 700);
+  assert.equal(d.items[0].productId, 'offer');
+  assert.equal(d.items[0].quantity, 3);
+  assert.equal(d.items[0].lineCostGrosze, 1500);
 });
 
-test('a candidate ranks and costs at its own cap', () => {
+test('candidates are costed at the user\'s quantity', () => {
   const facts = [
     fact('often', { name: 'Ser gouda', categoryPath: CHEESE, timesBought: 5, usualQuantity: 2, latestPriceGrosze: 900 }),
     fact('rare', { name: 'Ser edam', categoryPath: CHEESE, timesBought: 1, usualQuantity: 1, latestPriceGrosze: 700, offerText: '3 za 15 zł', requiredQuantity: 3 }),
@@ -131,8 +146,8 @@ test('a candidate ranks and costs at its own cap', () => {
   ];
   const d = buildDraft(input([{ term: 'ser', quantity: 3 }]), facts, [], now);
   assert.equal(d.items[0].productId, 'often');
-  assert.equal(d.items[0].lineCostGrosze, 1800);
-  assert.deepEqual(d.items[0].alternatives.map((a) => [a.productId, a.lineCostGrosze]), [['rare', 700], ['tin', 1500]]);
+  assert.equal(d.items[0].lineCostGrosze, 2700);
+  assert.deepEqual(d.items[0].alternatives.map((a) => [a.productId, a.lineCostGrosze]), [['rare', 1500], ['tin', 1500]]);
 });
 
 test('a perishable promotion is skipped when the cap cannot reach the offer', () => {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isPerishable, capQuantity, stockUp, isUsual, lastBoughtText } from '../src/rules.ts';
+import { isPerishable, capQuantity, perishableNote, stockUp, isUsual, lastBoughtText } from '../src/rules.ts';
 import type { ProductFacts } from '../src/store.ts';
 
 const fact = (over: Partial<ProductFacts> = {}): ProductFacts => ({
@@ -25,6 +25,14 @@ test('perishable capped at the usual quantity and reported', () => {
   assert.deepEqual(capQuantity(f, 1), { quantity: 1, capped: false });
   assert.deepEqual(capQuantity(fact({ categoryPath: ['A', 'Sery'] }), 3), { quantity: 1, capped: true });
   assert.deepEqual(capQuantity(fact({ categoryPath: ['A', 'Sery'] }), 1), { quantity: 1, capped: false });
+});
+
+test('perishableNote tells what the user usually buys, only above it and only when known', () => {
+  const f = fact({ categoryPath: ['A', 'Sery'], usualQuantity: 1.5 });
+  assert.equal(perishableNote(f, 5), 'łatwo się psuje — zwykle kupujesz 2');
+  assert.equal(perishableNote(f, 2), null);
+  assert.equal(perishableNote(fact({ categoryPath: ['A', 'Sery'] }), 5), null, 'no usual quantity known');
+  assert.equal(perishableNote(fact({ usualQuantity: 1 }), 6), null, 'not perishable');
 });
 
 test('non-perishable keeps the wanted quantity', () => {

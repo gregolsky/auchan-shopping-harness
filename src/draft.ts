@@ -1,7 +1,7 @@
 import { matchesTerm, rankCandidates } from './candidates.ts';
 import type { Candidate, Confidence } from './candidates.ts';
 import { lineCost, parseOffer } from './pricing.ts';
-import { capQuantity, isUsual, lastBoughtText, stockUp } from './rules.ts';
+import { capQuantity, isUsual, lastBoughtText, perishableNote, stockUp } from './rules.ts';
 import { normaliseTerm } from './store.ts';
 import { isBlockedProduct, type BlockedProduct } from './blacklist.ts';
 import type { IntentRule, ProductFacts } from './store.ts';
@@ -106,19 +106,19 @@ export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: Inte
   const blockedTerms: string[] = [];
 
   for (const { term, quantity } of input.items) {
-    const capped = (f: ProductFacts) => capQuantity(f, quantity).quantity;
-    const ranked = rankCandidates(term, capped, facts, ruleByTerm.get(normaliseTerm(term)) ?? null, input.searched?.[normaliseTerm(term)] ?? []).filter((c) => !used.has(c.productId));
+    // The user's own quantity is never cut: a perishable only gets a note (the cap is for lines the planner adds itself).
+    const ranked = rankCandidates(term, quantity, facts, ruleByTerm.get(normaliseTerm(term)) ?? null, input.searched?.[normaliseTerm(term)] ?? []).filter((c) => !used.has(c.productId));
     const top = ranked[0];
     if (!top || !buyable(top)) {
       (allFacts.some((f) => isBlockedProduct(f, blocked) && matchesTerm(term, f)) ? blockedTerms : unmatched).push(term);
       continue;
     }
-    const cap = capQuantity(top, quantity);
     let reason = basisReason(top, term) + savingNote(top);
-    if (cap.capped) reason += `; capped at ${cap.quantity} because it is perishable`;
-    const alternatives = ranked.slice(1, 4).filter(buyable).sort((a, b) => CONF_RANK[a.confidence] - CONF_RANK[b.confidence]).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, capped(c)), confidence: c.confidence, imageUrl: c.imageUrl, imageAlt: c.imageAlt }));
+    const note = perishableNote(top, quantity);
+    if (note) reason += `; ${note}`;
+    const alternatives = ranked.slice(1, 4).filter(buyable).sort((a, b) => CONF_RANK[a.confidence] - CONF_RANK[b.confidence]).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, quantity), confidence: c.confidence, imageUrl: c.imageUrl, imageAlt: c.imageAlt }));
     used.add(top.productId);
-    items.push(line(top, { term, quantity: cap.quantity, reason, guess: top.guess, capped: cap.capped, alternatives, confidence: top.confidence, confidenceReason: top.confidenceReason }, now));
+    items.push(line(top, { term, quantity, reason, guess: top.guess, alternatives, confidence: top.confidence, confidenceReason: top.confidenceReason }, now));
   }
 
   // A wrong-brand product or one replaced by a live preferred product stays out of every group.
