@@ -1,9 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
-import type { Product, PriceObservation } from './types.ts';
+import type { Product, PriceObservation, BasketLine } from './types.ts';
 import type { parseDecoratedOrder } from './parse.ts';
 import { unitPriceGrosze } from './pricing.ts';
 import { basketMethods, BASKET_SCHEMA } from './store-baskets.ts';
-import type { BasketLine } from './cart.ts';
 
 type ParsedOrder = Pick<ReturnType<typeof parseDecoratedOrder>, 'order' | 'lines' | 'products' | 'prices'>;
 export type SyncKind = 'orders' | 'promotions';

@@ -34,3 +34,11 @@ export interface OrderLine {
   quantity: number;
   pricePerItemGrosze: number;
 }
+
+export interface BasketLine {
+  term: string | null;
+  productId: string;
+  name: string;
+  quantity: number;
+  approvedPriceGrosze: number;
+}

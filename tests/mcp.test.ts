@@ -72,8 +72,7 @@ test('no MCP tool imports the worker, even transitively', () => {
   const visit = (file: string) => {
     if (seen.has(file)) return;
     seen.add(file);
-    // Type-only imports are erased when Node runs the file, so they cannot reach the worker.
-    const text = readFileSync(file, 'utf8').replace(/^import type [^;]*;/gm, '');
+    const text = readFileSync(file, 'utf8');
     for (const m of text.matchAll(/(?:from|import)\s*\(?\s*['"](\.[^'"]+)['"]/g)) visit(join(dirname(file), m[1]));
   };
   visit(join(SRC, 'mcp.ts'));

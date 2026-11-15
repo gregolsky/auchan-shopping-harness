@@ -1,5 +1,6 @@
 import type { CartChange } from './http-worker.ts';
 import { ShapeError } from './parse.ts';
+import type { BasketLine } from './types.ts';
 
 export interface CartLine {
   productId: string;
@@ -7,13 +8,7 @@ export interface CartLine {
   unitPriceGrosze: number | null;
   lineTotalGrosze: number | null;
 }
-export interface BasketLine {
-  term: string | null;
-  productId: string;
-  name: string;
-  quantity: number;
-  approvedPriceGrosze: number;
-}
+export type { BasketLine };
 export interface FillPlan {
   send: CartChange[];
   alreadyEnough: BasketLine[];

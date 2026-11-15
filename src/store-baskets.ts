@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { BasketLine } from './cart.ts';
+import type { BasketLine } from './types.ts';
 
 export const BASKET_SCHEMA = `
 CREATE TABLE IF NOT EXISTS baskets (
