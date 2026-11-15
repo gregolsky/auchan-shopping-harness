@@ -343,3 +343,32 @@ test('a product the user chose is capped at medium for flavour or pet doubts', (
   }
   assert.equal(rankCandidates('cebula', 1, facts, null)[0].confidence, 'low');
 });
+
+const MADE_FROM = { confidence: 'low', reason: 'product made from the term, not the term itself' };
+
+test('a product made from the term is low confidence', () => {
+  assert.deepEqual(conf('pierś z kurczaka', 'Kiełbasa z piersi kurczaka Morliny 400 g'), MADE_FROM);
+  assert.deepEqual(conf('mięso', 'Pierogi z mięsem'), MADE_FROM);
+  assert.deepEqual(conf('jabłko', 'Sok z jabłek'), MADE_FROM);
+  assert.deepEqual(conf('kurczak', 'Pasztet z kurczaka'), MADE_FROM);
+});
+
+test('a cut word first means the meat itself, not a made-from product', () => {
+  assert.equal(conf('pierś z kurczaka', 'Filet z piersi kurczaka Auchan 1 kg').confidence, 'medium');
+  assert.equal(conf('pierś z kurczaka', 'Filet z piersi kurczaka Auchan 1 kg').reason, 'term not at the start of the name');
+  assert.equal(conf('mięso', 'Mięso z udka kurczaka').reason, 'mixed with another ingredient');
+  assert.equal(conf('kurczak', 'Polędwiczki z kurczaka Auchan').confidence, 'medium');
+  assert.equal(conf('pierś z kurczaka', 'Pierś z kurczaka Auchan 1 kg').confidence, 'high');
+  assert.equal(conf('ser żółty', 'Ser żółty Królewski plastry Sierpc 150 g').confidence, 'high');
+  assert.equal(conf('marchew', 'Marchew z groszkiem   Auchan 450 g').reason, 'mixed with another ingredient');
+});
+
+test('the draft ranks a fillet above a sausage made from the same meat', () => {
+  const facts = [
+    fact('sausage', { name: 'Kiełbasa z piersi kurczaka Morliny 400 g', timesBought: 9 }),
+    fact('fillet', { name: 'Filet z piersi kurczaka Auchan 1 kg', timesBought: 2 }),
+  ];
+  const r = rankCandidates('pierś z kurczaka', 1, facts, null);
+  assert.deepEqual(ids(r), ['fillet', 'sausage']);
+  assert.deepEqual([r[0].confidence, r[1].confidence], ['medium', 'low']);
+});

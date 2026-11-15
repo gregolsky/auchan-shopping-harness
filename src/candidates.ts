@@ -33,6 +33,9 @@ function wordMatcher(w: string): (h: string) => boolean {
 const FLAVOUR_WORDS = new Set(['smaku', 'smak', 'aromat', 'aromatem', 'aromacie', 'smakowy', 'smakowe', 'smakowa', 'aromatyzowany', 'aromatyzowana', 'aromatyzowane']);
 const PET_WORDS = new Set(['kota', 'kotow', 'kot', 'kotka', 'kotki', 'psa', 'psow', 'pies', 'psy', 'kociat', 'szczeniat', 'zwierzat', 'karma', 'przysmak', 'przysmaki']);
 const CONNECTORS = new Set(['z', 'ze', 'w', 'we', 'i', 'oraz', 'na', 'po']);
+const OF_CONNECTORS = new Set(['z', 'ze']);
+/** A name that starts with one of these is the meat itself, so "Filet z piersi kurczaka" is not made from chicken breast. */
+const CUT_WORDS = new Set(['filet', 'filety', 'poledwiczki', 'mieso', 'miesa']);
 const RANK: Record<Confidence, number> = { high: 0, medium: 1, low: 2 };
 
 /**
@@ -47,6 +50,12 @@ export function matchConfidence(term: string, f: Pick<ProductFacts, 'name' | 'br
 
   if (first >= 0 && nameWords.slice(0, first).some((w) => FLAVOUR_WORDS.has(w))) return { confidence: chosen ? 'medium' : 'low', reason: 'term only in the flavour' };
   if (nameWords.some((w) => PET_WORDS.has(w) && !termWords.includes(w))) return { confidence: chosen ? 'medium' : 'low', reason: 'pet product' };
+  // "Kiełbasa z piersi kurczaka": the term follows "z"/"ze" and the name does not start with it, so the product is made from it.
+  // An irregular stem ("jabłko", "jabłek") misses the strict matcher, so a looser prefix is tried when it found nothing.
+  const at = first >= 0 || termWords.length === 0 ? first : nameWords.findIndex((h) => h.startsWith(termWords[0].slice(0, Math.max(3, termWords[0].length - 2))));
+  if (at >= 1 && OF_CONNECTORS.has(nameWords[at - 1]) && !termWords.some((t) => wordMatcher(t)(nameWords[0])) && !CUT_WORDS.has(nameWords[0])) {
+    return { confidence: 'low', reason: 'product made from the term, not the term itself' };
+  }
   if (first < 0 || first >= 2) return { confidence: 'medium', reason: 'term not at the start of the name' };
   const next = last >= 0 ? nameWords[last + 1] : undefined;
   if (next !== undefined && CONNECTORS.has(next) && last + 2 < nameWords.length && !termWords.includes(next)) {
