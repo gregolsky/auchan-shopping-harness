@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, lineLabel, workingPanel, doneSummary, failureText, START_TEXT } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT } from '../public/app.js';
 
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,
   reason: 'bought before', confidence: 'medium', confidenceReason: 'not bought before', included: true, kind: 'item',
@@ -175,4 +175,19 @@ test('the page has a polite status panel with a CSS-only spinner that stops for 
   assert.match(html, /id="working"[^>]*role="status"[^>]*aria-live="polite"/);
   assert.match(css, /\.spinner\{[^}]*animation:spin/);
   assert.match(css, /prefers-reduced-motion:reduce\)\{\.spinner\{animation:none/);
+});
+
+test('a held line is a pending question, blocks approving and reads "czeka na Twój wybór"', () => {
+  const held = { ...line, included: false, held: true, confidence: 'low' };
+  const state = tripAt('zatwierdzenie', { lines: [line, held].map((l, i) => ({ ...l, lineKey: `k${i}`, ...(i === 0 ? { question: null } : {}) })) });
+  const model = viewModel(state);
+  assert.equal(model.questions.length, 1);
+  assert.equal(model.canApprove, false);
+  assert.equal(badgeText(held), 'Czeka na Twój wybór');
+  assert.equal(badgeText({ ...line, confidence: 'low' }), 'Niepewne');
+});
+
+test('the made-from reason is translated', () => {
+  assert.equal(confidenceReasonText('product made from the term, not the term itself'), 'to produkt z tego składnika, nie sam składnik');
+  assert.equal(confidenceReasonText('mystery'), 'mystery');
 });

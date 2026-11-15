@@ -15,3 +15,5 @@ export const START_TEXT: { note: string; ask: string };
 export function workingPanel(text: string, seconds: number): { text: string; elapsed: string; hint: string; slow: string | null };
 export function doneSummary(model: any): string;
 export function failureText(kind: 'note' | 'ask', message: string): string;
+export function badgeText(line: any): string;
+export function confidenceReasonText(reason: string): string;

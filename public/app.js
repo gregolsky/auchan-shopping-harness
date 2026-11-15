@@ -4,6 +4,7 @@ const HELP = ['Sprawdź świeżość danych lub odśwież historię zakupów.', 
 const REASONS = {
   'not bought before': 'nie kupowano wcześniej', 'term only in the flavour': 'nazwa występuje tylko w opisie smaku',
   'pet product': 'produkt dla zwierząt', 'term not at the start of the name': 'nazwa produktu nie zaczyna się od szukanego słowa',
+  'product made from the term, not the term itself': 'to produkt z tego składnika, nie sam składnik',
   'mixed with another ingredient': 'produkt zawiera też inny składnik',
 };
 
@@ -46,11 +47,11 @@ export function viewModel(state) {
     freshnessText: state.freshness?.ageHours == null ? 'Brak pełnej synchronizacji' : `Dane sprzed ${state.freshness.ageHours} godz.`,
     lines: lines.filter((l) => l.kind === 'item'), suggestions: lines.filter((l) => l.kind === 'suggestion'),
     unmatched: trip.unmatched || [], total: lines.filter((l) => l.included).reduce((sum, l) => sum + l.lineCostGrosze, 0),
-    canApprove: stepIndex <= 3 && lines.some((l) => l.included) && !lines.some((l) => l.included && l.question) && !trip.proposal && !state.busy && !trip.blocked,
+    canApprove: stepIndex <= 3 && lines.some((l) => l.included) && !lines.some((l) => (l.included || l.held) && l.question) && !trip.proposal && !state.busy && !trip.blocked,
     inCart: stepIndex >= 4,
     blocked: Boolean(trip.blocked),
     hasIncluded: lines.some((l) => l.included),
-    questions: lines.filter((l) => l.included && l.question).map((l) => ({ ...l, label: lineLabel(l) })),
+    questions: lines.filter((l) => (l.included || l.held) && l.question).map((l) => ({ ...l, label: lineLabel(l) })),
     proposalPending: Boolean(trip.proposal),
     proposalText: trip.proposal?.ops?.map((op) => describeOp(op, new Map(lines.map((l) => [l.lineKey, l])))) || [],
   };
@@ -144,10 +145,12 @@ function card(title, description = '') {
   if (description) append(node, element('p', 'subtle', description));
   return node;
 }
-function badge(line) {
-  const labels = { high: 'Pewne', medium: 'Sprawdź wybór', low: 'Niepewne' };
-  return element('span', `badge ${line.confidence}`, labels[line.confidence] || 'Sprawdź');
+export function badgeText(line) {
+  if (line.held) return 'Czeka na Twój wybór';
+  return { high: 'Pewne', medium: 'Sprawdź wybór', low: 'Niepewne' }[line.confidence] || 'Sprawdź';
 }
+export function confidenceReasonText(reason) { return REASONS[reason] || reason || 'dopasowanie niepewne'; }
+function badge(line) { return element('span', `badge ${line.held ? 'low' : line.confidence}`, badgeText(line)); }
 
 export function start() {
   const token = new URL(location.href).searchParams.get('t') || '';
@@ -222,7 +225,7 @@ export function start() {
     row.append(element('div', 'meta from-list', lineLabel(line)));
     const heading = element('div', 'row');
     append(heading, element('span', 'line-name', line.name), element('span', 'price', zl(line.lineCostGrosze)));
-    append(row, heading, badge(line), element('div', 'meta', `${line.quantity} szt.${line.confidence !== 'high' ? ` · Dlaczego sprawdzić: ${REASONS[line.confidenceReason] || line.confidenceReason || 'dopasowanie niepewne'}` : ''}`));
+    append(row, heading, badge(line), element('div', 'meta', `${line.quantity} szt.${line.confidence !== 'high' ? ` · Dlaczego sprawdzić: ${confidenceReasonText(line.confidenceReason)}` : ''}`));
     if (editable) {
       const actions = element('div', 'actions');
       if (line.kind === 'suggestion') actions.append(button(line.included ? '✓ W koszyku' : '＋ Dodaj', () => run('/api/line', { lineKey: line.lineKey, included: !line.included }), 'small'));
