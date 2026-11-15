@@ -20,3 +20,12 @@ The first browser review covered the six-step local app at desktop and 375 px wi
 1. Try a real list in `npm run app` without approving the cart. Check the chosen products, confidence explanations and question wording.
 2. Confirm in the app that the family block for all Szymanowska flours matches the shopper's expectation.
 3. After an approved run, check that the report groups and payment hand-off are easy to scan. The app still requires the shopper to pay on Auchan.
+
+## From the pre-merge review (2026-11-15)
+
+- **Placed orders without a status check:** `syncPlaced` stores any order body with lines as 'placed'. Read the order's `status` and store only in-progress statuses (confirm the real values on the next order); skip cancelled/cart statuses; consider dropping placed rows that never became delivered after ~14 days. Placed-order prices use the future delivery date as `seen_at` and win "latest price" until then — use the import time instead.
+- **Docs:** README lacks placed-order learning and `npm run sync placed <id>`, the app's "Szukaj w Auchan" button, the 24 h block after 403/429, and search results as medium-confidence candidates; the stage-4 spec still shows the old CSP (no `img-src https://zakupy.auchan.pl`) and misses `/api/search`, `/api/proposal/op`, `/api/unmatched/remove`, `/api/line/by-hand`.
+- **Read-only store on an unmigrated DB** throws (write statements prepared unconditionally) — prepare them lazily.
+- **Search rank** relies on `productEntities` key order; use `data.search.catalogue.data.productGroups[].products` and check `query.searchTerm`.
+- **Cleanup:** duplicated `failureText` (service vs messages.ts), `BLOCKED_TEXT`, `searchBlockText`, three Polish `plural` helpers; redundant checks in `searchAuchan`/`searchPlan`; misplaced comments (fill-cli.ts:122, candidates.ts:78, app.js:443).
+- **Small:** ShapeError text "Nic nie zapisano" is wrong mid-sync; an unreadable title is treated as a captcha (5 min wait); unpaid fill order ids are re-queried on every sync.
