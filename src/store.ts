@@ -221,19 +221,24 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
   db.exec('PRAGMA foreign_keys = ON');
   const hasBlacklist = () => db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'product_blacklist'").get() !== undefined;
   if (!opts.readOnly) {
-    db.exec('BEGIN IMMEDIATE');
-    try {
-      const needsSeed = !hasBlacklist();
+    if (hasBlacklist()) {
+      // Already seeded: CREATE ... IF NOT EXISTS is a no-op that takes no write lock, so a busy writer is not waited for.
       db.exec(SCHEMA + BASKET_SCHEMA);
-      if (needsSeed) {
-        const seed = db.prepare('INSERT INTO product_blacklist (product_id, name) VALUES (?, ?)');
-        for (const p of BLOCKED_PRODUCTS) seed.run(p.productId, p.name);
+    } else {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const needsSeed = !hasBlacklist(); // another process may have seeded while we waited for the lock
+        db.exec(SCHEMA + BASKET_SCHEMA);
+        if (needsSeed) {
+          const seed = db.prepare('INSERT INTO product_blacklist (product_id, name) VALUES (?, ?)');
+          for (const p of BLOCKED_PRODUCTS) seed.run(p.productId, p.name);
+        }
+        db.exec('COMMIT');
+      } catch (e) {
+        db.exec('ROLLBACK');
+        db.close();
+        throw e;
       }
-      db.exec('COMMIT');
-    } catch (e) {
-      db.exec('ROLLBACK');
-      db.close();
-      throw e;
     }
   }
   const blockedProducts = (): BlockedProduct[] => hasBlacklist()

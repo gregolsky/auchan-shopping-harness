@@ -345,3 +345,33 @@ test('read-only store reads but refuses writes, and reports last sync time', () 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('opening an already seeded database takes no write lock', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'seeded-'));
+  const path = join(dir, 'h.db');
+  try {
+    openStore(path).close();
+    const writer = new DatabaseSync(path);
+    writer.exec('BEGIN IMMEDIATE'); // another process is mid-write
+    const t0 = Date.now();
+    const second = openStore(path); // must neither wait nor fail
+    assert.ok(Date.now() - t0 < 1000);
+    assert.ok(second.blockedProducts().length > 0);
+    second.close();
+    writer.exec('ROLLBACK');
+    writer.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('opening a fresh database still creates the schema and seeds the blacklist', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fresh-'));
+  try {
+    const s = openStore(join(dir, 'h.db'));
+    assert.ok(s.blockedProducts().length > 0);
+    s.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
