@@ -30,6 +30,7 @@ function fakeService(calls: Call[], fail = false) {
     dropUnmatched: rec('dropUnmatched', { step: 'u' }),
     approve: async (...a: unknown[]) => rec('approve', { started: true })(...a),
     sync: async (...a: unknown[]) => rec('sync', { started: true })(...a),
+    searchAuchan: async (...a: unknown[]) => rec('searchAuchan', { started: true })(...a),
     rules: rec('rules', [{ term: 'mleko' }]),
     blockedProducts: rec('blockedProducts', [{ productId: 'p1', name: 'Mąka' }]),
     searchProducts: rec('searchProducts', [{ productId: 'p2', name: 'Chleb' }]),
@@ -295,6 +296,7 @@ test('the events stream sends state and progress events as SSE', async () => {
     await reader.read(); // initial comment flushes headers
     s.broadcaster.emit({ type: 'state' });
     s.broadcaster.emit({ type: 'progress', sent: 1, total: 3 });
+    s.broadcaster.emit({ type: 'search', status: 'searching', term: 'kawior', index: 1, total: 2 });
     s.broadcaster.emit({ type: 'working', stage: 'parse', text: 'Czytam listę (1/3)…' });
     let text = '';
     const dec = new TextDecoder();
@@ -302,6 +304,7 @@ test('the events stream sends state and progress events as SSE', async () => {
     assert.match(text, /event: state\ndata: \{"type":"state"\}\n\n/);
     assert.match(text, /event: progress\ndata: \{"type":"progress","sent":1,"total":3\}\n\n/);
     assert.match(text, /event: working\ndata: \{"type":"working","stage":"parse","text":"Czytam listę \(1\/3\)…"\}\n\n/);
+    assert.match(text, /event: search\ndata: \{"type":"search","status":"searching","term":"kawior","index":1,"total":2\}\n\n/);
     await reader.cancel();
     for (let i = 0; i < 50 && s.broadcaster.size() > 0; i++) await new Promise((x) => setTimeout(x, 20));
     assert.equal(s.broadcaster.size(), 0);
@@ -343,4 +346,39 @@ test('the stop function shuts the service down, closes the server and exits', as
   assert.equal(await exited, 0);
   assert.deepEqual(order, ['shutdown', 'exit']);
   assert.equal(server.listening, false);
+});
+
+test('POST /api/search passes the terms and force to the service', async () => {
+  const s = await start();
+  try {
+    const none = await api(s.base, '/api/search', {});
+    assert.equal(none.status, 200);
+    assert.deepEqual(await none.json(), { started: true });
+    const given = await api(s.base, '/api/search', { terms: ['kawior', 'ser'], force: true });
+    assert.equal(given.status, 200);
+    assert.deepEqual(s.calls.filter(([n]) => n === 'searchAuchan'), [['searchAuchan', [undefined, { force: false }]], ['searchAuchan', [['kawior', 'ser'], { force: true }]]]);
+  } finally { s.close(); }
+});
+
+test('POST /api/search validates the terms before the service sees them', async () => {
+  const s = await start();
+  try {
+    const bad: unknown[] = [
+      { terms: 'kawior' }, { terms: [1] }, { terms: [''] }, { terms: ['a'.repeat(101)] },
+      { terms: Array.from({ length: 11 }, (_, i) => `t${i}`) }, { force: 'yes' }, { terms: [null] },
+    ];
+    for (const body of bad) assert.equal((await api(s.base, '/api/search', body)).status, 400, JSON.stringify(body).slice(0, 40));
+    assert.equal((await api(s.base, '/api/search', { terms: ['a'.repeat(100)] })).status, 200);
+    assert.equal((await api(s.base, '/api/search', { terms: Array.from({ length: 10 }, (_, i) => `t${i}`) })).status, 200);
+    assert.equal(s.calls.filter(([n]) => n === 'searchAuchan').length, 2);
+  } finally { s.close(); }
+});
+
+test('POST /api/search needs the token and a same-origin POST like every other write', async () => {
+  const s = await start();
+  try {
+    assert.equal((await api(s.base, '/api/search', {}, { origin: 'http://evil.example' })).status, 403);
+    assert.equal((await fetch(s.base + '/api/search', { method: 'POST', headers: { 'content-type': 'application/json', origin: s.base }, body: '{}' })).status, 403);
+    assert.equal(s.calls.length, 0);
+  } finally { s.close(); }
 });

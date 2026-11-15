@@ -91,6 +91,15 @@ const ROUTES: Record<string, Route> = {
     return { changed: true };
   }),
   '/api/sync': post((s) => s.sync()),
+  '/api/search': post((s, b) => {
+    let terms: string[] | undefined;
+    if (b.terms !== undefined) {
+      if (!Array.isArray(b.terms) || b.terms.length > 10) throw bad();
+      terms = b.terms.map((t) => str(t, 100));
+    }
+    if (b.force !== undefined && typeof b.force !== 'boolean') throw bad();
+    return s.searchAuchan(terms, { force: b.force === true });
+  }),
   '/api/note': post((s, b) => {
     const note = str(b.note, 10_000, 0);
     if (typeof b.includeUsual !== 'boolean') throw bad();
