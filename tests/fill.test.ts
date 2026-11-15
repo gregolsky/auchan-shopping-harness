@@ -33,7 +33,9 @@ test('a rerun after a lost response adds nothing twice', async () => {
 
 test('a rejected batch is retried line by line after a fresh read', async () => {
   const cart = fakeCart({}, { reject: ['p2'] });
-  const r = await fillCart(cart, [bl('p1', 1), bl('p2', 1), bl('p3', 1)]);
+  const progress: number[][] = [];
+  const r = await fillCart(cart, [bl('p1', 1), bl('p2', 1), bl('p3', 1)], { onProgress: (s, t) => progress.push([s, t]) });
+  assert.deepEqual(progress.at(-1), [3, 3]);
   assert.deepEqual(cart.quantities, { p1: 1, p3: 1 });
   assert.deepEqual(r.missing.map((m) => m.productId), ['p2']);
   assert.deepEqual(cart.applyCalls.map((c) => c.map((x) => x.productId)), [['p1', 'p2', 'p3'], ['p1'], ['p2'], ['p3']]);
@@ -65,4 +67,25 @@ test('an out-of-stock product is reported, not retried', async () => {
   assert.deepEqual(r.outOfStock.map((m) => m.productId), ['p2']);
   assert.equal(r.missing.length, 0);
   assert.equal(cart.applyCalls.length, 1);
+  assert.equal(r.sent, 1);
+});
+
+test('the 11th line rejected is skipped and the other 10 are added', async () => {
+  const cart = fakeCart({}, { reject: ['p10'] });
+  const basket = Array.from({ length: 11 }, (_, i) => bl(`p${i}`, 1));
+  const progress: number[][] = [];
+  const r = await fillCart(cart, basket, { onProgress: (s, t) => progress.push([s, t]) });
+  assert.equal(Object.keys(cart.quantities).length, 10);
+  assert.deepEqual(r.missing.map((m) => m.productId), ['p10']);
+  assert.equal(r.sent, 10);
+  assert.deepEqual(progress.at(-1), [11, 11]);
+});
+
+test('a partial add ends in missing, not outOfStock, and is not retried', async () => {
+  const cart = fakeCart({}, { cap: { p1: 1 } });
+  const r = await fillCart(cart, [bl('p1', 3)]);
+  assert.deepEqual(r.missing.map((m) => m.productId), ['p1']);
+  assert.equal(r.outOfStock.length, 0);
+  assert.equal(cart.applyCalls.length, 1);
+  assert.equal(r.sent, 1);
 });

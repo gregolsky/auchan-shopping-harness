@@ -9,7 +9,7 @@ export interface FakeCart extends CartAccess {
 /** In-memory cart; applying is additive, like the real site. Every product costs 1.00. */
 export function fakeCart(
   initial: Record<string, number>,
-  opts: { reject?: string[]; outOfStock?: string[]; loseResponseOnce?: boolean } = {},
+  opts: { reject?: string[]; outOfStock?: string[]; cap?: Record<string, number>; loseResponseOnce?: boolean } = {},
 ): FakeCart {
   let lose = opts.loseResponseOnce ?? false;
   const cart: FakeCart = {
@@ -36,7 +36,10 @@ export function fakeCart(
           limited.push({ productId: c.productId, reason: 'OUT_OF_STOCK', requestedAmount: c.quantity, addedAmount: 0 });
           continue;
         }
-        cart.quantities[c.productId] = (cart.quantities[c.productId] ?? 0) + c.quantity;
+        const cap = opts.cap?.[c.productId];
+        const added = cap !== undefined ? Math.min(c.quantity, cap) : c.quantity;
+        if (added < c.quantity) limited.push({ productId: c.productId, reason: 'MAX_QUANTITY', requestedAmount: c.quantity, addedAmount: added });
+        cart.quantities[c.productId] = (cart.quantities[c.productId] ?? 0) + added;
       }
       if (lose) {
         lose = false;

@@ -13,11 +13,18 @@ export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOp
   const total = plan.send.length;
   const outOfStock = new Set<string>();
   let sent = 0;
+  let processed = 0;
 
+  const tick = (n: number) => {
+    processed += n;
+    o.onProgress?.(processed, total);
+  };
   const send = async (changes: CartChange[]) => {
-    for (const l of await cart.applyQuantities(changes)) if (isOutOfStock(l)) outOfStock.add(l.productId);
-    sent += changes.length;
-    o.onProgress?.(sent, total);
+    const limited = await cart.applyQuantities(changes);
+    const none = new Set(limited.filter((l) => l.addedAmount === 0).map((l) => l.productId));
+    for (const l of limited) if (isOutOfStock(l)) outOfStock.add(l.productId);
+    sent += changes.filter((c) => !none.has(c.productId)).length;
+    tick(changes.length);
   };
 
   for (let i = 0; i < total; i += MAX_BATCH) {
@@ -25,11 +32,13 @@ export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOp
     try {
       await send(chunk);
     } catch (e) {
-      if (!(e instanceof Rejected) || chunk.length < 2) {
-        if (e instanceof Rejected) continue; // a single rejected change is skipped
-        throw e;
+      if (!(e instanceof Rejected)) throw e;
+      if (chunk.length === 1) {
+        tick(1); // a single rejected change is skipped
+        continue;
       }
       // Re-plan against a fresh cart so nothing the batch may have added is added twice.
+      const settled = processed + chunk.length;
       const ids = new Set(chunk.map((c) => c.productId));
       const fresh = parseCart(await cart.readCart());
       for (const change of planFill(basket.filter((b) => ids.has(b.productId)), fresh.lines).send) {
@@ -37,8 +46,10 @@ export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOp
           await send([change]);
         } catch (e2) {
           if (!(e2 instanceof Rejected)) throw e2;
+          tick(1);
         }
       }
+      if (processed < settled) tick(settled - processed); // products the fresh cart already had
     }
   }
 
