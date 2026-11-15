@@ -51,6 +51,12 @@ test('readability styles keep body copy at 15px and touch controls at 44px', () 
   assert.match(css, /\.stepper \.small\{min-width:44px;min-height:44px/);
 });
 
+test('grouped report rows keep compact category icons on narrow screens', () => {
+  const css = readFileSync('public/app.css', 'utf8');
+  assert.match(css, /\.report-category \.report-item\{display:grid;grid-template-columns:20px minmax\(0,1fr\)/);
+  assert.match(css, /\.report-category \.report-item \.category-tag span\{display:none\}/);
+});
+
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,
   reason: 'bought before', confidence: 'medium', confidenceReason: 'not bought before', included: true, kind: 'item',
   question: { text: 'Która?', options: ['a'] }, candidates: [{ productId: 'a', name: 'Mąka pszenna' }] };

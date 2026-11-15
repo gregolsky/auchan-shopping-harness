@@ -118,6 +118,17 @@ h1{font-size:clamp(30px,4vw,38px)}
 .eyebrow,.brand small,.mode{font-size:13px}
 .price,.quantity,.report-summary{font-variant-numeric:tabular-nums}
 .line-card{gap:12px;margin-bottom:16px}
+.report-category .report-item{display:grid;grid-template-columns:20px minmax(0,1fr);gap:4px 8px;align-items:start}
+.report-category .report-item .category-tag{grid-column:1;grid-row:1}
+.report-category .report-item .category-tag span{display:none}
+.report-category .report-item .report-name{grid-column:2;grid-row:1}
+.report-category .report-item .report-detail{grid-column:2}
+.report-category .report-item .category-icon{width:20px;height:20px}
+@media(max-width:430px){
+  .report-group{padding:14px}
+  .report-heading{gap:8px}
+  .report-item{padding:14px 0}
+}
 
 .hero-art{background:var(--art-bg);border-radius:14px;padding:8px}
 .topbar{height:auto;min-height:72px;flex-wrap:wrap;gap:8px 16px;padding-top:8px;padding-bottom:8px}

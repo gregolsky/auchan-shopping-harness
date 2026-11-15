@@ -413,7 +413,9 @@ function iconNode(key) {
 }
 function categoryTag(categoryPath) {
   const category = categoryFor(categoryPath);
-  return append(element('span', 'category-tag'), iconNode(category.icon), element('span', '', category.label));
+  const tag = element('span', 'category-tag');
+  tag.setAttribute('aria-label', category.label);
+  return append(tag, iconNode(category.icon), element('span', '', category.label));
 }
 function append(parent, ...children) { for (const child of children) parent.append(child); return parent; }
 function button(label, action, className = 'button', disabled = false) {
