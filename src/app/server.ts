@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
 import { liveDeps as syncDeps } from '../cli.ts';
@@ -268,8 +268,31 @@ export function createStop(service: Pick<AppService, 'shutdown'>, server: http.S
   };
 }
 
-export async function main(): Promise<void> {
+export const DEFAULT_PORT = 47474;
+const TOKEN_RE = /^[0-9a-f]{32}$/;
+
+/** The page token survives restarts so the URL can be bookmarked; owner-only file, replaced if damaged. */
+export function loadOrCreateToken(file: string): string {
+  try {
+    const saved = readFileSync(file, 'utf8').trim();
+    if (TOKEN_RE.test(saved)) return saved;
+  } catch { /* missing or unreadable: make a new one */ }
   const token = randomBytes(16).toString('hex');
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  writeFileSync(file, token + '\n', { mode: 0o600 });
+  chmodSync(file, 0o600);
+  return token;
+}
+
+export function appPort(env: Record<string, string | undefined>): number {
+  const n = Number(env.APP_PORT);
+  return env.APP_PORT !== undefined && Number.isInteger(n) && n >= 0 && n <= 65535 ? n : DEFAULT_PORT;
+}
+
+export async function main(): Promise<void> {
+  const token = loadOrCreateToken('.state/app-token');
+  const port = appPort(process.env);
+  const url = (p: number) => `http://127.0.0.1:${p}/?t=${token}`;
   const broadcaster = createBroadcaster();
   const service = createService({
     openStore: syncDeps.openStore,
@@ -283,12 +306,19 @@ export async function main(): Promise<void> {
   });
   const publicDir = fileURLToPath(new URL('../../public', import.meta.url));
   const server = createAppServer({ service, token, publicDir, broadcaster });
-  const requested = process.env.APP_PORT;
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(requested ? Number(requested) : 0, '127.0.0.1', resolve);
-  });
-  console.log(`Zakupy: http://127.0.0.1:${(server.address() as AddressInfo).port}/?t=${token}`);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(port, '127.0.0.1', resolve);
+    });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e;
+    // Another copy already serves this port: one app at a time, so just point at it.
+    console.log(`Aplikacja już działa: ${url(port)}`);
+    service.shutdown();
+    process.exit(0);
+  }
+  console.log(`Zakupy: ${url((server.address() as AddressInfo).port)}`);
   const stop = createStop(service, server);
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(sig, stop);
 }

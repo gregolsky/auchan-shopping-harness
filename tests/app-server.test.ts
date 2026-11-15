@@ -1,11 +1,11 @@
 import http from 'node:http';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
-import { createAppServer, createBroadcaster, createStop } from '../src/app/server.ts';
+import { appPort, createAppServer, createBroadcaster, createStop, DEFAULT_PORT, loadOrCreateToken } from '../src/app/server.ts';
 
 const TOKEN = 'a'.repeat(32);
 type Call = [string, unknown[]];
@@ -394,4 +394,27 @@ test('POST /api/search needs the token and a same-origin POST like every other w
     assert.equal((await fetch(s.base + '/api/search', { method: 'POST', headers: { 'content-type': 'application/json', origin: s.base }, body: '{}' })).status, 403);
     assert.equal(s.calls.length, 0);
   } finally { s.close(); }
+});
+
+test('the page token is created once, kept across restarts, owner-only, and replaced when damaged', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'token-'));
+  const file = join(dir, '.state', 'app-token');
+  const first = loadOrCreateToken(file);
+  assert.match(first, /^[0-9a-f]{32}$/);
+  assert.equal(loadOrCreateToken(file), first);
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+  writeFileSync(file, 'garbage');
+  const second = loadOrCreateToken(file);
+  assert.match(second, /^[0-9a-f]{32}$/);
+  assert.notEqual(second, first);
+  assert.equal(readFileSync(file, 'utf8').trim(), second);
+  rmSync(dir, { recursive: true });
+});
+
+test('the app port is fixed by default and APP_PORT overrides it only with a valid number', () => {
+  assert.equal(appPort({}), DEFAULT_PORT);
+  assert.equal(appPort({ APP_PORT: '5000' }), 5000);
+  assert.equal(appPort({ APP_PORT: '0' }), 0);
+  assert.equal(appPort({ APP_PORT: 'abc' }), DEFAULT_PORT);
+  assert.equal(appPort({ APP_PORT: '99999' }), DEFAULT_PORT);
 });
