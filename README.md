@@ -7,8 +7,8 @@ Invoke any skill by typing `/<name>` inside a Claude Code session started from t
 
 `npm run app` is the main way to shop. It starts a local page with a six-step wizard: **Dane → Szkic → Doprecyzowanie → Zatwierdzenie → Koszyk → Płatność**. Paste a list, review the matches, answer the uncertain ones, then approve to add the products to the Auchan cart.
 
-- The server prints one URL, `http://127.0.0.1:<port>/?t=<token>`. It listens on 127.0.0.1 only and every request needs the random token, so open exactly that printed URL.
-- Claude is used through `claude -p` to read the list and propose changes. It runs with no tools, in isolation: no MCP servers, no settings or slash commands, no saved session, and an empty temporary working directory. It only proposes; nothing changes until you click Apply on a proposal.
+- The server prints one URL, `http://127.0.0.1:<port>/?t=<token>`. It listens on 127.0.0.1 only and every request needs the random token, so open exactly that printed URL. The token changes on every start, so after restarting the app open the newly printed URL.
+- Claude is used through `claude -p` to read the list and propose changes. It runs with no tools, in isolation: no MCP servers, no settings or slash commands, no saved session, and an empty temporary working directory. It only proposes; nothing changes until you click "Zastosuj" on a proposal.
 - Without Claude (not installed, failing or giving an unusable answer) the page shows "Tryb bez Claude": it still builds the draft and asks about every doubtful match.
 - The **Moje reguły** tab lists the choices the planner has learned (each can be removed) and the blocked products. All Mąka Szymanowska flours are blocked from the start, regardless of type or product ID. Search the local catalog there to block another product or lift the Szymanowska block. Changes are saved in `.state/harness.db` and apply to drafts, approval and cart filling; arrange the draft again after changing the list.
 - The app never pays and never places an order. The last step links to Auchan; check the cart and pay there.

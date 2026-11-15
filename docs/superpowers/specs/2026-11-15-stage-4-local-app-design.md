@@ -12,7 +12,7 @@ Success: the user pastes a list like the 2026-11-15 one, answers one round of qu
 
 1. **Stack:** `node:http` server and one page of plain HTML, CSS and JS served by the same process. No new dependencies, no build step. `npm run app` starts it and prints the URL.
 2. **Access:** listens on `127.0.0.1` only. A random token (32 hex chars, new each start) is part of the printed URL; every request without it gets 403. Requests must also have `Host: 127.0.0.1:<port>` (DNS rebinding) and, for POST, `Origin` equal to the app's origin or absent with `Sec-Fetch-Site: same-origin`. JSON bodies only, max 64 KB.
-3. **Claude with whole-trip context:** each call is `claude -p` with `--output-format json`, `--json-schema <schema>`, `--tools ""`, `--no-session-persistence`, a fixed system prompt, and the full trip state in the prompt (note, current lines with candidate ids, names, prices, confidence, the user's answers). No session is resumed; the state is passed in every time. Product names and offer texts are marked as data in the prompt. The call has a 60 s timeout.
+3. **Claude with whole-trip context:** each call is `claude -p` with `--output-format json`, `--json-schema <schema>`, `--tools ""`, `--strict-mcp-config`, `--setting-sources ""`, `--disable-slash-commands`, `--no-session-persistence`, `--model sonnet`, spawned with no shell in a fresh empty temporary directory (never `--bare`, which breaks the user's login; the isolation flags matter because the repo's MCP servers include a logged-in browser), a fixed system prompt, and the full trip state in the prompt (note, current lines with candidate ids, names, prices, confidence, the user's answers). No session is resumed; the state is passed in every time. Product names and offer texts are marked as data in the prompt. The call has a 60 s timeout.
 4. **Claude only proposes.** Output is a list of operations from a closed set:
    - `add { term, quantity, note? }` — run the planner for a new term
    - `choose { lineKey, productId }` — productId must be one of that line's candidates
@@ -42,7 +42,7 @@ API (all JSON, all need the token):
 - `POST /api/ask { text }` — ad hoc instruction → proposal
 - `POST /api/apply { proposalId }` / `POST /api/reject { proposalId }`
 - `POST /api/answer { lineKey, productId | null }` — a clarification answer (null = skip/remove)
-- `POST /api/line { lineKey, quantity | remove }` — manual edits
+- `POST /api/line { lineKey, quantity | remove | included }` — manual edits
 - `POST /api/approve` — approve and start the fill (SSE progress)
 - `GET /api/rules`, `POST /api/rules/delete { term }`, `POST /api/rules/brand { term, brand: null }`
 - `GET /api/blocked` — the blocked products, `[{ productId, name }]`
