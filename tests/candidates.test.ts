@@ -7,7 +7,7 @@ import type { ProductFacts, IntentRule } from '../src/store.ts';
 const fact = (productId: string, over: Partial<ProductFacts> = {}): ProductFacts => ({
   productId, name: `Mleko ${productId}`, brand: 'Brand', categoryPath: [], size: '1 L', timesBought: 0, lastBoughtAt: null,
   usualQuantity: null, latestPriceGrosze: 300, offerText: null, requiredQuantity: null, medianUnitPriceGrosze: null,
-  pricePoints: 0, inCatalogue: true, boughtInLatest10: 0, seenInLatestPromotions: false, ...over,
+  pricePoints: 0, imageUrl: null, imageAlt: null, inCatalogue: true, boughtInLatest10: 0, seenInLatestPromotions: false, ...over,
 });
 const rule = (over: Partial<IntentRule> = {}): IntentRule => ({
   term: 'mleko', brand: null, preferredProductId: null, acceptedProductIds: [], learnedProductIds: [], replacedProductIds: [], ...over,

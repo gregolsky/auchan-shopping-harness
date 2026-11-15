@@ -91,6 +91,8 @@ export interface ProductFacts {
   medianUnitPriceGrosze: number | null;
   pricePoints: number;
   inCatalogue: boolean;
+  imageUrl: string | null;
+  imageAlt: string | null;
   /** In how many of the latest 10 orders the product appears. */
   boughtInLatest10: number;
   /** A row in the latest promotion sync, so the price is still current. False with asOf. */
@@ -119,6 +121,10 @@ export interface Store {
   unblockProduct(productId: string): void;
   /** One row per product, for ranking. Reads each table once. */
   productFacts(opts?: { asOf?: string }): ProductFacts[];
+  /** Ids of orders that have a product without an image (stored before images were read). Oldest first. */
+  ordersMissingImages(): string[];
+  /** Writes image columns only, and only where the product has one; nothing else about the product or any order changes. */
+  saveOrderImages(products: Product[]): void;
   /** Product ids on one order, in line order. */
   orderProductIds(orderId: string): string[];
   startSync(kind: SyncKind): number;
@@ -154,7 +160,9 @@ CREATE TABLE IF NOT EXISTS products (
   category_path TEXT NOT NULL,
   unit_label TEXT,
   size TEXT,
-  in_catalogue INTEGER NOT NULL
+  in_catalogue INTEGER NOT NULL,
+  image_url TEXT,
+  image_alt TEXT
 );
 CREATE TABLE IF NOT EXISTS orders (
   order_id TEXT PRIMARY KEY,
@@ -241,6 +249,20 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
       }
     }
   }
+  const hasImageColumns = () => (db.prepare("SELECT name FROM pragma_table_info('products')").all() as { name: string }[]).some((c) => c.name === 'image_url');
+  if (!opts.readOnly && !hasImageColumns()) {
+    // Only a database made before images takes the write lock; a current one never does.
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      if (!hasImageColumns()) db.exec('ALTER TABLE products ADD COLUMN image_url TEXT; ALTER TABLE products ADD COLUMN image_alt TEXT');
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      db.close();
+      throw e;
+    }
+  }
+  const imageColumns = hasImageColumns(); // a read-only handle on an old file reads no images
   const blockedProducts = (): BlockedProduct[] => hasBlacklist()
     ? (db.prepare('SELECT product_id, name FROM product_blacklist ORDER BY name').all() as { product_id: string; name: string }[])
       .map((r) => ({ productId: r.product_id, name: r.product_id === BLOCKED_PRODUCTS[0].productId ? BLOCKED_PRODUCTS[0].name : r.name }))
@@ -248,15 +270,18 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
 
   // A sparse source (an order line with no entity) must not wipe what a richer one stored.
   const upsertProduct = db.prepare(`
-    INSERT INTO products (product_id, retailer_product_id, name, name_lower, brand, category_path, unit_label, size, in_catalogue)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO products (product_id, retailer_product_id, name, name_lower, brand, category_path, unit_label, size, in_catalogue, image_url, image_alt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(product_id) DO UPDATE SET
       retailer_product_id = excluded.retailer_product_id, name = excluded.name, name_lower = excluded.name_lower,
       brand = COALESCE(NULLIF(excluded.brand, ''), products.brand),
       category_path = COALESCE(NULLIF(excluded.category_path, '[]'), products.category_path),
       unit_label = COALESCE(NULLIF(excluded.unit_label, ''), products.unit_label),
       size = COALESCE(NULLIF(excluded.size, ''), products.size),
-      in_catalogue = excluded.in_catalogue`);
+      in_catalogue = excluded.in_catalogue,
+      image_url = COALESCE(excluded.image_url, products.image_url),
+      image_alt = CASE WHEN excluded.image_url IS NULL THEN products.image_alt ELSE excluded.image_alt END`);
+  const setImage = db.prepare('UPDATE products SET image_url = ?, image_alt = ? WHERE product_id = ?');
   // Same product/region/source/day/price/offer is one observation; re-seeing it refreshes seen_at
   // so "current promotions" can be defined as rows seen in the latest sync.
   const upsertPrice = db.prepare(`
@@ -274,7 +299,7 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
     for (const p of products) {
       upsertProduct.run(
         p.productId, p.retailerProductId, p.name, p.name.toLocaleLowerCase('pl'), p.brand,
-        JSON.stringify(p.categoryPath), p.unitLabel, p.size, p.inCatalogue ? 1 : 0,
+        JSON.stringify(p.categoryPath), p.unitLabel, p.size, p.inCatalogue ? 1 : 0, p.imageUrl ?? null, p.imageUrl ? (p.imageAlt ?? null) : null,
       );
     }
   }
@@ -403,6 +428,20 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
       }));
     },
 
+    ordersMissingImages() {
+      if (!imageColumns) return [];
+      return (db.prepare(`
+        SELECT o.order_id FROM orders o
+        WHERE EXISTS (SELECT 1 FROM order_lines l JOIN products p ON p.product_id = l.product_id WHERE l.order_id = o.order_id AND p.image_url IS NULL)
+        ORDER BY o.delivered_at, o.order_id`).all() as { order_id: string }[]).map((r) => r.order_id);
+    },
+
+    saveOrderImages(products) {
+      transaction(() => {
+        for (const p of products) if (p.imageUrl) setImage.run(p.imageUrl, p.imageAlt ?? null, p.productId);
+      });
+    },
+
     orderProductIds(orderId) {
       return (db.prepare('SELECT product_id FROM order_lines WHERE order_id = ? ORDER BY rowid').all(orderId) as { product_id: string }[])
         .map((r) => r.product_id);
@@ -412,7 +451,7 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
       // asOf: only orders delivered strictly before it, and prices seen strictly before it; no offers, as promotion
       // syncs are not dated per order. In-catalogue stays as it is today (a known limit for replays).
       const asOf = opts?.asOf ?? null;
-      const products = db.prepare('SELECT product_id, name, brand, category_path, size, in_catalogue FROM products').all() as any[];
+      const products = db.prepare(`SELECT product_id, name, brand, category_path, size, in_catalogue, ${imageColumns ? 'image_url, image_alt' : 'NULL AS image_url, NULL AS image_alt'} FROM products`).all() as any[];
       const lines = db.prepare(`
         SELECT l.product_id, l.quantity, o.delivered_at FROM order_lines l JOIN orders o ON o.order_id = l.order_id
         WHERE ?1 IS NULL OR o.delivered_at < ?1`).all(asOf) as any[];
@@ -458,6 +497,7 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
           latestPriceGrosze: latestPrice.get(p.product_id) ?? null,
           offerText: offer.get(p.product_id)?.offerText ?? null, requiredQuantity: offer.get(p.product_id)?.requiredQuantity ?? null,
           medianUnitPriceGrosze: med === null ? null : Math.round(med), pricePoints: units.length,
+          imageUrl: p.image_url, imageAlt: p.image_alt,
           inCatalogue: p.in_catalogue === 1, boughtInLatest10: recent.get(p.product_id) ?? 0,
           seenInLatestPromotions: offer.has(p.product_id),
         };

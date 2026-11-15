@@ -375,3 +375,65 @@ test('opening a fresh database still creates the schema and seeds the blacklist'
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+const withImage = (p: Product, imageUrl: string | null, imageAlt: string | null): Product => ({ ...p, imageUrl, imageAlt });
+const IMG = 'https://zakupy.auchan.pl/images-v3/00000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000001/300x300.jpg';
+
+test('images are stored, exposed in product facts, and kept when a later observation has none', () => {
+  const s = openStore(':memory:');
+  s.savePromotions(promo([withImage(product('a', 'Mleko'), IMG, 'Karton mleka')], [price('a', '2026-10-01T10:00:00Z', 300)]));
+  s.savePromotions(promo([product('a', 'Mleko')], [price('a', '2026-10-02T10:00:00Z', 310)]));
+  const f = s.productFacts().find((x) => x.productId === 'a')!;
+  assert.equal(f.imageUrl, IMG);
+  assert.equal(f.imageAlt, 'Karton mleka');
+  s.savePromotions(promo([withImage(product('a', 'Mleko'), IMG.replace('0001/300', '0002/300'), null)], [price('a', '2026-10-03T10:00:00Z', 310)]));
+  assert.match(s.productFacts()[0].imageUrl!, /0002\/300x300/);
+  s.close();
+});
+
+test('a product with no image has null image facts', () => {
+  const s = openStore(':memory:');
+  s.savePromotions(promo([product('a', 'Mleko')], [price('a', '2026-10-01T10:00:00Z', 300)]));
+  const f = s.productFacts()[0];
+  assert.equal(f.imageUrl, null);
+  assert.equal(f.imageAlt, null);
+  s.close();
+});
+
+test('a database made before the image columns gets them added and keeps its rows', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'store-img-'));
+  const path = join(dir, 'harness.db');
+  try {
+    const old = new DatabaseSync(path);
+    old.exec(`CREATE TABLE products (
+      product_id TEXT PRIMARY KEY, retailer_product_id TEXT NOT NULL, name TEXT NOT NULL, name_lower TEXT NOT NULL,
+      brand TEXT NOT NULL, category_path TEXT NOT NULL, unit_label TEXT, size TEXT, in_catalogue INTEGER NOT NULL);
+      CREATE TABLE product_blacklist (product_id TEXT PRIMARY KEY, name TEXT NOT NULL);
+      INSERT INTO products VALUES ('a', 'r', 'Mleko', 'mleko', 'B', '[]', NULL, NULL, 1);`);
+    old.close();
+    for (let i = 0; i < 2; i++) { // the second open finds the columns and changes nothing
+      const s = openStore(path);
+      assert.equal(s.productFacts()[0].name, 'Mleko');
+      assert.equal(s.productFacts()[0].imageUrl, i === 0 ? null : IMG);
+      s.savePromotions(promo([withImage(product('a', 'Mleko'), IMG, 'x')], [price('a', '2026-10-01T10:00:00Z', 300)]));
+      assert.equal(s.productFacts()[0].imageUrl, IMG);
+      s.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('ordersMissingImages lists orders with an imageless product; saveOrderImages fills only image columns', () => {
+  const s = openStore(':memory:');
+  s.saveOrder({ ...orderOf('o1', ['a', 'b']), products: [withImage(product('a', 'A'), IMG, 'x'), product('b', 'B')], prices: [price('a', '2026-10-01T10:00:00Z', 300)] });
+  s.saveOrder({ ...orderOf('o2', ['a']), products: [withImage(product('a', 'A'), IMG, 'x')], prices: [] });
+  assert.deepEqual(s.ordersMissingImages(), ['o1']);
+  s.saveOrderImages([withImage(product('b', 'Renamed'), IMG, 'y'), product('a', 'A')]);
+  assert.deepEqual(s.ordersMissingImages(), []);
+  const facts = s.productFacts();
+  assert.equal(facts.find((f) => f.productId === 'b')!.imageAlt, 'y');
+  assert.equal(facts.find((f) => f.productId === 'b')!.name, 'B');
+  assert.equal(facts.find((f) => f.productId === 'a')!.imageUrl, IMG);
+  s.close();
+});

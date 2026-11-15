@@ -7,7 +7,7 @@ const now = new Date('2026-11-01T00:00:00Z');
 const fact = (productId: string, over: Partial<ProductFacts> = {}): ProductFacts => ({
   productId, name: `Item ${productId}`, brand: 'Brand', categoryPath: ['Produkty', 'Kawa, herbata'], size: '1 kg', timesBought: 0,
   lastBoughtAt: null, usualQuantity: null, latestPriceGrosze: 1000, offerText: null, requiredQuantity: null,
-  medianUnitPriceGrosze: null, pricePoints: 0, inCatalogue: true, boughtInLatest10: 0, seenInLatestPromotions: false, ...over,
+  medianUnitPriceGrosze: null, pricePoints: 0, imageUrl: null, imageAlt: null, inCatalogue: true, boughtInLatest10: 0, seenInLatestPromotions: false, ...over,
 });
 const usual = (id: string, over: Partial<ProductFacts> = {}) => fact(id, { timesBought: 5, boughtInLatest10: 4, usualQuantity: 2, lastBoughtAt: '2026-10-20T00:00:00Z', ...over });
 const input = (items: { term: string; quantity: number }[], includeUsual = false, budgetGrosze?: number) => ({ items, includeUsual, budgetGrosze });

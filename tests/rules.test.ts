@@ -6,7 +6,7 @@ import type { ProductFacts } from '../src/store.ts';
 const fact = (over: Partial<ProductFacts> = {}): ProductFacts => ({
   productId: 'p', name: 'Item', brand: 'Brand', categoryPath: ['Spiżarnia', 'Kawa'], size: '1 kg', timesBought: 0,
   lastBoughtAt: null, usualQuantity: null, latestPriceGrosze: 1000, offerText: null, requiredQuantity: null,
-  medianUnitPriceGrosze: 1000, pricePoints: 3, inCatalogue: true, boughtInLatest10: 0, seenInLatestPromotions: true, ...over,
+  medianUnitPriceGrosze: 1000, pricePoints: 3, imageUrl: null, imageAlt: null, inCatalogue: true, boughtInLatest10: 0, seenInLatestPromotions: true, ...over,
 });
 
 test('dairy, fruit and an empty path are perishable; coffee, cat food and frozen food are not', () => {

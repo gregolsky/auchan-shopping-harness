@@ -16,7 +16,7 @@ const other = '00000000-0000-4000-8000-000000000001';
 test('blacklisted flour never becomes a draft item, alternative, or suggestion', () => {
   const base: ProductFacts = { productId: ID, name: NAME, brand: 'Polskie Młyny', categoryPath: [], size: '1 kg', timesBought: 5,
     lastBoughtAt: null, usualQuantity: 1, latestPriceGrosze: 500, offerText: null, requiredQuantity: null,
-    medianUnitPriceGrosze: null, pricePoints: 0, inCatalogue: true, boughtInLatest10: 5, seenInLatestPromotions: false };
+    medianUnitPriceGrosze: null, pricePoints: 0, imageUrl: null, imageAlt: null, inCatalogue: true, boughtInLatest10: 5, seenInLatestPromotions: false };
   const draft = buildDraft({ items: [{ term: 'mąka', quantity: 1 }], includeUsual: true }, [base, { ...base, productId: other, name: 'Mąka pszenna inna', timesBought: 1, boughtInLatest10: 0 }], [], new Date());
   assert.deepEqual(draft.items.map((l) => l.productId), [other]);
   assert.ok(draft.items.every((l) => l.alternatives.every((a) => a.productId !== ID)));
@@ -51,7 +51,7 @@ test('another Szymanowska flour cannot enter a draft, approved basket or cart fi
   const name = 'Mąka Szymanowska pszenna typ 550 1 kg';
   const fact: ProductFacts = { productId: flourId, name, brand: 'Polskie Młyny', categoryPath: [], size: '1 kg', timesBought: 3,
     lastBoughtAt: null, usualQuantity: 1, latestPriceGrosze: 500, offerText: null, requiredQuantity: null,
-    medianUnitPriceGrosze: null, pricePoints: 0, inCatalogue: true, boughtInLatest10: 3, seenInLatestPromotions: false };
+    medianUnitPriceGrosze: null, pricePoints: 0, imageUrl: null, imageAlt: null, inCatalogue: true, boughtInLatest10: 3, seenInLatestPromotions: false };
   const draft = buildDraft({ items: [{ term: name, quantity: 1 }], includeUsual: true }, [fact], [], new Date());
   assert.deepEqual(draft.items, []);
   assert.deepEqual(draft.blocked, [name]);
@@ -93,7 +93,7 @@ test('a custom blocked product is excluded from drafts and the cart plan', () =>
   const product = { productId: other, name: 'Mąka pszenna inna' };
   const blocks = [product];
   const fact: ProductFacts = { ...product, brand: '', categoryPath: [], size: '1 kg', timesBought: 5, lastBoughtAt: null, usualQuantity: 1,
-    latestPriceGrosze: 500, offerText: null, requiredQuantity: null, medianUnitPriceGrosze: null, pricePoints: 0, inCatalogue: true,
+    latestPriceGrosze: 500, offerText: null, requiredQuantity: null, medianUnitPriceGrosze: null, pricePoints: 0, imageUrl: null, imageAlt: null, inCatalogue: true,
     boughtInLatest10: 5, seenInLatestPromotions: false };
   const draft = buildDraft({ items: [{ term: 'mąka', quantity: 1 }], includeUsual: true }, [fact], [], new Date(), blocks);
   assert.deepEqual(draft.unmatched, []);
