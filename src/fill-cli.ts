@@ -23,7 +23,7 @@ const LOG_IN = 'Log in in the browser window and leave it open; the fill continu
 export const BUSY = 'Inny fill już trwa: poczekaj, aż się skończy. Jeśli żaden nie działa, usuń plik .state/fill.lock i uruchom ponownie';
 const RERUN_SAFE = 'Ponowne uruchomienie jest bezpieczne: wczyta koszyk od nowa i doda tylko to, czego jeszcze brakuje.';
 
-const liveDeps: FillDeps = {
+export const liveDeps: FillDeps = {
   openStore: syncDeps.openStore,
   async openWorker() {
     ensureStateDir(SESSION_PATH);
