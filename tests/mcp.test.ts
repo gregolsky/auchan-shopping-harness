@@ -382,3 +382,15 @@ test('approve_basket saves a basket and never imports the worker', async () => {
     }),
   );
 });
+
+test('draft_basket input quantity is a whole number from 1 to 20', async () => {
+  await withDb(seedPlanner, (path) =>
+    withClient(path, async (c) => {
+      for (const quantity of [0.5, 0, 21, 100]) {
+        const r = (await c.callTool({ name: 'draft_basket', arguments: { items: [{ term: 'mleko', quantity }], includeUsual: false } })) as { isError?: boolean };
+        assert.equal(r.isError, true, String(quantity));
+      }
+      JSON.parse(await call(c, 'draft_basket', { items: [{ term: 'mleko', quantity: 20 }], includeUsual: false }));
+    }),
+  );
+});

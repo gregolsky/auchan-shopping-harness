@@ -313,3 +313,13 @@ test('describeFailure output carries no control or bidi characters', () => {
   assert.doesNotMatch(describeFailure(new ShapeError(dirty)), /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/);
   assert.match(describeFailure(new Error(dirty), 'fill'), /boom/);
 });
+
+test('sync output cleans the oldest-seen date', async (t) => {
+  const order = fx('order-decorated.json');
+  order.entities.order[order.result].dates.deliveryEndDate = '2026-01-02\u001b]52;c;eA==\u0007\u202e';
+  const { log, deps } = setup({ graphql: async () => page([order.result]), getJson: async () => order });
+  quiet(t, log);
+  assert.equal(await main(['orders'], deps), 0);
+  assert.match(log.out[0], /oldest seen 2026-01-02\]52;c;eA==;/);
+  assert.doesNotMatch(log.out[0], /[\u0000-\u001f\u007f-\u009f\u202a-\u202e]/);
+});

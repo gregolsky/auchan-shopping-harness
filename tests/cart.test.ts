@@ -103,3 +103,14 @@ test('compareCart moves out-of-stock products from missing and splits added from
   assert.deepEqual(r.alreadyEnough.map((b) => b.productId), ['p1']);
   assert.deepEqual(r.extras.map((c) => c.productId), ['x']);
 });
+
+test('the rise group follows the rounded percent that is printed (25,00 -> 27,51 and 27,50 are +10,0%, small)', () => {
+  const at = (b: number, now: number) => compareCart([{ ...bl('p1', 1), approvedPriceGrosze: b }], [], { lines: [cl("p1", 1, now)], totalGrosze: null });
+  for (const now of [2751, 2750]) {
+    const r = at(2500, now);
+    assert.equal(r.smallRises.length, 1);
+    assert.equal(r.checkBeforePaying.length, 0);
+    assert.equal(r.smallRises[0].risePercent, 10);
+  }
+  assert.equal(at(2500, 2753).checkBeforePaying.length, 1); // 10,1%
+});

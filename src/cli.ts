@@ -73,7 +73,7 @@ async function runSync(which: string | undefined, worker: Worker, store: Store, 
   if (which !== 'promotions') {
     const r = await syncOrders(worker, store, { paceMs });
     console.log(
-      `orders: imported ${r.imported}, skipped ${r.skipped}, oldest seen ${r.oldestSeen ?? 'none'}; ` +
+      `orders: imported ${r.imported}, skipped ${r.skipped}, oldest seen ${cleanText(r.oldestSeen ?? 'none')}; ` +
         `zero-quantity lines ${r.skippedZero}, substitutes ${r.substitutes}, missings ${r.missings}, returns ${r.returns}`,
     );
   }

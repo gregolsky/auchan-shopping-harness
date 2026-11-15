@@ -122,14 +122,15 @@ export function compareCart(
     seen.add(b.productId);
     const diff = nowGrosze - b.approvedPriceGrosze;
     if (diff <= 0) continue;
+    const risePercent = Math.round((diff / b.approvedPriceGrosze) * 1000) / 10;
     const note: PriceNote = {
       productId: b.productId,
       name: b.name,
       approvedGrosze: b.approvedPriceGrosze,
       nowGrosze,
-      risePercent: Math.round((diff / b.approvedPriceGrosze) * 1000) / 10,
+      risePercent,
     };
-    (diff * 10 > b.approvedPriceGrosze ? checkBeforePaying : smallRises).push(note);
+    (risePercent > 10 ? checkBeforePaying : smallRises).push(note);
   }
 
   return {

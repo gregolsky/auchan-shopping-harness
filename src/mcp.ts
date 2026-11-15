@@ -104,7 +104,7 @@ export function createServer(dbPath: string = DB_PATH): McpServer {
     {
       description: 'Builds a draft basket from shopping terms using order history, promotions and learned preferences. Returns groups (items, stockUps, promotions, addOns), unmatched terms, totals in grosze, and when orders (lastSyncAt) and promotions (promotionsLastSyncAt) were last synced; budget is only a warning. Does not fill any cart.' + NEVER_AUCHAN,
       inputSchema: {
-        items: z.array(z.object({ term: z.string().min(1).max(100), quantity: z.number().min(0.01).max(100).default(1) })).max(100),
+        items: z.array(z.object({ term: z.string().min(1).max(100), quantity: z.number().int().min(1).max(20).default(1) })).max(100),
         includeUsual: z.boolean().default(false),
         budgetGrosze: z.number().int().min(0).optional(),
       },
