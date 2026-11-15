@@ -122,6 +122,8 @@ export interface FillHooks {
   /** Called once the lock is held; returns a cleanup run when the fill ends. The CLI installs its signal handlers here. */
   /** The login prompt; defaults to the CLI's English text on the error channel. */
   loginPrompt?: { text: string; say(line: string): void };
+  /** The error that stopped the fill. When given, it is worded by the caller and describeFailure's English line is not sent to error. */
+  failed?(err: unknown): void;
   onLocked?(h: { lockFile: string; token: string; markFailed(): void }): () => void;
 }
 
@@ -220,7 +222,8 @@ export async function runFill(deps: FillDeps, hooks: FillHooks): Promise<FillRes
     return { code: 0, report, substitutes: subs, text };
   } catch (err) {
     if (runId !== undefined) store?.finishFill(runId, { status: 'failed', sent: tally.sent, missing: 0, checkBeforePaying: 0 });
-    error(describeFailure(err, 'fill'));
+    if (hooks.failed) hooks.failed(err);
+    else error(describeFailure(err, 'fill'));
     if (!(err instanceof Blocked)) error(RERUN_SAFE); // Refused is a Blocked: its own text says what to do
     return fail(1, err);
   } finally {

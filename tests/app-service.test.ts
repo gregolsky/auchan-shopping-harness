@@ -1004,3 +1004,38 @@ test('a term the catalogue did not match is drafted from what the Auchan search 
   assert.equal(line.confidenceReason, 'z wyszukiwania Auchan');
   assert.deepEqual(t.svc.state().trip.unmatched, []);
 });
+
+test('sync results are worded in plain Polish', async () => {
+  const { syncMessages } = await import('../src/app/messages.ts');
+  assert.deepEqual(syncMessages({ kind: 'orders', imported: 0, skipped: 21 }), ['Zamówienia: brak nowych (21 już w bazie). Nowe pojawiają się po dostawie.']);
+  assert.deepEqual(syncMessages({ kind: 'orders', imported: 0, skipped: 0 }), ['Zamówienia: brak nowych. Nowe pojawiają się po dostawie.']);
+  assert.deepEqual(syncMessages({ kind: 'orders', imported: 2, skipped: 3 }), ['Zamówienia: 2 nowe zamówienia zaimportowane.']);
+  assert.deepEqual(syncMessages({ kind: 'placed', imported: 1 }), ['Zamówienia złożone przed dostawą: 1.']);
+  assert.deepEqual(syncMessages({ kind: 'placed', imported: 0 }), []);
+  assert.deepEqual(syncMessages({ kind: 'promotions', products: 263, pages: 10, capped: ['/a', '/b', '/c', '/d', '/e'], skipped: [] }), ['Promocje: 263 produkty odświeżone; 5 kategorii mogło się nie wczytać w całości.']);
+  assert.deepEqual(syncMessages({ kind: 'promotions', products: 40, pages: 2, capped: [], skipped: [] }), ['Promocje: 40 produktów odświeżonych.']);
+  assert.match(syncMessages({ kind: 'promotions', products: 1, pages: 1, capped: ['/a'], skipped: [] })[0], /^Promocje: 1 produkt odświeżony; 1 kategoria mogła się nie wczytać/);
+});
+
+test('"Odśwież dane" shows only Polish lines, also when the sync fails', async () => {
+  const { svc, events } = setup();
+  await svc.sync();
+  await done(events);
+  const logs = events.flatMap((e) => (e.type === 'log' ? [e.text] : []));
+  assert.ok(logs.length > 0);
+  for (const l of logs) assert.doesNotMatch(l, /orders:|promotions:|capped|placed orders|Unexpected|failed|\bSync\b|shape/, l);
+  assert.match(logs.join(' '), /Synchronizacja nie powiodła się|Zamówienia:/);
+});
+
+test('a fill that fails with an unknown error logs Polish, not the CLI English', async () => {
+  const cart = fakeCart({});
+  cart.applyQuantities = async () => { throw new Error('boom'); };
+  const { svc, events } = setup({ cart });
+  const t = await svc.note({ note: 'chleb', includeUsual: false });
+  svc.answer(t.lines[0].lineKey, B);
+  await svc.approve();
+  await done(events);
+  const logs = events.flatMap((e) => (e.type === 'log' ? [e.text] : []));
+  assert.ok(logs.some((l) => /nieoczekiwany błąd \(boom\)/.test(l)), logs.join('|'));
+  assert.ok(!logs.some((l) => /Fill failed/.test(l)));
+});

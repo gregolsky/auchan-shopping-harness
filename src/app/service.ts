@@ -15,6 +15,7 @@ import { createBrowserSearch, MAX_SEARCH_TERMS, PROFILE_BUSY_TEXT, searchBlockTe
 import type { BrowserSearchOptions, PageLike, SearchResult } from '../search-browser.ts';
 import { normaliseTerm } from '../store.ts';
 import type { IntentRule, Store } from '../store.ts';
+import { failureText as describeError, syncMessages } from './messages.ts';
 import { askClaude } from './claude.ts';
 import type { Spawn } from './claude.ts';
 import { parseNote } from './fallback.ts';
@@ -461,7 +462,7 @@ export function createService(d: ServiceDeps) {
       void (async () => {
         let code = 1;
         try {
-          code = await syncAll(d.syncDeps, (text) => safeEmit({ type: 'log', text }));
+          code = await syncAll(d.syncDeps, (text) => safeEmit({ type: 'log', text }), (e) => { for (const text of syncMessages(e)) safeEmit({ type: 'log', text }); });
         } catch (e) {
           safeEmit({ type: 'log', text: `Synchronizacja nie powiodła się: ${e instanceof Error ? e.message : String(e)}` });
         } finally {
@@ -629,6 +630,11 @@ export function createService(d: ServiceDeps) {
         progress: (sent, total) => safeEmit({ type: 'progress', sent, total }),
         error: (text) => { problems.push(text); safeEmit({ type: 'log', text }); },
         loginPrompt: { text: LOGIN_PROMPT, say: (text) => safeEmit({ type: 'log', text }) },
+        failed: (err) => {
+          const text = failureText(err) ?? describeError(err, 'dodawanie');
+          problems.push(text);
+          safeEmit({ type: 'log', text });
+        },
         onLocked: ({ lockFile, token, markFailed }) => {
           active = { markFailed, release: () => releaseLock(lockFile, token) };
           return () => { active = null; };

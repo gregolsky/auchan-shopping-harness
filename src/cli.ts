@@ -70,10 +70,19 @@ export async function withLogin<T>(worker: Worker, work: () => Promise<T>, messa
   }
 }
 
+/** What a sync found, as data: a caller with an emit hook words it itself instead of printing the CLI's lines. */
+export type SyncEvent =
+  | { kind: 'orders'; imported: number; skipped: number }
+  | { kind: 'placed'; imported: number }
+  | { kind: 'promotions'; products: number; pages: number; capped: string[]; skipped: string[] }
+  | { kind: 'noRegion' }
+  | { kind: 'login' }
+  | { kind: 'failed'; error: unknown };
+
 export async function runSync(
   which: string | undefined, worker: Worker, store: Store, paceMs: number,
   log: (line: string) => void = (l) => console.log(l), err: (line: string) => void = (l) => console.error(l),
-  polish = false, placedId?: string,
+  polish = false, placedId?: string, emit?: (e: SyncEvent) => void,
 ): Promise<number> {
   if (which === 'placed') {
     const r = await syncPlaced(worker, store, { paceMs, orderId: placedId });
@@ -87,29 +96,35 @@ export async function runSync(
   }
   if (which !== 'promotions') {
     const r = await syncOrders(worker, store, { paceMs });
-    log(
+    if (emit) emit({ kind: 'orders', imported: r.imported, skipped: r.skipped });
+    else log(
       `orders: imported ${r.imported}, skipped ${r.skipped}, oldest seen ${cleanText(r.oldestSeen ?? 'none')}; ` +
         `zero-quantity lines ${r.skippedZero}, substitutes ${r.substitutes}, missings ${r.missings}, returns ${r.returns}`,
     );
     const p = await syncPlaced(worker, store, { paceMs });
-    log(polish ? `zamówienia złożone (przed dostawą): ${p.imported}` : `placed orders (before delivery): ${p.imported}`);
+    if (emit) emit({ kind: 'placed', imported: p.imported });
+    else log(polish ? `zamówienia złożone (przed dostawą): ${p.imported}` : `placed orders (before delivery): ${p.imported}`);
   }
   if (which !== 'orders') {
     // The session's own region cannot check itself: the expected one comes from a real delivery.
     const expectedRegionId = store.latestOrderRegion();
     if (expectedRegionId === null) {
-      err(NO_REGION);
+      if (emit) emit({ kind: 'noRegion' });
+      else err(NO_REGION);
       return 1;
     }
     const r = await syncPromotions(worker, store, { paceMs, expectedRegionId });
-    log(`promotions: ${r.products} products from ${r.pages} pages`);
-    if (r.capped.length) log(`capped (may be incomplete): ${r.capped.join(', ')}`);
-    if (r.skipped.length) log(`skipped: ${r.skipped.join(', ')}`);
+    if (emit) emit({ kind: 'promotions', products: r.products, pages: r.pages, capped: r.capped, skipped: r.skipped });
+    else {
+      log(`promotions: ${r.products} products from ${r.pages} pages`);
+      if (r.capped.length) log(`capped (may be incomplete): ${r.capped.join(', ')}`);
+      if (r.skipped.length) log(`skipped: ${r.skipped.join(', ')}`);
+    }
   }
   return 0;
 }
 
-type Out = { log(line: string): void; err(line: string): void; polish?: boolean };
+type Out = { log(line: string): void; err(line: string): void; polish?: boolean; emit?: (e: SyncEvent) => void };
 
 async function runSyncJob(which: string | undefined, deps: Deps, out: Out, placedId?: string): Promise<number> {
   const paceMs = deps.paceMs ?? PACE_MS;
@@ -120,14 +135,15 @@ async function runSyncJob(which: string | undefined, deps: Deps, out: Out, place
     worker = await deps.openWorker();
     const open = worker;
     const work = async (): Promise<number> => {
-      if (store) return runSync(which, open, store, paceMs, out.log, out.err, out.polish, placedId);
+      if (store) return runSync(which, open, store, paceMs, out.log, out.err, out.polish, placedId, out.emit);
       const { orders } = await checkOrders(open, { paceMs });
       out.log(`ok: ${orders} orders on the page${orders === 0 ? ', so no order was checked' : ''}`);
       return 0;
     };
-    return (await withLogin(open, work, LOG_IN, out.err)) ?? 1;
+    return (await withLogin(open, work, LOG_IN, out.emit ? () => out.emit!({ kind: 'login' }) : out.err)) ?? 1;
   } catch (err) {
-    out.err(describeFailure(err));
+    if (out.emit) out.emit({ kind: 'failed', error: err });
+    else out.err(describeFailure(err));
     return 1;
   } finally {
     await worker?.close();
@@ -136,8 +152,8 @@ async function runSyncJob(which: string | undefined, deps: Deps, out: Out, place
 }
 
 /** Orders then promotions, reporting through one logger (the app shows both kinds of line the same way). */
-export function syncAll(deps: Deps, log: (line: string) => void): Promise<number> {
-  return runSyncJob(undefined, deps, { log, err: log, polish: true });
+export function syncAll(deps: Deps, log: (line: string) => void, emit?: (e: SyncEvent) => void): Promise<number> {
+  return runSyncJob(undefined, deps, { log, err: log, polish: true, emit });
 }
 
 export async function main(args: string[], deps: Deps = liveDeps): Promise<number> {
