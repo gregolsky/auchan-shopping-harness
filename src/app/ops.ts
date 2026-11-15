@@ -19,7 +19,7 @@ const MAX_KEY = 200;
 
 function str(v: unknown, max: number, allowEmpty = false): string | null {
   if (typeof v !== 'string') return null;
-  const s = cleanText(v).trim();
+  const s = cleanText(v.replace(/[\t\r\n]+/g, ' ')).trim();
   if (s.length > max || (s === '' && !allowEmpty)) return null;
   return s;
 }
@@ -68,7 +68,7 @@ function one(item: unknown, lines: Map<string, string[]>): Op | null {
       for (const raw of o.options) {
         const id = str(raw, MAX_KEY);
         if (id === null || !lines.get(k)!.includes(id)) return null;
-        options.push(id);
+        if (!options.includes(id)) options.push(id);
       }
       return { op: 'ask', lineKey: k, question, options };
     }

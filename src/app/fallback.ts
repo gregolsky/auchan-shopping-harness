@@ -1,12 +1,13 @@
 import { cleanText } from '../parse.ts';
 
 const MAX_ITEMS = 100;
+const MAX_TERM = 100;
 
 /** Splits a pasted note into shopping lines without Claude: one item per line. */
 export function parseNote(note: string): { term: string; quantity: number; note: string }[] {
   const out: { term: string; quantity: number; note: string }[] = [];
   for (const rawLine of note.split(/\r?\n/)) {
-    let line = cleanText(rawLine).replace(/^\s*[-*•]\s*/, '').replace(/\s+/g, ' ').trim();
+    let line = cleanText(rawLine.replace(/[\t\r\n]+/g, ' ')).replace(/^\s*[-*•]\s*/, '').replace(/\s+/g, ' ').trim();
     let quantity = 1;
     const m = /^(.*?)\s+(?:x\s*(\d+)|(\d+)\s*x|(\d+))$/i.exec(line);
     if (m) {
@@ -16,7 +17,7 @@ export function parseNote(note: string): { term: string; quantity: number; note:
         line = m[1].trim();
       }
     }
-    if (line === '') continue;
+    if (line === '' || line.length > MAX_TERM) continue;
     out.push({ term: line, quantity, note: '' });
     if (out.length === MAX_ITEMS) break;
   }

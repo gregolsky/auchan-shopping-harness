@@ -81,3 +81,14 @@ test('OPS_JSON_SCHEMA is an object schema with one closed branch per op', () => 
   assert.deepEqual(branches.map((b: any) => b.properties.op.const).sort(),
     ['add', 'ask', 'choose', 'remove', 'say', 'setQuantity', 'unmatched']);
 });
+
+test('validateOps keeps words apart across a tab and dedupes ask options', () => {
+  const r = validateOps({ ops: [
+    { op: 'add', term: 'cukier\tbialy', quantity: 1 },
+    { op: 'ask', lineKey: L, question: 'Ktory?', options: ['A', 'A', 'B'] },
+  ] }, lines);
+  assert.deepEqual(r.ops, [
+    { op: 'add', term: 'cukier bialy', quantity: 1 },
+    { op: 'ask', lineKey: L, question: 'Ktory?', options: ['A', 'B'] },
+  ]);
+});

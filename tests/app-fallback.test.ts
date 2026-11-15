@@ -30,3 +30,11 @@ test('parseNote of an empty note is empty and caps at 100 items', () => {
   assert.deepEqual(parseNote(' \n\n'), []);
   assert.equal(parseNote(Array.from({ length: 150 }, (_, i) => `rzecz${i}`).join('\n')).length, 100);
 });
+
+test('parseNote keeps words apart when a tab separates them', () => {
+  assert.deepEqual(parseNote('cukier\t2'), [{ term: 'cukier', quantity: 2, note: '' }]);
+});
+
+test('parseNote skips terms longer than 100 characters', () => {
+  assert.deepEqual(parseNote(`${'a'.repeat(101)}\nmleko`).map((x) => x.term), ['mleko']);
+});
