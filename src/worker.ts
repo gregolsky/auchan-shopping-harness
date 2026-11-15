@@ -114,16 +114,6 @@ export function assertGraphqlOperation(operationName: string, query?: string): v
   }
 }
 
-export function classifyResponse(status: number, finalUrl: string): void {
-  if (status === 403 || status === 429) {
-    throw new Blocked(`blocked by site (HTTP ${status}); stopping, not retrying`);
-  }
-  const u = new URL(finalUrl);
-  if (status === 401 || u.host !== HOST || /^\/(login|logowanie|zaloguj|signin)(\/|$)/i.test(u.pathname)) {
-    throw new LoginRequired();
-  }
-}
-
 export function mapLaunchError(err: unknown): unknown {
   const msg = err instanceof Error ? err.message : String(err);
   if (/ProcessSingleton|SingletonLock|profile.*in use|already running/i.test(msg)) return new ProfileBusy();
@@ -141,23 +131,10 @@ export interface Worker {
   waitForLogin(): Promise<boolean>;
 }
 
-/** The slice of Playwright's Page the worker uses; lets tests supply a fake. */
+/** The slice of Playwright's Page the login watcher uses; lets tests supply a fake. */
 export interface PageLike {
   url(): string;
-  goto(url: string): Promise<{ status(): number } | null>;
   evaluate<A, R>(fn: (arg: A) => R | Promise<R>, arg: A): Promise<R>;
-}
-
-type InPageResult =
-  | { kind: 'ok'; status: number; url: string; text: string }
-  | { kind: 'redirect' }
-  | { kind: 'nocsrf' }
-  | { kind: 'neterror' }
-  | { kind: 'timeout' };
-
-interface InPageRequest {
-  url: string;
-  body?: unknown;
 }
 
 /** Subscribe as soon as the context exists, so a window closed before anyone waits is not missed. */
@@ -165,127 +142,14 @@ export function whenClosed(context: { once(event: 'close', listener: () => void)
   return new Promise((resolve) => context.once('close', () => resolve()));
 }
 
-export function createWorker(
+/** Watches the open login window without navigating it. */
+export function createLoginWatcher(
   page: PageLike,
   closeFn: () => Promise<void> = async () => {},
   waitForCloseFn: () => Promise<void> = async () => {},
   loginPollMs = 3000,
-): Worker {
-  // Navigate to an allowlisted path, then verify status, final host/path and login state.
-  const navigate = async (path: string): Promise<void> => {
-    const resp = await page.goto(new URL(normaliseGet(path), ORIGIN).toString());
-    if (!resp) throw new Error('navigation produced no response');
-    const status = resp.status();
-    const finalUrl = page.url();
-    classifyResponse(status, finalUrl);
-    if (status < 200 || status >= 300) throw new Error(`unexpected HTTP ${status}`);
-    const f = new URL(finalUrl);
-    try {
-      normaliseGet(f.pathname + f.search);
-    } catch {
-      throw new Error(`navigation ended on a path that is not allowed: ${f.pathname}`);
-    }
-  };
-
-  const ensureOnSite = async () => {
-    let onSite = false;
-    try {
-      onSite = new URL(page.url()).host === HOST;
-    } catch {}
-    if (!onSite) await navigate('/orders');
-  };
-
-  const send = async (req: InPageRequest): Promise<unknown> => {
-    await ensureOnSite();
-    const r = await page.evaluate(async (rq: InPageRequest): Promise<InPageResult> => {
-      try {
-        const init: RequestInit = {
-          credentials: 'same-origin',
-          redirect: 'manual',
-          signal: AbortSignal.timeout(30000),
-          headers: { 'ecom-request-source-version': '2.0.0' },
-        };
-        if (rq.body !== undefined) {
-          // CSRF token is read here at call time and never leaves the page.
-          const token = (window as any).__INITIAL_STATE__?.session?.csrf?.token;
-          if (typeof token !== 'string' || !token) return { kind: 'nocsrf' };
-          init.method = 'POST';
-          init.headers = {
-            'content-type': 'application/json',
-            'x-csrf-token': token,
-            'ecom-request-source': 'web',
-            'ecom-request-source-version': '2.0.0',
-          };
-          init.body = JSON.stringify(rq.body);
-        }
-        const res = await fetch(rq.url, init);
-        if (res.type === 'opaqueredirect' || res.redirected) return { kind: 'redirect' };
-        return { kind: 'ok', status: res.status, url: res.url, text: await res.text() };
-      } catch (e) {
-        return { kind: (e as Error)?.name === 'TimeoutError' ? 'timeout' : 'neterror' };
-      }
-    }, req);
-    if (r.kind === 'nocsrf') throw new LoginRequired('no CSRF token in page state: session not logged in');
-    if (r.kind === 'redirect') {
-      throw new LoginRequired('request was redirected and not followed (target unknown, most likely login)');
-    }
-    if (r.kind === 'neterror') throw new Error('request failed in page');
-    if (r.kind === 'timeout') throw new Error('request timed out after 30 s');
-    classifyResponse(r.status, r.url);
-    if (r.status < 200 || r.status >= 300) throw new Error(`unexpected HTTP ${r.status}`);
-    try {
-      return JSON.parse(r.text);
-    } catch {
-      throw new ShapeError('response was not JSON'); // the parser's message can quote the body
-    }
-  };
-
+): { waitForLogin(): Promise<boolean>; close(): Promise<void> } {
   return {
-    async getJson(path) {
-      return send({ url: normaliseGet(path) });
-    },
-
-    async graphql(operationName, query, variables) {
-      assertGraphqlOperation(operationName, query);
-      assertAllowed('/graphql');
-      return checkGraphql(await send({ url: '/graphql', body: { operationName, query, variables } }));
-    },
-
-    async pageState(path) {
-      await navigate(path);
-      const state = (await page.evaluate((_: null) => {
-        const raw = (window as any).__INITIAL_STATE__;
-        if (raw === undefined || raw === null) return null;
-        const copy = JSON.parse(JSON.stringify(raw));
-        if (copy?.session) delete copy.session.csrf; // token never leaves the page
-        return copy;
-      }, null)) as any;
-      const pathname = new URL(path, ORIGIN).pathname;
-      if (/^\/orders(\/|$)/.test(pathname) && state?.session?.isLoggedIn === false) throw new LoginRequired();
-      return state;
-    },
-
-    async pageLinks(path, prefix) {
-      if (!prefix.startsWith('/') || prefix.startsWith('//')) throw new Error(`bad link prefix: ${prefix}`);
-      await navigate(path);
-      // Only strings that are same-origin pathname+search and start with prefix leave the page.
-      const links = (await page.evaluate((pre: string) => {
-        const out: string[] = [];
-        for (const a of Array.from(document.querySelectorAll('a[href]'))) {
-          try {
-            const u = new URL((a as HTMLAnchorElement).href, window.location.href);
-            const v = u.pathname + u.search;
-            if (u.origin === window.location.origin && v.startsWith(pre)) out.push(v);
-          } catch {}
-        }
-        return out;
-      }, prefix)) as unknown;
-      if (!Array.isArray(links) || links.some((l) => typeof l !== 'string')) {
-        throw new ShapeError('page links have an unexpected shape');
-      }
-      return links as string[];
-    },
-
     close: closeFn,
     async waitForLogin() {
       let closed = false;
@@ -343,16 +207,9 @@ export async function browserLogin(sessionFile: string): Promise<boolean> {
   const closed = whenClosed(context);
   const page = context.pages()[0] ?? (await context.newPage());
   await page.goto(new URL('/orders', ORIGIN).toString()).catch(() => {}); // a login redirect is expected here
-  const worker = createWorker(page as unknown as PageLike, () => context.close(), () => closed);
-  const loggedIn = await worker.waitForLogin();
+  const watcher = createLoginWatcher(page as unknown as PageLike, () => context.close(), () => closed);
+  const loggedIn = await watcher.waitForLogin();
   if (loggedIn) saveCookies(sessionFile, await context.cookies(ORIGIN));
-  await worker.close();
+  await watcher.close();
   return loggedIn;
-}
-
-export async function openWorker(): Promise<Worker> {
-  const context = await launchProfile();
-  const closed = whenClosed(context);
-  const page = context.pages()[0] ?? (await context.newPage());
-  return createWorker(page as unknown as PageLike, () => context.close(), () => closed);
 }
