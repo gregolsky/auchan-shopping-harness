@@ -18,3 +18,40 @@ button:disabled{opacity:1;cursor:not-allowed;border-color:#68796c;background:#e8
 }
 .from-list{font-weight:650;color:var(--green);margin-bottom:2px}
 .working{display:flex;gap:14px;align-items:center;padding:16px 18px;margin-bottom:16px;border:2px solid var(--green);background:#e9f4ec;border-radius:10px;font-size:17px}.working[hidden]{display:none}.working.slow{border-color:var(--amber);background:#fff8e8}.working-elapsed{font-variant-numeric:tabular-nums;color:var(--muted);margin-left:6px}.working-hint{font-size:13px;color:var(--muted);margin-top:2px}.spinner{flex:none;width:26px;height:26px;border:3px solid #b9d6c4;border-top-color:var(--green);border-radius:50%;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.spinner{animation:none;border-top-color:#b9d6c4}}
+
+/* Product cards: thumbnail, details, Claude's proposal and the other candidates in one place. */
+.line-card{display:flex;flex-direction:column;gap:10px;border:1px solid var(--line);border-radius:12px;padding:14px;margin:0 0 12px;background:#fff;min-width:0}
+.line-card.waiting{border-color:#d9a441;background:#fffaf0}
+.line-card.unmatched{border-style:dashed}
+.line-card .meta{margin:0}.line-card p{margin:0}
+.line-main{display:grid;grid-template-columns:64px minmax(0,1fr);gap:12px;align-items:start}
+.line-info{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;min-width:0}
+.line-info .line-name{flex:1 1 100%;overflow-wrap:anywhere}
+.line-info .why{flex:1 1 100%}
+.thumb{display:block;flex:none;width:64px;height:64px;object-fit:contain;background:#f1f4ef;border:1px solid var(--line);border-radius:8px}
+.small-thumb{width:44px;height:44px}
+.placeholder{display:grid;place-items:center;font-size:26px;color:var(--muted)}
+.small-thumb.placeholder{font-size:18px}
+.stepper{display:flex;align-items:center;gap:8px}
+.stepper .small{min-width:36px;min-height:36px;font-size:18px;line-height:1;padding:0}
+.quantity{min-width:52px;text-align:center;font-weight:650}
+.proposal{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:10px 12px;border:1px solid #e1b25c;border-left-width:5px;border-radius:10px;background:#fff6e0}
+.proposal-title{font-weight:750;color:#754609}
+.proposal .actions{margin:0;margin-left:auto}
+.options{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;margin-top:6px}
+.option{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:8px;align-items:center;text-align:left;padding:6px 8px;border:1px solid #b9c9bc;border-radius:10px;background:#fff;color:inherit;min-height:56px}
+.option:hover{border-color:var(--green);background:#f2f8f3}
+.option-name{overflow-wrap:anywhere;font-size:14px}
+.question{font-weight:650}
+.ask .small{margin-top:10px}
+.link-button{align-self:flex-start;border:0;background:none;color:var(--muted);text-decoration:underline;padding:6px 0;font-size:13px}
+.link-button:hover{color:#a43125}
+.card .line-card:last-child{margin-bottom:0}
+@media(max-width:430px){
+  .shell{padding-left:12px;padding-right:12px}
+  .card{padding:14px}
+  .options{grid-template-columns:1fr}
+  .proposal .actions{margin-left:0}
+  .topbar{gap:8px}
+  .intro{flex-wrap:wrap}
+}
