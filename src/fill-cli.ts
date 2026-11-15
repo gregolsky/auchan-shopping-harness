@@ -177,6 +177,7 @@ export async function runFill(deps: FillDeps, hooks: FillHooks): Promise<FillRes
       async () => {
         const start = parseCart(await cart.readCart());
         baseline ??= start;
+        if (start.orderId && runId !== undefined) store?.setFillOrderId(runId, start.orderId);
         return fillCart(cart, basket.lines, {
           blockedProducts,
           start, baseline, tally,

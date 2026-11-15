@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS fill_runs (
   status TEXT CHECK (status IN ('ok','failed')),
   sent INTEGER,
   missing INTEGER,
-  check_before_paying INTEGER
+  check_before_paying INTEGER,
+  order_id TEXT
 );
 `;
 
@@ -83,6 +84,16 @@ export function basketMethods(db: DatabaseSync, blockedProducts: () => BlockedPr
 
     startFill(basketId: number): number {
       return Number(db.prepare('INSERT INTO fill_runs (basket_id, started_at) VALUES (?, ?)').run(basketId, new Date().toISOString()).lastInsertRowid);
+    },
+
+    /** The id the cart's order gets when placed; lets a sync learn the order before delivery. */
+    setFillOrderId(runId: number, orderId: string): void {
+      db.prepare('UPDATE fill_runs SET order_id = ? WHERE id = ?').run(orderId, runId);
+    },
+
+    fillOrderIdsNotInOrders(): string[] {
+      return (db.prepare(`SELECT DISTINCT order_id FROM fill_runs WHERE order_id IS NOT NULL
+        AND order_id NOT IN (SELECT order_id FROM orders) ORDER BY order_id`).all() as { order_id: string }[]).map((r) => r.order_id);
     },
 
     finishFill(runId: number, r: { status: 'ok' | 'failed'; sent: number; missing: number; checkBeforePaying: number }): void {

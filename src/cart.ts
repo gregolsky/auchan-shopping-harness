@@ -53,7 +53,7 @@ function grosze(v: unknown): number | null {
   return Number.isFinite(n) ? Math.round(n * 100) : null;
 }
 
-export function parseCart(json: unknown): { lines: CartLine[]; totalGrosze: number | null } {
+export function parseCart(json: unknown): { lines: CartLine[]; totalGrosze: number | null; orderId: string | null } {
   const root = json as any;
   if (root === null || typeof root !== 'object' || !Array.isArray(root.items)) throw new ShapeError('cart response has no items list');
   const lines = root.items.map((it: any): CartLine => {
@@ -71,7 +71,8 @@ export function parseCart(json: unknown): { lines: CartLine[]; totalGrosze: numb
       lineTotalGrosze: grosze(it.totalPrices?.finalPrice?.amount),
     };
   });
-  return { lines, totalGrosze: grosze(root.totals?.itemPriceAfterPromos?.amount) };
+  const id = root.defaultCheckoutGroup?.orderId;
+  return { lines, totalGrosze: grosze(root.totals?.itemPriceAfterPromos?.amount), orderId: typeof id === 'string' && /^\d{6,20}$/.test(id) ? id : null };
 }
 
 function sumBy<T extends { productId: string }>(rows: T[], qty: (r: T) => number): Map<string, number> {

@@ -354,3 +354,13 @@ test('a fill leaves a lock that another process took over in the meantime', asyn
   assert.equal(await main([], deps), 0);
   assert.equal(readFileSync(lockFile, 'utf8'), 'theirs');
 });
+
+test('a fill records the cart order id on its run', async (t) => {
+  const cart = fakeCart({});
+  const read = cart.readCart.bind(cart);
+  cart.readCart = async () => ({ ...(await read() as object), defaultCheckoutGroup: { orderId: '1000000000123' } });
+  const { log, deps, store } = setup(cart);
+  quiet(t, log);
+  assert.equal(await main([], deps), 0);
+  assert.deepEqual(store.fillOrderIdsNotInOrders(), ['1000000000123']);
+});

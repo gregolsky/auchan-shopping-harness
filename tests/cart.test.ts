@@ -21,7 +21,7 @@ test('parseCart reads the fixture', () => {
 });
 
 test('parseCart reads an empty cart', () => {
-  assert.deepEqual(parseCart({ items: [] }), { lines: [], totalGrosze: null });
+  assert.deepEqual(parseCart({ items: [] }), { lines: [], totalGrosze: null, orderId: null });
 });
 
 test('parseCart rejects an unknown shape with ShapeError', () => {
@@ -113,4 +113,12 @@ test('the rise group follows the rounded percent that is printed (25,00 -> 27,51
     assert.equal(r.smallRises[0].risePercent, 10);
   }
   assert.equal(at(2500, 2753).checkBeforePaying.length, 1); // 10,1%
+});
+
+test('parseCart exposes the checkout order id, only when it is digits', () => {
+  assert.equal(parseCart(fixture).orderId, '1000000000000');
+  assert.equal(parseCart({ items: [], defaultCheckoutGroup: { orderId: '1000000000123' } }).orderId, '1000000000123');
+  for (const bad of ['12', 'abc123456', '../../x', 1000000000123, null]) {
+    assert.equal(parseCart({ items: [], defaultCheckoutGroup: { orderId: bad } }).orderId, null);
+  }
 });

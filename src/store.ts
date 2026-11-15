@@ -6,6 +6,7 @@ import { basketMethods, BASKET_SCHEMA } from './store-baskets.ts';
 import { BLOCKED_PRODUCTS, type BlockedProduct } from './blacklist.ts';
 
 type ParsedOrder = Pick<ReturnType<typeof parseDecoratedOrder>, 'order' | 'lines' | 'products' | 'prices'>;
+export type OrderStatus = 'placed' | 'delivered';
 export type SyncKind = 'orders' | 'promotions';
 export type SyncStatus = 'ok' | 'failed';
 
@@ -107,8 +108,13 @@ function median(xs: number[]): number | null {
 }
 
 export interface Store {
-  saveOrder(parsed: ParsedOrder): void;
+  /** A placed order is replaced (lines and all) when the same id is saved as delivered; a delivered one is left alone. */
+  saveOrder(parsed: ParsedOrder, status?: OrderStatus): void;
   hasOrder(orderId: string): boolean;
+  orderStatus(orderId: string): OrderStatus | null;
+  /** Order ids recorded on fill runs that are not stored as orders yet. */
+  fillOrderIdsNotInOrders(): string[];
+  setFillOrderId(runId: number, orderId: string): void;
   /** Region of the most recently delivered stored order, or null if there are none. */
   latestOrderRegion(): string | null;
   savePromotions(parsed: PromotionsInput): void;
@@ -168,7 +174,8 @@ CREATE TABLE IF NOT EXISTS orders (
   order_id TEXT PRIMARY KEY,
   delivered_at TEXT NOT NULL,
   total_grosze INTEGER NOT NULL,
-  region_id TEXT NOT NULL
+  region_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'delivered' CHECK (status IN ('placed', 'delivered'))
 );
 CREATE TABLE IF NOT EXISTS order_lines (
   order_id TEXT NOT NULL REFERENCES orders(order_id) DEFERRABLE INITIALLY DEFERRED,
@@ -262,6 +269,23 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
       throw e;
     }
   }
+  // Same pattern for columns added later: only an older database takes the write lock.
+  const hasColumn = (table: string, column: string) => (db.prepare(`SELECT name FROM pragma_table_info('${table}')`).all() as { name: string }[]).some((c) => c.name === column);
+  const later: [string, string, string][] = [
+    ['orders', 'status', "ALTER TABLE orders ADD COLUMN status TEXT NOT NULL DEFAULT 'delivered' CHECK (status IN ('placed', 'delivered'))"],
+    ['fill_runs', 'order_id', 'ALTER TABLE fill_runs ADD COLUMN order_id TEXT'],
+  ];
+  if (!opts.readOnly && later.some(([t, c]) => !hasColumn(t, c))) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const [t, c, ddl] of later) if (!hasColumn(t, c)) db.exec(ddl);
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      db.close();
+      throw e;
+    }
+  }
   const imageColumns = hasImageColumns(); // a read-only handle on an old file reads no images
   const blockedProducts = (): BlockedProduct[] => hasBlacklist()
     ? (db.prepare('SELECT product_id, name FROM product_blacklist ORDER BY name').all() as { product_id: string; name: string }[])
@@ -290,7 +314,7 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
     ON CONFLICT(product_id, region_id, source, seen_day, current_grosze, COALESCE(offer_text, '')) DO UPDATE SET
       seen_at = MAX(seen_at, excluded.seen_at), original_grosze = excluded.original_grosze,
       unit_current_grosze = excluded.unit_current_grosze, required_quantity = excluded.required_quantity`);
-  const insertOrder = db.prepare('INSERT OR IGNORE INTO orders (order_id, delivered_at, total_grosze, region_id) VALUES (?, ?, ?, ?)');
+  const insertOrder = db.prepare('INSERT OR IGNORE INTO orders (order_id, delivered_at, total_grosze, region_id, status) VALUES (?, ?, ?, ?, ?)');
   const insertLine = db.prepare(
     'INSERT OR REPLACE INTO order_lines (order_id, product_id, quantity, price_per_item_grosze) VALUES (?, ?, ?, ?)',
   );
@@ -329,6 +353,11 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
     return new Date(lastStamp).toISOString();
   }
 
+  const orderStatusOf = (orderId: string): OrderStatus | null => {
+    const r = db.prepare('SELECT status FROM orders WHERE order_id = ?').get(orderId) as { status: OrderStatus } | undefined;
+    return r ? r.status : null;
+  };
+
   return {
     ...basketMethods(db, blockedProducts),
     blockedProducts,
@@ -351,15 +380,21 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
     unblockProduct(productId) {
       db.prepare('DELETE FROM product_blacklist WHERE product_id = ?').run(productId);
     },
-    saveOrder({ order, lines, products, prices }) {
+    saveOrder({ order, lines, products, prices }, status = 'delivered') {
       transaction(() => {
+        if (status === 'delivered' && orderStatusOf(order.orderId) === 'placed') {
+          db.prepare('DELETE FROM order_lines WHERE order_id = ?').run(order.orderId);
+          db.prepare('DELETE FROM orders WHERE order_id = ?').run(order.orderId);
+        }
         writeProducts(products);
         writePrices(prices);
         for (const l of lines) insertLine.run(l.orderId, l.productId, l.quantity, l.pricePerItemGrosze);
         // Written last: an order row means everything above was stored.
-        insertOrder.run(order.orderId, order.deliveredAt, order.totalGrosze, order.regionId);
+        insertOrder.run(order.orderId, order.deliveredAt, order.totalGrosze, order.regionId, status);
       });
     },
+
+    orderStatus: orderStatusOf,
 
     hasOrder(orderId) {
       return db.prepare('SELECT 1 FROM orders WHERE order_id = ?').get(orderId) !== undefined;

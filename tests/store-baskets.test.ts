@@ -105,3 +105,33 @@ test('a blocked product error names the product, not only its id', () => {
     assert.throws(() => s.approveBasket([{ term: null, productId: 'a', quantity: 1 }], []), /Produkt zablokowany: Produkt a$/);
   });
 });
+
+test('a fill run keeps the cart order id; distinct ids are listed', () => {
+  withStore((s, path) => {
+    const { basketId } = s.approveBasket([{ term: null, productId: 'a', quantity: 1 }], []);
+    const r1 = s.startFill(basketId);
+    const r2 = s.startFill(basketId);
+    const r3 = s.startFill(basketId);
+    s.setFillOrderId(r1, '1000000000123');
+    s.setFillOrderId(r2, '1000000000123');
+    const db = new DatabaseSync(path, { readOnly: true });
+    assert.equal((db.prepare('SELECT order_id FROM fill_runs WHERE id = ?').get(r1) as any).order_id, '1000000000123');
+    assert.equal((db.prepare('SELECT order_id FROM fill_runs WHERE id = ?').get(r3) as any).order_id, null);
+    db.close();
+    assert.deepEqual(s.fillOrderIdsNotInOrders(), ['1000000000123']);
+  });
+});
+
+test('an old fill_runs table gets the order_id column', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mig-'));
+  const path = join(dir, 'old.db');
+  const old = new DatabaseSync(path);
+  old.exec(`CREATE TABLE fill_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, basket_id INTEGER NOT NULL, started_at TEXT NOT NULL, finished_at TEXT, status TEXT, sent INTEGER, missing INTEGER, check_before_paying INTEGER);
+    CREATE TABLE orders (order_id TEXT PRIMARY KEY, delivered_at TEXT NOT NULL, total_grosze INTEGER NOT NULL, region_id TEXT NOT NULL);
+    INSERT INTO orders VALUES ('1', '2026-01-01', 100, 'r');`);
+  old.close();
+  const s = openStore(path);
+  assert.equal(s.orderStatus('1'), 'delivered');
+  assert.deepEqual(s.fillOrderIdsNotInOrders(), []);
+  s.close();
+});
