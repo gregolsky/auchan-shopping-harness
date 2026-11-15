@@ -1,4 +1,3 @@
-import { rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Store } from './store.ts';
 import { browserLogin, Blocked, type Worker } from './worker.ts';
@@ -8,7 +7,7 @@ import { fillCart } from './fill.ts';
 import { cleanText } from './parse.ts';
 import { buildDraft } from './draft.ts';
 import { parseCart, type FillReport, type PriceNote } from './cart.ts';
-import { acquireLock } from './lock.ts';
+import { acquireLock, releaseLock } from './lock.ts';
 import { LOCK_PATH, SESSION_PATH } from './dbpath.ts';
 
 export interface FillDeps {
@@ -71,12 +70,12 @@ const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
 
 /** What a fill does when it is killed: free the lock if we hold it, record the failure, exit 130. */
 export function interruptHandler(
-  h: { lockFile: string; owns(): boolean; markFailed(): void },
+  h: { lockFile: string; token: string; owns(): boolean; markFailed(): void },
   exit: (code: number) => void = (code) => process.exit(code),
 ): () => void {
   return () => {
     try {
-      if (h.owns()) rmSync(h.lockFile, { force: true });
+      if (h.owns()) releaseLock(h.lockFile, h.token);
       h.markFailed();
     } catch {
       // Exiting matters more than a tidy record.
@@ -115,7 +114,7 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
   const lockFile = deps.lockFile ?? LOCK_PATH;
   let store: Store | undefined;
   let worker: (Worker & CartAccess) | undefined;
-  let locked = false;
+  let token: string | false = false;
   let runId: number | undefined;
   const tally = { sent: 0 };
   let removeHandlers = () => {};
@@ -123,14 +122,15 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
     store = deps.openStore();
     // Taken atomically before the basket is read and held for the whole run, so two fills never overlap
     // and the guard hook keeps browser tools away from the shared profile.
-    if (!acquireLock(lockFile)) {
+    token = acquireLock(lockFile);
+    if (!token) {
       console.error(BUSY);
       return 1;
     }
-    locked = true;
     const onInterrupt = interruptHandler({
       lockFile,
-      owns: () => locked,
+      token,
+      owns: () => true,
       markFailed: () => {
         if (runId !== undefined) store?.finishFill(runId, { status: 'failed', sent: tally.sent, missing: 0, checkBeforePaying: 0 });
       },
@@ -194,7 +194,7 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
   } finally {
     removeHandlers();
     try {
-      if (locked) rmSync(lockFile, { force: true });
+      if (token) releaseLock(lockFile, token);
     } finally {
       try {
         await worker?.close();

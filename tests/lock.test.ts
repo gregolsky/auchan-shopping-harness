@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { acquireLock, lockHeld, LOCK_MAX_AGE_MS } from '../src/lock.ts';
+import { acquireLock, lockHeld, releaseLock, LOCK_MAX_AGE_MS } from '../src/lock.ts';
 
 const tmp = () => {
   const dir = mkdtempSync(join(tmpdir(), 'lock-'));
@@ -13,7 +13,8 @@ const plant = (file: string, pid: number, ageMs: number) => writeFileSync(file, 
 
 test('the lock holds the pid and a start time', () => {
   const { file } = tmp();
-  assert.equal(acquireLock(file), true);
+  const token = acquireLock(file);
+  assert.equal(token, readFileSync(file, 'utf8'));
   const { pid, startedAt } = JSON.parse(readFileSync(file, 'utf8'));
   assert.equal(pid, process.pid);
   assert.ok(Math.abs(Date.now() - startedAt) < 5000);
@@ -45,7 +46,7 @@ test('a process we may not signal (EPERM) counts as alive only inside the window
 test('a planted lock for pid 1 older than 6 hours is taken over, and no stale copy is left behind', () => {
   const { dir, file } = tmp();
   plant(file, 1, LOCK_MAX_AGE_MS + 60_000);
-  assert.equal(acquireLock(file), true);
+  assert.ok(acquireLock(file));
   assert.equal(JSON.parse(readFileSync(file, 'utf8')).pid, process.pid);
   assert.deepEqual(readdirSync(dir), ['fill.lock']);
 });
@@ -56,4 +57,20 @@ test('a live fresh lock is refused and left alone', () => {
   const before = readFileSync(file, 'utf8');
   assert.equal(acquireLock(file), false);
   assert.equal(readFileSync(file, 'utf8'), before);
+});
+
+test('releaseLock removes the lock only while it still holds what this process wrote', () => {
+  const { file } = tmp();
+  const token = acquireLock(file) as string;
+  releaseLock(file, token);
+  assert.equal(existsSync(file), false);
+
+  const mine = acquireLock(file) as string;
+  plant(file, 4242, 1000); // someone took over after we went stale
+  const foreign = readFileSync(file, 'utf8');
+  releaseLock(file, mine);
+  assert.equal(readFileSync(file, 'utf8'), foreign);
+  releaseLock(file, mine); // and a missing lock is no error
+  rmSync(file);
+  releaseLock(file, mine);
 });

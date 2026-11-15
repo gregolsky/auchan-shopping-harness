@@ -251,9 +251,9 @@ test('the plan total is printed once, before the first apply', async (t) => {
 test('the interrupt handler removes the lock we own, marks the run failed and exits 130', () => {
   const dir = mkdtempSync(join(tmpdir(), 'int-'));
   const lockFile = join(dir, 'fill.lock');
-  writeFileSync(lockFile, '{}');
+  writeFileSync(lockFile, 'mine');
   const calls: string[] = [];
-  const handler = interruptHandler({ lockFile, owns: () => true, markFailed: () => calls.push('failed') }, (c) => calls.push(`exit ${c}`));
+  const handler = interruptHandler({ lockFile, token: 'mine', owns: () => true, markFailed: () => calls.push('failed') }, (c) => calls.push(`exit ${c}`));
   handler();
   assert.equal(existsSync(lockFile), false);
   assert.deepEqual(calls, ['failed', 'exit 130']);
@@ -264,7 +264,7 @@ test('the interrupt handler leaves a lock we do not own alone, and still exits 1
   const lockFile = join(dir, 'fill.lock');
   writeFileSync(lockFile, '{}');
   const calls: string[] = [];
-  interruptHandler({ lockFile, owns: () => false, markFailed: () => { throw new Error('db closed'); } }, (c) => calls.push(`exit ${c}`))();
+  interruptHandler({ lockFile, token: '{}', owns: () => false, markFailed: () => { throw new Error('db closed'); } }, (c) => calls.push(`exit ${c}`))();
   assert.equal(existsSync(lockFile), true);
   assert.deepEqual(calls, ['exit 130']);
 });
@@ -308,4 +308,21 @@ test('a single refused line stops the fill, names the product and records how ma
   assert.doesNotMatch(err, /Ponowne uruchomienie jest bezpieczne/);
   assert.equal(log.finished.length, 1);
   assert.deepEqual(log.finished[0], { status: 'failed', sent: 1, missing: 0, checkBeforePaying: 0 });
+});
+
+test('the interrupt handler does not remove a lock someone else took over', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'int-'));
+  const lockFile = join(dir, 'fill.lock');
+  writeFileSync(lockFile, 'theirs');
+  interruptHandler({ lockFile, token: 'mine', owns: () => true, markFailed() {} }, () => {})();
+  assert.equal(existsSync(lockFile), true);
+});
+
+test('a fill leaves a lock that another process took over in the meantime', async (t) => {
+  const { log, deps, lockFile } = setup(fakeCart({}));
+  quiet(t, log);
+  const orig = deps.openWorker;
+  deps.openWorker = async () => (writeFileSync(lockFile, 'theirs'), orig());
+  assert.equal(await main([], deps), 0);
+  assert.equal(readFileSync(lockFile, 'utf8'), 'theirs');
 });

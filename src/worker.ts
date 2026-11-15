@@ -153,20 +153,25 @@ export function whenClosed(context: { once(event: 'close', listener: () => void)
   return new Promise((resolve) => context.once('close', () => resolve()));
 }
 
+/** How long a login window may stay open without a login before the wait gives up. */
+export const LOGIN_TIMEOUT_MS = 3_600_000;
+
 /** Watches the open login window without navigating it. */
 export function createLoginWatcher(
   page: PageLike,
   closeFn: () => Promise<void> = async () => {},
   waitForCloseFn: () => Promise<void> = async () => {},
   loginPollMs = 3000,
+  timeoutMs = LOGIN_TIMEOUT_MS,
 ): { waitForLogin(): Promise<boolean>; close(): Promise<void> } {
   return {
     close: closeFn,
     async waitForLogin() {
+      const deadline = Date.now() + timeoutMs;
       let closed = false;
       void waitForCloseFn().then(() => (closed = true));
       await new Promise((r) => setTimeout(r)); // an already closed window is seen before the first look
-      while (!closed) {
+      while (!closed && Date.now() < deadline) {
         try {
           if (new URL(page.url()).host === HOST) {
             const loggedIn = await page.evaluate(() => (window as any).__INITIAL_STATE__?.session?.isLoggedIn === true, undefined);

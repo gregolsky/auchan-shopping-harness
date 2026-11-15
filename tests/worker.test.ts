@@ -7,6 +7,7 @@ import { EventEmitter } from 'node:events';
 import {
   assertAllowed,
   createLoginWatcher,
+  LOGIN_TIMEOUT_MS,
   type PageLike,
   assertGraphqlOperation,
   GET_COMPLETED_ORDERS_QUERY,
@@ -122,6 +123,14 @@ test('createLoginWatcher.waitForLogin is true once the open page reports a login
   const { page } = fakePage({ state });
   setTimeout(() => (state.session.isLoggedIn = true), 5);
   assert.equal(await createLoginWatcher(page, async () => {}, never, 1).waitForLogin(), true);
+});
+
+test('createLoginWatcher.waitForLogin gives up after its deadline while the window stays open', async () => {
+  const { page } = fakePage({ state: { session: { isLoggedIn: false } } });
+  const started = Date.now();
+  assert.equal(await createLoginWatcher(page, async () => {}, never, 1, 30).waitForLogin(), false);
+  assert.ok(Date.now() - started < 2000);
+  assert.equal(LOGIN_TIMEOUT_MS, 3_600_000);
 });
 
 test('createLoginWatcher.waitForLogin is false when the window closes first', async () => {

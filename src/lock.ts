@@ -24,14 +24,26 @@ export function lockHeld(file: string, now = Date.now()): boolean {
   }
 }
 
-const write = (file: string): void => writeFileSync(file, JSON.stringify({ pid: process.pid, startedAt: Date.now() }), { flag: 'wx', mode: 0o600 });
+const write = (file: string): string => {
+  const content = JSON.stringify({ pid: process.pid, startedAt: Date.now() });
+  writeFileSync(file, content, { flag: 'wx', mode: 0o600 });
+  return content;
+};
 
-/** Takes the lock atomically; false when a live process holds it. A stale lock is moved aside and replaced once. */
-export function acquireLock(file: string): boolean {
+/** Removes the lock only if it still holds what this process wrote (the token acquireLock returned). */
+export function releaseLock(file: string, token: string): void {
+  try {
+    if (readFileSync(file, 'utf8') === token) rmSync(file, { force: true });
+  } catch {
+    // gone or unreadable: not ours to remove
+  }
+}
+
+/** Takes the lock atomically and returns what it wrote (the token for releaseLock); false when a live process holds it. A stale lock is moved aside and replaced once. */
+export function acquireLock(file: string): string | false {
   mkdirSync(dirname(file), { recursive: true });
   try {
-    write(file);
-    return true;
+    return write(file);
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
   }
@@ -44,8 +56,7 @@ export function acquireLock(file: string): boolean {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; // someone else already cleared it
   }
   try {
-    write(file);
-    return true;
+    return write(file);
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'EEXIST') return false;
     throw e;
