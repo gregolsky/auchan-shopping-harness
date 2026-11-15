@@ -1,21 +1,36 @@
-import { MAX_BATCH, Rejected, UUID, type CartAccess, type CartChange, type LimitedItem } from './http-worker.ts';
-import { compareCart, parseCart, planFill, type BasketLine, type FillReport } from './cart.ts';
+import { MAX_BATCH, MAX_QUANTITY, Rejected, UUID, type CartAccess, type CartChange, type LimitedItem } from './http-worker.ts';
+import { compareCart, parseCart, planFill, type BasketLine, type FillReport, type LimitNote } from './cart.ts';
+
+type ParsedCart = ReturnType<typeof parseCart>;
 
 export interface FillOptions {
   onProgress?(sent: number, total: number): void;
+  /** Called once with what is about to be sent, before the first POST. */
+  onPlan?(plan: { count: number; totalGrosze: number }): void;
+  /** A cart already read for planning, so the fill does not read it again. */
+  start?: ParsedCart;
+  /** The cart as it was before the whole run; a rerun after login compares against it. Defaults to the cart read here. */
+  baseline?: ParsedCart;
+  /** Products sent so far, kept across a rerun after login. */
+  tally?: { sent: number };
 }
 
-const sendable = (c: CartChange): boolean => UUID.test(c.productId) && Number.isFinite(c.quantity) && c.quantity > 0 && c.quantity <= 100;
-const isOutOfStock = (l: LimitedItem) => l.addedAmount === 0 || l.reason === 'OUT_OF_STOCK';
+const sendable = (c: CartChange): boolean => UUID.test(c.productId) && Number.isInteger(c.quantity) && c.quantity >= 1 && c.quantity <= MAX_QUANTITY;
+/** Out of stock means nothing went in; a partial add or any other limit is reported as missing, with its numbers. */
+const isOutOfStock = (l: LimitedItem) => l.reason === 'OUT_OF_STOCK' && l.addedAmount === 0;
 
 export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOptions = {}): Promise<FillReport & { sent: number }> {
-  const before = parseCart(await cart.readCart());
-  const plan = planFill(basket, before.lines);
+  const start = o.start ?? parseCart(await cart.readCart());
+  const before = o.baseline ?? start;
+  const tally = o.tally ?? { sent: 0 };
+  const plan = planFill(basket, start.lines);
   // Changes applyQuantities would refuse are skipped up front, so they cannot stop the fill partway; they end in `missing`.
   plan.send = plan.send.filter(sendable);
   const total = plan.send.length;
+  const price = new Map(basket.map((b) => [b.productId, b.approvedPriceGrosze]));
+  o.onPlan?.({ count: total, totalGrosze: plan.send.reduce((s, c) => s + (price.get(c.productId) ?? 0) * c.quantity, 0) });
   const outOfStock = new Set<string>();
-  let sent = 0;
+  const limits: Record<string, LimitNote> = {};
   let processed = 0;
 
   const tick = (n: number) => {
@@ -25,8 +40,11 @@ export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOp
   const send = async (changes: CartChange[]) => {
     const limited = await cart.applyQuantities(changes);
     const none = new Set(limited.filter((l) => l.addedAmount === 0).map((l) => l.productId));
-    for (const l of limited) if (isOutOfStock(l)) outOfStock.add(l.productId);
-    sent += changes.filter((c) => !none.has(c.productId)).length;
+    for (const l of limited) {
+      if (isOutOfStock(l)) outOfStock.add(l.productId);
+      else limits[l.productId] = { reason: l.reason, added: l.addedAmount, requested: l.requestedAmount };
+    }
+    tally.sent += changes.filter((c) => !none.has(c.productId)).length;
     tick(changes.length);
   };
 
@@ -57,5 +75,5 @@ export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOp
   }
 
   const after = parseCart(await cart.readCart());
-  return { ...compareCart(basket, before.lines, after, [...outOfStock]), sent };
+  return { ...compareCart(basket, before.lines, after, [...outOfStock], limits), sent: tally.sent };
 }

@@ -76,6 +76,8 @@ export interface CartAccess {
   applyQuantities(changes: CartChange[]): Promise<LimitedItem[]>;
 }
 export const MAX_BATCH = 10;
+/** Per product, in one change and in an approved basket. */
+export const MAX_QUANTITY = 20;
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** A 4xx other than 401, 403 and 429: Auchan refused the request itself. */
@@ -182,8 +184,8 @@ export function createHttpWorker(o: HttpOptions): Worker & CartAccess {
       if (changes.length === 0 || changes.length > MAX_BATCH) throw new Error(`a batch must have 1 to ${MAX_BATCH} changes`);
       for (const c of changes) {
         if (typeof c.productId !== 'string' || !UUID.test(c.productId)) throw new Error('product id is not a UUID');
-        if (typeof c.quantity !== 'number' || !Number.isFinite(c.quantity) || c.quantity <= 0 || c.quantity > 100) {
-          throw new Error('quantity must be above 0 and at most 100');
+        if (!Number.isInteger(c.quantity) || c.quantity < 1 || c.quantity > MAX_QUANTITY) {
+          throw new Error(`quantity must be a whole number from 1 to ${MAX_QUANTITY}`);
         }
       }
       csrf = undefined; // a stale token must not survive a page that has none (an expired session)

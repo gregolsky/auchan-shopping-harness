@@ -29,13 +29,13 @@ function withStore(fn: (s: Store, path: string) => void) {
 
 test('approveBasket stores lines with the current price and returns the total', () => {
   withStore((s) => {
-    const r = s.approveBasket([{ term: 'mleko', productId: 'a', quantity: 1.5 }, { term: null, productId: 'b', quantity: 2 }], ['ser']);
-    assert.equal(r.totalGrosze, Math.round(199 * 1.5 + 500));
+    const r = s.approveBasket([{ term: 'mleko', productId: 'a', quantity: 3 }, { term: null, productId: 'b', quantity: 2 }], ['ser']);
+    assert.equal(r.totalGrosze, 199 * 3 + 500);
     const b = s.latestApprovedBasket()!;
     assert.equal(b.basketId, r.basketId);
     assert.deepEqual(b.unmatched, ['ser']);
     assert.deepEqual(b.lines, [
-      { term: 'mleko', productId: 'a', name: 'Produkt a', quantity: 1.5, approvedPriceGrosze: 199 },
+      { term: 'mleko', productId: 'a', name: 'Produkt a', quantity: 3, approvedPriceGrosze: 199 },
       { term: null, productId: 'b', name: 'Produkt b', quantity: 2, approvedPriceGrosze: 250 },
     ]);
   });
@@ -50,6 +50,26 @@ test('approveBasket rejects an unknown product or one out of the catalogue, and 
     const db = new DatabaseSync(path, { readOnly: true });
     assert.equal((db.prepare('SELECT COUNT(*) AS n FROM baskets').get() as any).n, 0);
     assert.equal((db.prepare('SELECT COUNT(*) AS n FROM basket_lines').get() as any).n, 0);
+    db.close();
+  });
+});
+
+test('approveBasket accepts 1..20 whole pieces only and stores nothing otherwise', () => {
+  withStore((s) => {
+    for (const quantity of [0, 21, 1.5, 0.1, NaN, -1, 100]) {
+      assert.throws(() => s.approveBasket([{ term: null, productId: 'a', quantity }], []), /quantity/i);
+    }
+    assert.equal(s.latestApprovedBasket(), null);
+    assert.doesNotThrow(() => s.approveBasket([{ term: null, productId: 'a', quantity: 20 }], []));
+  });
+});
+
+test('approveBasket rejects a product listed twice, naming it, and stores nothing', () => {
+  withStore((s, path) => {
+    assert.throws(() => s.approveBasket([{ term: 'x', productId: 'a', quantity: 1 }, { term: 'y', productId: 'b', quantity: 1 }, { term: 'z', productId: 'a', quantity: 2 }], []), /duplicate.*\ba\b/i);
+    assert.equal(s.latestApprovedBasket(), null);
+    const db = new DatabaseSync(path, { readOnly: true });
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM baskets').get() as any).n, 0);
     db.close();
   });
 });

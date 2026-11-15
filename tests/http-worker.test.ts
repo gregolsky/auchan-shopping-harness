@@ -273,7 +273,7 @@ test('applyQuantities refuses bad batches, ids and quantities, and sends nothing
   await assert.rejects(() => worker.applyQuantities([]));
   await assert.rejects(() => worker.applyQuantities(Array(MAX_BATCH + 1).fill(ok)));
   await assert.rejects(() => worker.applyQuantities([{ productId: 'p1', quantity: 1 }]));
-  for (const quantity of [0, -1, 101, NaN, Infinity]) await assert.rejects(() => worker.applyQuantities([{ productId: P1, quantity }]));
+  for (const quantity of [0, -1, 21, 101, 1.5, 0.1, NaN, Infinity]) await assert.rejects(() => worker.applyQuantities([{ productId: P1, quantity }]));
   assert.equal(calls.length, 0);
   cleanup();
 });

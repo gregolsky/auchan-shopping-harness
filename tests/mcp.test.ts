@@ -363,6 +363,18 @@ test('approve_basket saves a basket and never imports the worker', async () => {
       assert.match(r.content[0].text, /nope/);
     }),
   );
+  await withDb(seedPlanner, (path) =>
+    withClient(path, async (c) => {
+      const bad = async (lines: object[]) => (await c.callTool({ name: 'approve_basket', arguments: { lines } })) as { isError?: boolean; content: { text: string }[] };
+      for (const quantity of [1.5, 0, 21]) assert.equal((await bad([{ term: null, productId: 'm1', quantity }])).isError, true);
+      const dup = await bad([{ term: null, productId: 'm1', quantity: 1 }, { term: 'x', productId: 'm1', quantity: 1 }]);
+      assert.equal(dup.isError, true);
+      assert.match(dup.content[0].text, /m1/);
+      const s = openStore(path, { readOnly: true });
+      assert.equal(s.latestApprovedBasket(), null);
+      s.close();
+    }),
+  );
   await withDb(null, (path) =>
     withClient(path, async (c) => {
       assert.match(await call(c, 'approve_basket', { lines: [{ term: null, productId: 'a', quantity: 1 }] }), /run npm run sync first/);

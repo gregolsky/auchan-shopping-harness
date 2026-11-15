@@ -137,14 +137,16 @@ test('formatReport puts check-before-paying first and never contains a cookie or
   const line = { term: null, productId: A, name: 'Mleko', quantity: 2, approvedPriceGrosze: 199 };
   const text = formatReport({
     added: [line], alreadyEnough: [], extras: [], missing: [{ ...line, productId: 'm', name: 'Masło' }], outOfStock: [{ ...line, productId: 'o', name: 'Ser' }],
+    limits: { m: { reason: 'MAX_QUANTITY', added: 1, requested: 3 } },
     checkBeforePaying: [{ productId: A, name: 'Mleko', approvedGrosze: 199, nowGrosze: 259, risePercent: 30.1 }],
     smallRises: [], cartTotalGrosze: 1259, sent: 1,
   }, ['jajka'], { m: ['Masło B', 'Masło C', 'Masło D'] });
   const lines = text.split('\n');
   assert.equal(lines[0], 'Sprawdź przed zapłatą:');
   assert.ok(text.indexOf('Brak w sklepie') < text.indexOf('Nie dodano'));
-  assert.match(text, /Masło x 2 \(zamiast tego: Masło B; Masło C\)/);
+  assert.match(text, /Masło x 2 — dodano 1 z 3 \(powód: MAX_QUANTITY\) \(zamiast tego: Masło B; Masło C\)/);
   assert.match(text, /Razem w koszyku: 12,59 zł/);
+  assert.match(text, /Mleko: 1,99 zł -> 2,59 zł \(\+30,1%\)/);
   assert.equal(lines.at(-1), 'Zapłać na https://zakupy.auchan.pl/checkout');
   assert.doesNotMatch(text, /cookie|token|session/i);
 });
@@ -196,7 +198,7 @@ test('two fills started together never double the quantities: one refuses', asyn
   assert.equal(existsSync(one.lockFile), false);
 });
 
-test('giving up on login says nothing was added and exits 1', async (t) => {
+test('giving up on login warns that some products may already be in the cart, and exits 1', async (t) => {
   const cart = fakeCart({});
   cart.readCart = async () => { throw new LoginRequired(); };
   const { log, deps } = setup(cart, { worker: { waitForLogin: async () => false } });
@@ -226,4 +228,20 @@ test('a login needed on the second batch restarts from a fresh read and adds not
   assert.equal(await main([], s.deps), 0);
   assert.equal(s.log.waited, 1);
   assert.deepEqual(cart.quantities, Object.fromEntries(ids.map((id, i) => [id, i + 1])));
+  const text = s.log.out.join('\n');
+  assert.match(text, /Dodano produktów: 15/);
+  assert.doesNotMatch(text, /Było już w koszyku/);
+  assert.deepEqual(s.log.finished, [{ status: 'ok', sent: 15, missing: 0, checkBeforePaying: 0 }]);
+});
+
+test('the plan total is printed once, before the first apply', async (t) => {
+  const cart = fakeCart({});
+  const { log, deps } = setup(cart);
+  const real = cart.applyQuantities;
+  cart.applyQuantities = async (c) => (log.out.push('APPLY'), real(c));
+  quiet(t, log);
+  assert.equal(await main([], deps), 0);
+  assert.equal(log.out.indexOf('Do dodania: 2 produktów, ok. 6,48 zł'), 0);
+  assert.equal(log.out.filter((l) => l.startsWith('Do dodania')).length, 1);
+  assert.ok(log.out.indexOf('APPLY') > 0);
 });

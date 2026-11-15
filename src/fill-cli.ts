@@ -6,7 +6,7 @@ import { createHttpWorker, type CartAccess } from './http-worker.ts';
 import { describeFailure, ensureStateDir, liveDeps as syncDeps, withLogin } from './cli.ts';
 import { fillCart } from './fill.ts';
 import { buildDraft } from './draft.ts';
-import type { FillReport, PriceNote } from './cart.ts';
+import { parseCart, type FillReport, type PriceNote } from './cart.ts';
 import { acquireLock } from './lock.ts';
 import { LOCK_PATH, SESSION_PATH } from './dbpath.ts';
 
@@ -34,7 +34,7 @@ export const zl = (grosze: number): string => `${(grosze / 100).toFixed(2).repla
 const qty = (n: number): string => String(Math.round(n * 1000) / 1000).replace('.', ',');
 
 function note(n: PriceNote): string {
-  return `${n.name}: ${zl(n.approvedGrosze)} -> ${zl(n.nowGrosze)} (+${Math.round(n.risePercent)}%)`;
+  return `${n.name}: ${zl(n.approvedGrosze)} -> ${zl(n.nowGrosze)} (+${n.risePercent.toFixed(1).replace('.', ',')}%)`;
 }
 
 /** substitutes: product id -> names of up to 2 alternatives. The cart has no names; lines are named from the basket. */
@@ -47,7 +47,9 @@ export function formatReport(
   };
   const withSubs = (l: { productId: string; name: string; quantity: number }) => {
     const subs = (substitutes[l.productId] ?? []).slice(0, 2);
-    return `${l.name} x ${qty(l.quantity)}${subs.length ? ` (zamiast tego: ${subs.join('; ')})` : ''}`;
+    const lim = r.limits?.[l.productId];
+    const limit = lim ? ` — dodano ${qty(lim.added)} z ${qty(lim.requested)} (powód: ${lim.reason})` : '';
+    return `${l.name} x ${qty(l.quantity)}${limit}${subs.length ? ` (zamiast tego: ${subs.join('; ')})` : ''}`;
   };
   section('Sprawdź przed zapłatą', r.checkBeforePaying.map(note));
   section('Brak w sklepie', r.outOfStock.map(withSubs));
@@ -112,15 +114,31 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
     runId = store.startFill(basket.basketId);
     worker = await deps.openWorker();
     const cart = worker;
-    // A rerun after login starts from a fresh read, so nothing is added twice.
+    // A rerun after login plans from a fresh read, so nothing is added twice; the report still compares with the cart
+    // as it was at the start, and the sent count carries over.
+    let baseline: ReturnType<typeof parseCart> | undefined;
+    let planShown = false;
+    const tally = { sent: 0 };
     const report = await withLogin(
       cart,
-      () => fillCart(cart, basket.lines, { onProgress: (sent, total) => console.log(`Dodawanie do koszyka: ${sent}/${total}`) }),
+      async () => {
+        const start = parseCart(await cart.readCart());
+        baseline ??= start;
+        return fillCart(cart, basket.lines, {
+          start, baseline, tally,
+          onPlan: (p) => {
+            if (planShown) return;
+            planShown = true;
+            console.log(`Do dodania: ${p.count} produktów, ok. ${zl(p.totalGrosze)}`);
+          },
+          onProgress: (sent, total) => console.log(`Dodawanie do koszyka: ${sent}/${total}`),
+        });
+      },
       LOG_IN,
     );
     if (!report) {
       console.error('Nie zalogowano: wypełnianie przerwane. Część produktów mogła już trafić do koszyka; ponowne uruchomienie doda tylko to, czego brakuje.');
-      store.finishFill(runId, { status: 'failed', sent: 0, missing: 0, checkBeforePaying: 0 });
+      store.finishFill(runId, { status: 'failed', sent: tally.sent, missing: 0, checkBeforePaying: 0 });
       return 1;
     }
     store.finishFill(runId, {

@@ -91,10 +91,53 @@ test('a partial add ends in missing, not outOfStock, and is not retried', async 
   assert.equal(r.sent, 1);
 });
 
+test('an out-of-stock product that was partly added is missing, with how many went in', async () => {
+  const cart = fakeCart({});
+  cart.applyQuantities = async (c) => {
+    cart.quantities[c[0].productId] = 1;
+    return [{ productId: c[0].productId, reason: 'OUT_OF_STOCK', requestedAmount: 3, addedAmount: 1 }];
+  };
+  const r = await fillCart(cart, [bl(uid(1), 3)]);
+  assert.deepEqual(r.missing.map((m) => m.productId), [uid(1)]);
+  assert.equal(r.outOfStock.length, 0);
+  assert.deepEqual(r.limits[uid(1)], { reason: 'OUT_OF_STOCK', added: 1, requested: 3 });
+});
+
+test('a full refusal for another reason is missing with its reason, not out of stock', async () => {
+  const cart = fakeCart({});
+  cart.applyQuantities = async (c) => [{ productId: c[0].productId, reason: 'MAX_QUANTITY', requestedAmount: 2, addedAmount: 0 }];
+  const r = await fillCart(cart, [bl(uid(1), 2)]);
+  assert.deepEqual(r.missing.map((m) => m.productId), [uid(1)]);
+  assert.equal(r.outOfStock.length, 0);
+  assert.deepEqual(r.limits[uid(1)], { reason: 'MAX_QUANTITY', added: 0, requested: 2 });
+});
+
+test('a partial add reports its numbers', async () => {
+  const cart = fakeCart({}, { cap: { [uid(1)]: 1 } });
+  const r = await fillCart(cart, [bl(uid(1), 3)]);
+  assert.deepEqual(r.limits[uid(1)], { reason: 'MAX_QUANTITY', added: 1, requested: 3 });
+});
+
+test('quantities that are fractional or above 20 are skipped up front', async () => {
+  const cart = fakeCart({});
+  const r = await fillCart(cart, [bl(uid(1), 21), bl(uid(2), 20)]);
+  assert.deepEqual(cart.quantities, { [uid(2)]: 20 });
+  assert.deepEqual(r.missing.map((m) => m.productId), [uid(1)]);
+});
+
+test('onPlan gets the count and approved-price total before the first apply', async () => {
+  const cart = fakeCart({ [uid(1)]: 1 });
+  const events: string[] = [];
+  const real = cart.applyQuantities;
+  cart.applyQuantities = async (c) => (events.push('apply'), real(c));
+  await fillCart(cart, [bl(uid(1), 3), bl(uid(2), 1)], { onPlan: (p) => events.push(`plan ${p.count} ${p.totalGrosze}`) });
+  assert.deepEqual(events, ['plan 2 300', 'apply']);
+});
+
 test('changes applyQuantities would refuse are skipped up front and end in missing, the rest is added', async () => {
   const cart = fakeCart({});
   const good = [bl(uid(1), 1), bl(uid(2), 2)];
-  const r = await fillCart(cart, [bl('not-a-uuid', 1), good[0], bl(uid(3), 150), good[1]]);
+  const r = await fillCart(cart, [bl('not-a-uuid', 1), good[0], bl(uid(3), 21), good[1]]);
   assert.deepEqual(cart.quantities, { [uid(1)]: 1, [uid(2)]: 2 });
   assert.deepEqual(cart.applyCalls.map((c) => c.map((x) => x.productId)), [[uid(1), uid(2)]]);
   assert.deepEqual(r.missing.map((m) => m.productId).sort(), ['not-a-uuid', uid(3)].sort());

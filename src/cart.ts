@@ -21,6 +21,12 @@ export interface PriceNote {
   nowGrosze: number;
   risePercent: number;
 }
+/** What Auchan did to a product it limited: how many went in of how many asked for. */
+export interface LimitNote {
+  reason: string;
+  added: number;
+  requested: number;
+}
 export interface FillReport {
   added: BasketLine[];
   alreadyEnough: BasketLine[];
@@ -30,9 +36,15 @@ export interface FillReport {
   checkBeforePaying: PriceNote[];
   smallRises: PriceNote[];
   cartTotalGrosze: number | null;
+  limits: Record<string, LimitNote>;
 }
 
-const EPS = 1e-9;
+/** Whole pieces still missing; a fractional cart quantity never turns into a fractional send. */
+const missingPieces = (target: number, have: number): number => Math.round(target - have);
+const uniq = <T extends { productId: string }>(rows: T[]): T[] => {
+  const seen = new Set<string>();
+  return rows.filter((r) => !seen.has(r.productId) && seen.add(r.productId));
+};
 
 function grosze(v: unknown): number | null {
   if (typeof v !== 'string' && typeof v !== 'number') return null;
@@ -73,13 +85,13 @@ export function planFill(basket: BasketLine[], cart: CartLine[]): FillPlan {
   const inCart = sumBy(cart, (c) => c.quantity);
   const send: CartChange[] = [];
   for (const [productId, target] of targets) {
-    const diff = target - (inCart.get(productId) ?? 0);
-    if (diff > EPS) send.push({ productId, quantity: diff });
+    const diff = missingPieces(target, inCart.get(productId) ?? 0);
+    if (diff >= 1) send.push({ productId, quantity: diff });
   }
   const sending = new Set(send.map((s) => s.productId));
   return {
     send,
-    alreadyEnough: basket.filter((b) => !sending.has(b.productId)),
+    alreadyEnough: uniq(basket.filter((b) => !sending.has(b.productId))),
     extras: cart.filter((c) => !targets.has(c.productId)),
   };
 }
@@ -89,11 +101,12 @@ export function compareCart(
   before: CartLine[],
   after: { lines: CartLine[]; totalGrosze: number | null },
   outOfStock: string[] = [],
+  limits: Record<string, LimitNote> = {},
 ): FillReport {
   const plan = planFill(basket, before);
   const targets = sumBy(basket, (b) => b.quantity);
   const now = sumBy(after.lines, (c) => c.quantity);
-  const short = (b: BasketLine) => (now.get(b.productId) ?? 0) < (targets.get(b.productId) ?? 0) - EPS;
+  const short = (b: BasketLine) => missingPieces(targets.get(b.productId) ?? 0, now.get(b.productId) ?? 0) >= 1;
   const skipped = new Set(outOfStock);
   const enough = new Set(plan.alreadyEnough);
 
@@ -114,19 +127,20 @@ export function compareCart(
       name: b.name,
       approvedGrosze: b.approvedPriceGrosze,
       nowGrosze,
-      risePercent: Math.round((diff / b.approvedPriceGrosze) * 100),
+      risePercent: Math.round((diff / b.approvedPriceGrosze) * 1000) / 10,
     };
     (diff * 10 > b.approvedPriceGrosze ? checkBeforePaying : smallRises).push(note);
   }
 
   return {
-    added: basket.filter((b) => !enough.has(b) && !short(b)),
+    added: uniq(basket.filter((b) => !enough.has(b) && !short(b))),
     alreadyEnough: plan.alreadyEnough,
     extras: after.lines.filter((c) => !targets.has(c.productId)),
-    missing: basket.filter((b) => short(b) && !skipped.has(b.productId)),
-    outOfStock: basket.filter((b) => short(b) && skipped.has(b.productId)),
+    missing: uniq(basket.filter((b) => short(b) && !skipped.has(b.productId))),
+    outOfStock: uniq(basket.filter((b) => short(b) && skipped.has(b.productId))),
     checkBeforePaying,
     smallRises,
     cartTotalGrosze: after.totalGrosze,
+    limits,
   };
 }

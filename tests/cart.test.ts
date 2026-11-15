@@ -45,6 +45,34 @@ test('planFill merges duplicate basket lines for one product', () => {
   assert.deepEqual(planFill([bl('p1', 1), bl('p1', 2)], []).send, [{ productId: 'p1', quantity: 3 }]);
 });
 
+test('planFill sends integer deltas only, also against a fractional cart quantity', () => {
+  assert.deepEqual(planFill([bl('p1', 2)], [cl('p1', 1)]).send, [{ productId: 'p1', quantity: 1 }]);
+  const frac = planFill([bl('p1', 2)], [cl('p1', 0.9)]);
+  assert.deepEqual(frac.send, [{ productId: 'p1', quantity: 1 }]);
+  for (const s of planFill([bl('p1', 3), bl('p2', 2)], [cl('p1', 1.4), cl('p2', 0.1)]).send) assert.ok(Number.isInteger(s.quantity));
+  // less than half a piece missing sends nothing
+  const near = planFill([bl('p1', 2)], [cl('p1', 1.6)]);
+  assert.deepEqual(near.send, []);
+  assert.equal(near.alreadyEnough.length, 1);
+});
+
+test('compareCart counts one added product per product, not per basket line', () => {
+  const r = compareCart([bl('p1', 1), bl('p1', 2)], [], { lines: [cl('p1', 3)], totalGrosze: null });
+  assert.equal(r.added.length, 1);
+});
+
+test('compareCart keeps one decimal in the rise percent', () => {
+  const r = compareCart([bl('p1', 1)], [], { lines: [cl('p1', 1, 1104)], totalGrosze: null });
+  assert.equal(r.checkBeforePaying[0].risePercent, 10.4);
+});
+
+test('compareCart carries the limits of the products it reports as missing', () => {
+  const limits = { p1: { reason: 'MAX_QUANTITY', added: 1, requested: 3 } };
+  const r = compareCart([bl('p1', 3)], [], { lines: [cl('p1', 1)], totalGrosze: null }, [], limits);
+  assert.deepEqual(r.missing.map((b) => b.productId), ['p1']);
+  assert.deepEqual(r.limits, limits);
+});
+
 test('compareCart flags a 12% rise to check before paying and a 5% rise as small', () => {
   const run = (price: number) => compareCart([bl('p1', 1)], [], { lines: [cl('p1', 1, price)], totalGrosze: null });
   assert.equal(run(1120).checkBeforePaying[0].risePercent, 12);

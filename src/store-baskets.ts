@@ -38,6 +38,12 @@ export function basketMethods(db: DatabaseSync) {
 
   return {
     approveBasket(lines: { term: string | null; productId: string; quantity: number }[], unmatched: string[], now: Date = new Date()): { basketId: number; totalGrosze: number } {
+      const seen = new Set<string>();
+      for (const l of lines) {
+        if (!Number.isInteger(l.quantity) || l.quantity < 1 || l.quantity > 20) throw new Error(`Quantity must be a whole number from 1 to 20: ${l.productId}`);
+        if (seen.has(l.productId)) throw new Error(`Duplicate product in basket: ${l.productId}`);
+        seen.add(l.productId);
+      }
       db.exec('BEGIN IMMEDIATE');
       try {
         const basketId = Number(insBasket.run(now.toISOString(), JSON.stringify(unmatched)).lastInsertRowid);

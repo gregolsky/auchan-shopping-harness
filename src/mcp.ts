@@ -174,12 +174,12 @@ export function createServer(dbPath: string = DB_PATH): McpServer {
   server.registerTool(
     'approve_basket',
     {
-      description: 'Saves the approved basket (lines with term, productId, quantity) in the local database at the products\' latest prices; returns basketId and totalGrosze. Fails naming the product id if one is unknown or out of the catalogue, and then stores nothing. Does not touch the Auchan cart; npm run fill does that. Writes the local database only and never contacts Auchan. Money is in grosze (1 zł = 100 grosze).',
+      description: 'Saves the approved basket (lines with term, productId, quantity) in the local database at the products\' latest prices; returns basketId and totalGrosze. Quantity is a whole number of pieces, 1 to 20 per product, and a product may appear only once. Fails naming the product id if one is unknown, out of the catalogue or listed twice, and then stores nothing. Does not touch the Auchan cart; npm run fill does that. Writes the local database only and never contacts Auchan. Money is in grosze (1 zł = 100 grosze).',
       inputSchema: {
         lines: z.array(z.object({
           term: z.string().min(1).max(100).nullable(),
           productId: z.string().min(1).max(100),
-          quantity: z.number().min(0.01).max(100),
+          quantity: z.number().int().min(1).max(20),
         })).min(1).max(150),
         unmatched: z.array(z.string().max(100)).max(100).default([]),
       },
