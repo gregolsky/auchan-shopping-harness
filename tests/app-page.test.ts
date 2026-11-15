@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionNote, categoryFor, groupByCategory, iconPaths, reportView } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionHelp, actionNote, categoryFor, groupByCategory, iconPaths, reportView } from '../public/app.js';
 
 test('catalog category paths map to stable shopping sections and unknown paths stay in Inne', () => {
   assert.equal(categoryFor(['Artykuły spożywcze', 'Sery']).key, 'dairy');
@@ -600,6 +600,14 @@ test('a product card offers explicit actions, each with what it does to the item
   assert.deepEqual(lineActions(lineCard({ ...line, term: null, kind: 'suggestion', question: null })), []);
   assert.deepEqual(lineActions(lineCard({ ...line, term: null, question: null })).map((a) => a.id), ['remove'], 'no term: nothing to search or add by hand');
   for (const a of lineActions(card())) assert.doesNotMatch(a.label, /Pomiń/);
+});
+
+test('action help is empty by default and describes only the hovered or focused choice', () => {
+  const actions = lineActions(lineCard({ ...line, question: null }));
+  assert.equal(actionHelp(actions, null), '');
+  assert.equal(actionHelp(actions, 'search'), 'Pozycja zostaje na liście; szukasz innego produktu w Auchan.');
+  assert.equal(actionHelp(actions, 'remove'), 'Pozycja znika z tych zakupów całkiem.');
+  assert.equal(actionHelp(actions, 'unknown'), '');
 });
 
 test('after an action the page says the new state of the item in words', () => {

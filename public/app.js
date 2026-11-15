@@ -350,6 +350,11 @@ export function lineActions(card) {
   return ids.map((id) => ({ id, label: ACTIONS[id][0], consequence: ACTIONS[id][1] }));
 }
 
+/** Keep each card quiet until one action is hovered or focused. */
+export function actionHelp(actions, activeId) {
+  return actions.find((action) => action.id === activeId)?.consequence || '';
+}
+
 /** The item's new state in words, shown after an action. */
 export function actionNote(id, name) {
   return {
@@ -590,14 +595,22 @@ export function start() {
       parent.append(section);
     });
   }
-  /** The explicit actions of a card, with one line under the buttons saying what the focused or last-pressed action does. */
+  let nextActionHelpId = 0;
+  /** The explicit actions of a card, with one line under the buttons for the hovered or focused action. */
   function actionsNode(line, view) {
     const box = element('div', 'item-actions');
     const actions = lineActions(view);
     if (!actions.length) return box;
     const name = line.term || line.name;
     const consequence = element('p', 'meta consequence', '');
-    const say = (a) => { consequence.textContent = a.consequence; };
+    consequence.id = `action-help-${++nextActionHelpId}`;
+    consequence.hidden = true;
+    let hovered = null;
+    let focused = null;
+    const showHelp = () => {
+      consequence.textContent = actionHelp(actions, hovered ?? focused);
+      consequence.hidden = !consequence.textContent;
+    };
     const handlers = {
       other: () => { const first = box.parentElement?.querySelector('.options .option'); if (first) { first.scrollIntoView({ block: 'nearest' }); first.focus(); } },
       search: () => { if (state.search?.block) window.open(auchanSearchUrl(line.term), '_blank', 'noopener,noreferrer'); else { searchEvent = null; void run('/api/search', { terms: [line.term] }).then(showSearch); } },
@@ -606,11 +619,15 @@ export function start() {
     };
     const row = element('div', 'actions');
     actions.forEach((a) => {
-      const b = button(a.label, () => { say(a); void handlers[a.id](); }, a.id === 'remove' ? 'small danger' : 'small quiet', a.id === 'search' && Boolean(state.busy));
-      b.addEventListener('focus', () => say(a)); b.addEventListener('mouseenter', () => say(a));
+      const b = button(a.label, () => { void handlers[a.id](); }, a.id === 'remove' ? 'small danger' : 'small quiet', a.id === 'search' && Boolean(state.busy));
+      b.title = a.consequence;
+      b.setAttribute('aria-describedby', consequence.id);
+      b.addEventListener('focus', () => { focused = a.id; showHelp(); });
+      b.addEventListener('blur', () => { if (focused === a.id) focused = null; showHelp(); });
+      b.addEventListener('mouseenter', () => { hovered = a.id; showHelp(); });
+      b.addEventListener('mouseleave', () => { if (hovered === a.id) hovered = null; showHelp(); });
       row.append(b);
     });
-    consequence.textContent = actions.map((a) => `${a.label}: ${a.consequence}`).join(' ');
     return append(box, row, consequence);
   }
   const opsFor = (line) => proposalView(state.trip).byLine[line.lineKey] || [];

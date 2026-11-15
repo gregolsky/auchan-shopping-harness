@@ -42,4 +42,5 @@ export function afterNote(stepIndex: number): number;
 export function reviewNext(model: any): number;
 export function listNotice(count: number): { text: string; link: string } | null;
 export function lineActions(card: any): { id: 'other' | 'search' | 'byHand' | 'remove'; label: string; consequence: string }[];
+export function actionHelp(actions: ReturnType<typeof lineActions>, activeId: string | null): string;
 export function actionNote(id: string, name: string): string;
