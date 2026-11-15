@@ -5,6 +5,7 @@ import {
   parseGrosze,
   parseDecoratedOrder,
   parsePromotionsState,
+  parseSearchState,
   parseCompletedOrdersPage,
   ShapeError,
   cleanText,
@@ -326,4 +327,41 @@ test('promotions carry the first image of each product', () => {
   assert.ok(withImage.length >= 1);
   assert.match(withImage[0].imageUrl!, /^https:\/\/zakupy\.auchan\.pl\/images-v3\/.+\/300x300\.jpg$/);
   assert.ok(products.some((p) => p.imageUrl === null && p.imageAlt === null));
+});
+
+test('parseSearchState reads products and search-sourced prices', () => {
+  const r = parseSearchState(fx('search-state.json'), 'parówki', '2026-11-15T10:00:00Z');
+  assert.equal(r.term, 'parówki');
+  assert.equal(r.regionId, '00000000-0000-4000-8000-000000000010');
+  assert.equal(r.products.length, 4);
+  assert.equal(r.prices.length, 4);
+  assert.ok(r.prices.every((p) => p.source === 'search' && p.seenAt === '2026-11-15T10:00:00Z' && p.regionId === r.regionId));
+  const [plain, offer, , gone] = r.products;
+  assert.equal(plain.name, 'Parówki klasyczne Testowo 270 g');
+  assert.equal(plain.inCatalogue, true);
+  assert.equal(gone.inCatalogue, false);
+  assert.equal(r.prices[0].currentGrosze, 497);
+  assert.equal(r.prices[0].offerText, null);
+  assert.equal(offer.productId, r.prices[1].productId);
+  assert.equal(r.prices[1].originalGrosze, 499);
+  assert.equal(r.prices[1].offerText, '2  za 7,52 zł');
+  assert.equal(r.prices[1].requiredQuantity, 2);
+});
+
+test('parseSearchState caps at 40 products and skips unpriced ones', () => {
+  const state = fx('search-state.json');
+  const base = Object.values(state.data.products.productEntities)[0] as any;
+  const many: Record<string, unknown> = { nope: { ...base, productId: 'nope', price: undefined } };
+  for (let i = 0; i < 60; i++) many[`p${i}`] = { ...base, productId: `p${i}` };
+  state.data.products.productEntities = many;
+  const r = parseSearchState(state, 'x');
+  assert.equal(r.products.length, 40);
+  assert.equal(r.prices.length, 40);
+  assert.ok(r.products.every((p) => p.productId !== 'nope'));
+});
+
+test('parseSearchState rejects a state without a region or products', () => {
+  assert.throws(() => parseSearchState({ session: { metadata: {} }, data: {} }, 'x'), ShapeError);
+  assert.throws(() => parseSearchState(null, 'x'), ShapeError);
+  assert.throws(() => parseSearchState({ session: { metadata: { regionId: 'r' } }, data: {} }, 'x'), ShapeError);
 });

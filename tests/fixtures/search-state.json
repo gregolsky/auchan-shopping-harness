@@ -1,0 +1,160 @@
+{
+  "session": {
+    "metadata": {
+      "regionId": "00000000-0000-4000-8000-000000000010"
+    },
+    "isLoggedIn": true
+  },
+  "data": {
+    "products": {
+      "productEntities": {
+        "00000000-0000-4000-8000-000000000110": {
+          "productId": "00000000-0000-4000-8000-000000000110",
+          "retailerProductId": "00001",
+          "brand": "Testowo",
+          "available": true,
+          "isInCurrentCatalog": true,
+          "categoryPath": [
+            "Artykuły spożywcze",
+            "Wędliny",
+            "Parówki"
+          ],
+          "name": "Parówki klasyczne Testowo 270 g",
+          "price": {
+            "current": {
+              "amount": "4.97"
+            },
+            "unit": {
+              "label": "fop.price.per.kg",
+              "current": {
+                "amount": "18.41"
+              }
+            }
+          },
+          "size": {
+            "value": "0.27kg"
+          },
+          "images": [
+            {
+              "src": "https://zakupy.auchan.pl/images-v3/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000210/300x300.jpg",
+              "description": "Opakowanie parówek"
+            }
+          ],
+          "offers": []
+        },
+        "00000000-0000-4000-8000-000000000120": {
+          "productId": "00000000-0000-4000-8000-000000000120",
+          "retailerProductId": "00002",
+          "brand": "Testowo",
+          "available": true,
+          "isInCurrentCatalog": true,
+          "categoryPath": [
+            "Artykuły spożywcze",
+            "Wędliny",
+            "Parówki"
+          ],
+          "name": "Parówki drobiowe Testowo 140 g",
+          "price": {
+            "current": {
+              "amount": "4.28"
+            },
+            "original": {
+              "amount": "4.99"
+            },
+            "unit": {
+              "label": "fop.price.per.kg",
+              "current": {
+                "amount": "30.57"
+              }
+            }
+          },
+          "size": {
+            "value": "0.14kg"
+          },
+          "images": [
+            {
+              "src": "https://zakupy.auchan.pl/images-v3/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000220/300x300.jpg",
+              "description": "Opakowanie parówek drobiowych"
+            }
+          ],
+          "offers": [
+            {
+              "id": "00000000-0000-4000-8000-000000000320",
+              "description": "2  za 7,52 zł",
+              "type": "OFFER",
+              "requiredProductQuantity": 2
+            }
+          ]
+        },
+        "00000000-0000-4000-8000-000000000130": {
+          "productId": "00000000-0000-4000-8000-000000000130",
+          "retailerProductId": "00003",
+          "brand": "Przykładowo",
+          "available": true,
+          "isInCurrentCatalog": true,
+          "categoryPath": [
+            "Artykuły spożywcze",
+            "Wędliny",
+            "Parówki"
+          ],
+          "name": "Kiełbaski śniadaniowe Przykładowo 200 g",
+          "price": {
+            "current": {
+              "amount": "6.49"
+            },
+            "unit": {
+              "label": "fop.price.per.kg",
+              "current": {
+                "amount": "32.45"
+              }
+            }
+          },
+          "size": {
+            "value": "0.2kg"
+          },
+          "images": [
+            {
+              "src": "https://zakupy.auchan.pl/images-v3/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000230/300x300.jpg",
+              "description": "Kiełbaski"
+            }
+          ],
+          "offers": []
+        },
+        "00000000-0000-4000-8000-000000000140": {
+          "productId": "00000000-0000-4000-8000-000000000140",
+          "retailerProductId": "00004",
+          "brand": "Przykładowo",
+          "available": true,
+          "isInCurrentCatalog": false,
+          "categoryPath": [
+            "Artykuły spożywcze",
+            "Wędliny",
+            "Parówki"
+          ],
+          "name": "Parówki wycofane Przykładowo 300 g",
+          "price": {
+            "current": {
+              "amount": "5.10"
+            },
+            "unit": {
+              "label": "fop.price.per.kg",
+              "current": {
+                "amount": "17.00"
+              }
+            }
+          },
+          "size": {
+            "value": "0.3kg"
+          },
+          "images": [
+            {
+              "src": "https://zakupy.auchan.pl/images-v3/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000240/300x300.jpg",
+              "description": "Parówki"
+            }
+          ],
+          "offers": []
+        }
+      }
+    }
+  }
+}

@@ -15,7 +15,7 @@ export interface PriceObservation {
   productId: string;
   seenAt: string;
   regionId: string;
-  source: 'order' | 'promotion';
+  source: 'order' | 'promotion' | 'search';
   originalGrosze: number | null;
   currentGrosze: number;
   unitCurrentGrosze: number | null;

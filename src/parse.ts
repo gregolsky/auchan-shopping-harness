@@ -161,10 +161,11 @@ export function parseDecoratedOrder(json: unknown): {
   };
 }
 
-// regionId is found at state.session.metadata.regionId
-export function parsePromotionsState(
+function readEntities(
   state: unknown,
   seenAt: string,
+  source: PriceObservation['source'],
+  opts: { limit?: number; skipUnpriced?: boolean } = {},
 ): { regionId: string; products: Product[]; prices: PriceObservation[] } {
   const s = obj(state, 'state');
   const regionId = obj(obj(s.session, 'session').metadata, 'session.metadata').regionId;
@@ -174,7 +175,9 @@ export function parsePromotionsState(
   const products: Product[] = [];
   const prices: PriceObservation[] = [];
   for (const e of Object.values(entities)) {
+    if (opts.limit !== undefined && products.length >= opts.limit) break;
     const p = obj(e, 'productEntities[]');
+    if (opts.skipUnpriced && (p.price == null || typeof p.price !== 'object' || (p.price as Obj).current == null)) continue;
     const price = obj(p.price, 'product.price');
     const unit = price.unit as Obj | undefined;
     const offer = Array.isArray(p.offers) && p.offers.length ? (p.offers[0] as Obj) : null;
@@ -183,7 +186,7 @@ export function parsePromotionsState(
       productId: str(p.productId, 'product.productId'),
       seenAt,
       regionId,
-      source: 'promotion',
+      source,
       originalGrosze: price.original ? money(price.original, 'price.original') : null,
       currentGrosze: money(price.current, 'price.current'),
       unitCurrentGrosze: unit?.current ? money(unit.current, 'price.unit.current') : null,
@@ -192,6 +195,24 @@ export function parsePromotionsState(
     });
   }
   return { regionId, products, prices };
+}
+
+// regionId is found at state.session.metadata.regionId
+export function parsePromotionsState(
+  state: unknown,
+  seenAt: string,
+): { regionId: string; products: Product[]; prices: PriceObservation[] } {
+  return readEntities(state, seenAt, 'promotion');
+}
+
+/** A search page's state has the promotions page's shape. At most 40 products; one without a price is left out. */
+export const SEARCH_RESULT_CAP = 40;
+export function parseSearchState(
+  state: unknown,
+  term: string,
+  seenAt: string = new Date().toISOString(),
+): { term: string; regionId: string; products: Product[]; prices: PriceObservation[] } {
+  return { term, ...readEntities(state, seenAt, 'search', { limit: SEARCH_RESULT_CAP, skipUnpriced: true }) };
 }
 
 export function parseCompletedOrdersPage(json: unknown): {
