@@ -10,6 +10,8 @@ export type Candidate = ProductFacts & {
   confidence: Confidence;
   /** Short English reason for a medium or low rating; "" for high. */
   confidenceReason: string;
+  /** Position (0 = first) in what the Auchan search found for the term; null when the search did not list it. */
+  searchRank: number | null;
 };
 
 export type Confidence = 'high' | 'medium' | 'low';
@@ -68,7 +70,15 @@ export function matchConfidence(term: string, f: Pick<ProductFacts, 'name' | 'br
 }
 
 /** quantity may depend on the product, as a perishable cap does; costs and unit prices use that quantity. */
-export function rankCandidates(term: string, quantity: number | ((f: ProductFacts) => number), facts: ProductFacts[], rule: IntentRule | null): Candidate[] {
+export const SEARCH_REASON = 'z wyszukiwania Auchan';
+
+/**
+ * `searched` are the ids the Auchan search found for the term, in Auchan's order: they are candidates even when the name
+ * does not match the term ("jajka" finds "Jaja ..."), rated medium unless the name match says better. The first hit leads among never-bought products.
+ */
+export function rankCandidates(term: string, quantity: number | ((f: ProductFacts) => number), facts: ProductFacts[], rule: IntentRule | null, searched: readonly string[] = []): Candidate[] {
+  const searchRank = new Map<string, number>();
+  searched.forEach((id, i) => { if (!searchRank.has(id)) searchRank.set(id, i); });
   const brand = rule?.brand ? normaliseTerm(rule.brand) : null;
   const quantityFor = typeof quantity === 'function' ? quantity : () => quantity;
   const accepted = new Set(rule?.acceptedProductIds ?? []);
@@ -84,22 +94,30 @@ export function rankCandidates(term: string, quantity: number | ((f: ProductFact
     const isPreferred = f.productId === rule?.preferredProductId;
     const isAccepted = accepted.has(f.productId);
     const matched = matchesTerm(term, f);
-    if (!isPreferred && !isAccepted && !matched) continue;
+    const found = searchRank.get(f.productId) ?? null;
+    if (!isPreferred && !isAccepted && !matched && found === null) continue;
     const basis = isPreferred ? 'preferred' : learned.has(f.productId) ? 'accepted' : f.timesBought > 0 ? 'history' : isAccepted ? 'accepted' : 'value';
     // An offer applies only once the quantity reaches what it requires.
     const q = quantityFor(f);
     const reached = f.requiredQuantity === null || q >= f.requiredQuantity;
     const cost = lineCost(f.latestPriceGrosze, reached ? parseOffer(f.offerText) : null, q);
     // A product the user chose through a rule, without the term matching it, is high: they chose it.
-    const { confidence, reason } = matched ? matchConfidence(term, f, f.timesBought > 0 || isAccepted || learned.has(f.productId), isPreferred || isAccepted || learned.has(f.productId)) : { confidence: 'high' as const, reason: '' };
+    const byName = matched ? matchConfidence(term, f, f.timesBought > 0 || isAccepted || learned.has(f.productId), isPreferred || isAccepted || learned.has(f.productId)) : null;
+    const bySearch = found !== null ? { confidence: 'medium' as Confidence, reason: SEARCH_REASON } : null;
+    const { confidence, reason } = isPreferred || isAccepted || learned.has(f.productId)
+      ? (byName ?? { confidence: 'high' as const, reason: '' })
+      : byName !== null && (bySearch === null || RANK[byName.confidence] <= RANK[bySearch.confidence]) ? byName : bySearch ?? { confidence: 'high' as const, reason: '' };
     out.push({
       ...f, lineCostGrosze: cost, unitPriceGrosze: unitPriceGrosze(cost, q, f.size), basis, guess: basis === 'value',
-      confidence, confidenceReason: reason,
+      confidence, confidenceReason: reason, searchRank: found,
     });
   }
 
+  // Among products never bought, the one Auchan listed first leads.
+  const lead = (c: Candidate) => (c.basis === 'value' && c.searchRank === 0 ? 0 : 1);
   return out.sort((a, b) =>
     group(a) - group(b)
+    || lead(a) - lead(b)
     || RANK[a.confidence] - RANK[b.confidence]
     || (a.basis === 'history' ? b.timesBought - a.timesBought : 0)
     || (a.unitPriceGrosze === null ? 1 : 0) - (b.unitPriceGrosze === null ? 1 : 0)

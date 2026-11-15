@@ -134,6 +134,8 @@ export interface Store {
   saveSearchResults(term: string, parsed: SearchInput, now: Date): void;
   /** True if the term was searched within the last SEARCH_FRESH_DAYS days. */
   searchedRecently(term: string, now: Date): boolean;
+  /** What the last search found, per normalised term: product ids in the order Auchan listed them. */
+  searchResults(): Record<string, string[]>;
   /** Remembers that Auchan refused a search (HTTP status 403 or 429) at `now`. */
   blockSearch(status: number, now: Date): void;
   /** While a refusal is younger than SEARCH_BLOCK_HOURS: when searching may resume and the status that caused it; otherwise null. */
@@ -232,6 +234,13 @@ CREATE TABLE IF NOT EXISTS search_runs (
   found INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS search_runs_term ON search_runs (term, searched_at);
+CREATE TABLE IF NOT EXISTS search_results (
+  term_normalised TEXT NOT NULL,
+  product_id TEXT NOT NULL REFERENCES products(product_id),
+  rank INTEGER NOT NULL,
+  searched_at TEXT NOT NULL,
+  PRIMARY KEY (term_normalised, product_id)
+);
 CREATE TABLE IF NOT EXISTS search_blocks (
   blocked_at TEXT NOT NULL,
   status INTEGER NOT NULL
@@ -475,6 +484,10 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
         writeProducts(products);
         writePrices(prices);
         db.prepare('INSERT INTO search_runs (term, searched_at, found) VALUES (?, ?, ?)').run(normaliseTerm(term), now.toISOString(), products.length);
+        // The newest search replaces what an older one found for the term; ranks follow Auchan's order.
+        db.prepare('DELETE FROM search_results WHERE term_normalised = ?').run(normaliseTerm(term));
+        const insert = db.prepare('INSERT OR IGNORE INTO search_results (term_normalised, product_id, rank, searched_at) VALUES (?, ?, ?, ?)');
+        products.forEach((p, i) => insert.run(normaliseTerm(term), p.productId, i, now.toISOString()));
       });
     },
 
@@ -483,6 +496,16 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
       if (!has) return false;
       const since = new Date(now.getTime() - SEARCH_FRESH_DAYS * 86_400_000).toISOString();
       return db.prepare('SELECT 1 FROM search_runs WHERE term = ? AND searched_at >= ? LIMIT 1').get(normaliseTerm(term), since) !== undefined;
+    },
+
+    searchResults() {
+      const has = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'search_results'").get() !== undefined;
+      if (!has) return {};
+      const out: Record<string, string[]> = {};
+      for (const r of db.prepare('SELECT term_normalised, product_id FROM search_results ORDER BY term_normalised, rank').all() as { term_normalised: string; product_id: string }[]) {
+        (out[r.term_normalised] ??= []).push(r.product_id);
+      }
+      return out;
     },
 
     blockSearch(status, now) {

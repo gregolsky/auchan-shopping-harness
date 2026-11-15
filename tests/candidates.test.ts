@@ -378,3 +378,30 @@ test('a short stem does not match a longer brand word: "mąka" misses "Makar" bu
   assert.equal(matchesTerm('mąka', { name: 'Mąka pszenna typ 650', brand: 'Szymanowska' }), true);
   assert.equal(matchesTerm('mąkę', { name: 'Mąka pszenna typ 650', brand: 'Szymanowska' }), true);
 });
+
+test('products the Auchan search found are candidates although the name does not match the term', () => {
+  const facts = [fact('x', { name: 'Jaja wiejskie M 10 szt.' }), fact('y', { name: 'Jaja z chowu klatkowego' }), fact('z', { name: 'Ser żółty' })];
+  assert.deepEqual(ids(rankCandidates('jajka', 1, facts, null)), []);
+  const r = rankCandidates('jajka', 1, facts, null, ['y', 'x']);
+  assert.deepEqual(ids(r), ['y', 'x'], 'the first hit leads among never-bought products');
+  assert.deepEqual(r.map((c) => [c.confidence, c.confidenceReason, c.searchRank]), [['medium', 'z wyszukiwania Auchan', 0], ['medium', 'z wyszukiwania Auchan', 1]]);
+});
+
+test('a search hit never loses to a worse name match, and never beats a better one', () => {
+  const facts = [
+    fact('hi', { name: 'Mleko UHT 3,2%', timesBought: 3 }),
+    fact('flavour', { name: 'Napój o smaku mleko' }),
+    fact('mid', { name: 'Napój mleko' }),
+  ];
+  const r = rankCandidates('mleko', 1, facts, null, ['flavour', 'hi', 'mid']);
+  const byId = Object.fromEntries(r.map((c) => [c.productId, c]));
+  assert.equal(byId.hi.confidence, 'high', 'a bought product with a good name match stays high');
+  assert.equal(byId.hi.confidenceReason, '');
+  assert.deepEqual([byId.flavour.confidence, byId.flavour.confidenceReason], ['medium', 'z wyszukiwania Auchan'], 'low from the name is lifted to medium by the search');
+  assert.equal(byId.hi.productId, r[0].productId, 'bought products still lead');
+});
+
+test('the first search hit leads other never-bought candidates, bought ones and the user\'s choices still come first', () => {
+  const facts = [fact('cheap', { name: 'Mleko tanie', latestPriceGrosze: 100 }), fact('hit', { name: 'Mleko hit', latestPriceGrosze: 900 }), fact('bought', { name: 'Mleko kupione', timesBought: 2, latestPriceGrosze: 800 })];
+  assert.deepEqual(ids(rankCandidates('mleko', 1, facts, null, ['hit'])), ['bought', 'hit', 'cheap']);
+});

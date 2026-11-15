@@ -126,8 +126,9 @@ async function run(args: string[], deps: SearchDeps): Promise<number> {
       const facts = store.productFacts();
       const rules = store.intentRules();
       const blocked = store.blockedProducts();
+      const searched = store.searchResults();
       for (const term of known) {
-        const draft = buildDraft({ items: [{ term, quantity: 1 }], includeUsual: false }, facts, rules, new Date(), blocked);
+        const draft = buildDraft({ items: [{ term, quantity: 1 }], includeUsual: false, searched }, facts, rules, new Date(), blocked);
         const top = draft.items[0];
         deps.log(top
           ? `${cleanText(term)}: najlepsze dopasowanie: ${cleanText(top.name)} (${zl(top.lineCostGrosze)})`

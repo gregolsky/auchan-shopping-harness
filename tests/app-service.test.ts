@@ -960,3 +960,19 @@ function setupLater(t: ReturnType<typeof setup>) {
   });
   return { svc };
 }
+
+test('a term the catalogue did not match is drafted from what the Auchan search found, even when the names differ', async () => {
+  const eggs = structuredClone(SEARCH_STATE);
+  let n = 0;
+  for (const e of Object.values<any>(eggs.data.products.productEntities)) e.name = `Jaja wiejskie ${++n}`;
+  const t = setup({ page: () => fakeSearchPage({ 'jajka': eggs }) });
+  await t.svc.note({ note: 'jajka', includeUsual: false });
+  assert.deepEqual(t.svc.state().trip.unmatched.map((u) => u.term), ['jajka']);
+  await t.svc.searchAuchan();
+  await searchEnd(t.events);
+  const line = t.svc.state().trip.lines.find((l) => l.term === 'jajka');
+  assert.ok(line, 'jajka is drafted');
+  assert.match(line.name, /^Jaja wiejskie/);
+  assert.equal(line.confidenceReason, 'z wyszukiwania Auchan');
+  assert.deepEqual(t.svc.state().trip.unmatched, []);
+});

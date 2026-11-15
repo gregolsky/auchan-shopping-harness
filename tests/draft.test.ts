@@ -297,3 +297,15 @@ test('draft lines and alternatives carry the product image', () => {
   assert.equal(alt('c').imageUrl, null);
   assert.equal(alt('c').imageAlt, null);
 });
+
+test('products the Auchan search saved for a term are candidates of its line', () => {
+  const facts = [fact('j1', { name: 'Jaja wiejskie M', categoryPath: ['Nabiał'] }), fact('j2', { name: 'Jaja klatkowe L', categoryPath: ['Nabiał'], latestPriceGrosze: 500 })];
+  const none = buildDraft(input([{ term: 'jajka', quantity: 1 }]), facts, [], now);
+  assert.deepEqual(none.unmatched, ['jajka']);
+  const d = buildDraft({ ...input([{ term: 'jajka', quantity: 1 }]), searched: { jajka: ['j1', 'j2'] } }, facts, [], now);
+  assert.deepEqual(d.unmatched, []);
+  assert.equal(d.items[0].productId, 'j1');
+  assert.equal(d.items[0].confidence, 'medium');
+  assert.equal(d.items[0].confidenceReason, 'z wyszukiwania Auchan');
+  assert.deepEqual(d.items[0].alternatives.map((a) => a.productId), ['j2']);
+});

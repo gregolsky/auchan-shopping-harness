@@ -10,6 +10,8 @@ export interface DraftInput {
   items: { term: string; quantity: number }[];
   includeUsual: boolean;
   budgetGrosze?: number;
+  /** What the Auchan search found per normalised term, in Auchan's order (store.searchResults()). */
+  searched?: Record<string, string[]>;
 }
 
 export interface DraftLine {
@@ -105,7 +107,7 @@ export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: Inte
 
   for (const { term, quantity } of input.items) {
     const capped = (f: ProductFacts) => capQuantity(f, quantity).quantity;
-    const ranked = rankCandidates(term, capped, facts, ruleByTerm.get(normaliseTerm(term)) ?? null).filter((c) => !used.has(c.productId));
+    const ranked = rankCandidates(term, capped, facts, ruleByTerm.get(normaliseTerm(term)) ?? null, input.searched?.[normaliseTerm(term)] ?? []).filter((c) => !used.has(c.productId));
     const top = ranked[0];
     if (!top || !buyable(top)) {
       (allFacts.some((f) => isBlockedProduct(f, blocked) && matchesTerm(term, f)) ? blockedTerms : unmatched).push(term);

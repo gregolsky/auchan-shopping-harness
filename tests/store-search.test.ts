@@ -104,3 +104,16 @@ test('a search refusal blocks searching for 24 hours, then expires', () => {
     assert.deepEqual(openStore(path).searchBlock(new Date('2026-11-15T12:00:00Z')), { until: '2026-11-16T10:00:00.000Z', status: 403 }, 'it survives a restart');
   });
 });
+
+test('the search keeps the found product ids in Auchan\'s order per normalised term, and a newer search replaces them', () => {
+  withDb((path) => {
+    const s = openStore(path);
+    assert.deepEqual(s.searchResults(), {});
+    const parsed = parseSearchState(state, 'Parówki', NOW.toISOString());
+    s.saveSearchResults('Parówki', parsed, NOW);
+    assert.deepEqual(s.searchResults(), { parowki: parsed.products.map((p) => p.productId) });
+    s.saveSearchResults('parówki', { regionId: parsed.regionId, products: [], prices: [] }, new Date('2026-11-16T10:00:00Z'));
+    assert.deepEqual(s.searchResults(), {});
+    s.close();
+  });
+});

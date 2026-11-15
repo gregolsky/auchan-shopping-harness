@@ -149,7 +149,7 @@ export function createService(d: ServiceDeps) {
   if (trip.step === 'koszyk') commit({ ...trip, step: 'zatwierdzenie', messages: [...trip.messages, INTERRUPTED] });
 
   const draftTerms = (store: Store, items: { term: string; quantity: number }[], includeUsual: boolean, budgetGrosze?: number): Draft =>
-    buildDraft({ items, includeUsual, budgetGrosze }, store.productFacts(), store.intentRules(), d.now(), store.blockedProducts());
+    buildDraft({ items, includeUsual, budgetGrosze, searched: store.searchResults() }, store.productFacts(), store.intentRules(), d.now(), store.blockedProducts());
 
   const noteMap = (items: { term: string; note: string }[]): Record<string, string> =>
     Object.fromEntries(items.flatMap((i) => (i.note === '' ? [] : [[i.term, i.note], [normaliseTerm(i.term), i.note]])));
