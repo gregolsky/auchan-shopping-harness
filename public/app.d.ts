@@ -7,3 +7,6 @@ export function start(): void;
 export function describeQuestions(model: any): { intro: string | null; empty: string | null; canContinue: boolean };
 export function unmatchedText(item: { term: string; hint?: string }): string;
 export function parseBudget(text: string): { ok: true; grosze: number | undefined } | { ok: false; error: string };
+export function nextSelected(selected: number, stepIndex: number, first?: boolean): number;
+export function claudeStatus(pending: 'note' | 'ask' | null): { working: boolean; text: string | null; disableNote: boolean; disableAsk: boolean };
+export function approveHint(model: any, busy: string | null): string | null;

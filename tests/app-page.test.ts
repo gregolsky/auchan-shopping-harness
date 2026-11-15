@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint } from '../public/app.js';
 
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,
   reason: 'bought before', confidence: 'medium', confidenceReason: 'not bought before', included: true, kind: 'item',
@@ -77,4 +77,41 @@ test('step 3 puts a pending proposal first and blocks moving on until it is deci
 test('an unmatched term keeps Claude\'s hint', () => {
   assert.equal(unmatchedText({ term: 'ser', hint: 'Dodaj ręcznie, brak w katalogu' }), 'ser · Dodaj ręcznie, brak w katalogu');
   assert.equal(unmatchedText({ term: 'ser', hint: '' }), 'ser');
+});
+
+test('a tab beyond the trip follows the trip back after a failed fill', () => {
+  assert.equal(nextSelected(4, 3), 3, 'cart tab after the fill failed');
+  assert.equal(nextSelected(5, 3), 3);
+  assert.equal(nextSelected(3, 4), 4, 'the fill started');
+  assert.equal(nextSelected(1, 3), 1, 'the user browsing earlier tabs is left alone');
+  assert.equal(nextSelected(0, 3, true), 3, 'first load');
+});
+
+test('while Claude works both buttons are off and the page says what happens', () => {
+  assert.deepEqual(claudeStatus(null), { working: false, text: null, disableNote: false, disableAsk: false });
+  assert.deepEqual(claudeStatus('note'), { working: true, text: 'Claude analizuje listę… (do minuty)', disableNote: true, disableAsk: true });
+  assert.deepEqual(claudeStatus('ask'), { working: true, text: 'Claude przygotowuje propozycję…', disableNote: true, disableAsk: true });
+});
+
+test('after a blocked fill the page refuses approving and says why', () => {
+  const model = viewModel(tripAt('zatwierdzenie', { blocked: true }));
+  assert.equal(model.canApprove, false);
+  assert.equal(model.approveHint, 'Auchan odrzucił zapytanie. Nie zatwierdzaj ponownie — sprawdź koszyk na Auchan i zacznij nowe zakupy.');
+});
+
+test('the approve hint names the real reason', () => {
+  const hint = (state: any) => viewModel(state).approveHint;
+  assert.equal(hint(tripAt('zatwierdzenie')), null);
+  assert.match(hint({ ...tripAt('zatwierdzenie'), busy: 'sync' }), /synchronizacja/);
+  assert.match(hint(tripAt('zatwierdzenie', { proposal: { id: 'p', ops: [], dropped: 0 } })), /zastosuj albo odrzuć propozycję/);
+  assert.match(hint({ trip: { step: 'zatwierdzenie', lines: [line], proposal: null, unmatched: [], messages: [] } }), /odpowiedz na pytania/);
+  assert.match(hint(tripAt('zatwierdzenie', { lines: [] })), /Nic nie jest zaznaczone/);
+  assert.match(hint(tripAt('koszyk')), /już w koszyku/);
+  assert.equal(approveHint({ inCart: false, blocked: false, proposalPending: false, questions: [], hasIncluded: true }, null), null);
+});
+
+test('the ask box keeps its text and Claude calls are guarded in the page code', () => {
+  const js = readFileSync('public/app.js', 'utf8');
+  assert.match(js, /input\.value = draftForm\.ask/);
+  assert.match(js, /if \(pending !== null\) return/);
 });

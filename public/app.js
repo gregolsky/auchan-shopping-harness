@@ -12,21 +12,50 @@ export function progressLine(index) {
 }
 export function zl(grosze) { return `${(Number(grosze || 0) / 100).toFixed(2).replace('.', ',')} zł`; }
 
+const BLOCKED_TEXT = 'Auchan odrzucił zapytanie. Nie zatwierdzaj ponownie — sprawdź koszyk na Auchan i zacznij nowe zakupy.';
+
+/** Which tab to show after the trip moved: a tab beyond the trip's step (cart, payment) follows the trip back. */
+export function nextSelected(selected, stepIndex, first = false) {
+  return first || selected >= 4 || stepIndex >= 4 ? stepIndex : selected;
+}
+
+/** While Claude works on a note or a command, both buttons stay off and the page says what is happening. */
+export function claudeStatus(pending) {
+  const text = pending === 'note' ? 'Claude analizuje listę… (do minuty)' : pending === 'ask' ? 'Claude przygotowuje propozycję…' : null;
+  return { working: text !== null, text, disableNote: text !== null, disableAsk: text !== null };
+}
+
+/** Why approving is not possible right now, in the order the user can act on it; null when it is possible. */
+export function approveHint(model, busy) {
+  if (model.inCart) return 'Te zakupy są już w koszyku. Zacznij nowe zakupy, żeby dodać coś jeszcze.';
+  if (model.blocked) return BLOCKED_TEXT;
+  if (busy === 'sync') return 'Trwa synchronizacja danych — poczekaj na koniec.';
+  if (busy) return 'Trwa inna operacja — poczekaj na koniec.';
+  if (model.proposalPending) return 'Najpierw zastosuj albo odrzuć propozycję zmian.';
+  if (model.questions.length > 0) return 'Najpierw odpowiedz na pytania o produkty.';
+  if (!model.hasIncluded) return 'Nic nie jest zaznaczone do zamówienia.';
+  return null;
+}
+
 export function viewModel(state) {
   const trip = state.trip || {};
   const lines = trip.lines || [];
   const stepIndex = Math.max(0, KEYS.indexOf(trip.step));
-  return {
+  const model = {
     stepIndex,
     freshnessText: state.freshness?.ageHours == null ? 'Brak pełnej synchronizacji' : `Dane sprzed ${state.freshness.ageHours} godz.`,
     lines: lines.filter((l) => l.kind === 'item'), suggestions: lines.filter((l) => l.kind === 'suggestion'),
     unmatched: trip.unmatched || [], total: lines.filter((l) => l.included).reduce((sum, l) => sum + l.lineCostGrosze, 0),
-    canApprove: stepIndex <= 3 && lines.some((l) => l.included) && !lines.some((l) => l.included && l.question) && !trip.proposal && !state.busy,
+    canApprove: stepIndex <= 3 && lines.some((l) => l.included) && !lines.some((l) => l.included && l.question) && !trip.proposal && !state.busy && !trip.blocked,
     inCart: stepIndex >= 4,
+    blocked: Boolean(trip.blocked),
+    hasIncluded: lines.some((l) => l.included),
     questions: lines.filter((l) => l.included && l.question),
     proposalPending: Boolean(trip.proposal),
     proposalText: trip.proposal?.ops?.map((op) => describeOp(op, new Map(lines.map((l) => [l.lineKey, l])))) || [],
   };
+  model.approveHint = approveHint(model, state.busy);
+  return model;
 }
 
 /** What step 3 shows: a pending proposal comes first and blocks moving on; "no questions" only when nothing waits. */
@@ -90,8 +119,8 @@ export function start() {
   const steps = document.querySelector('#steps');
   const alert = document.querySelector('#alert');
   let state = null, selected = 0, rulesOpen = false, report = null, progress = { sent: 0, total: 0 }, logs = [];
-  let productSearch = '', searchResults = [], searchDone = false, renderVersion = 0;
-  const draftForm = { note: null, usual: false, budget: '' };
+  let productSearch = '', searchResults = [], searchDone = false, renderVersion = 0, pending = null;
+  const draftForm = { note: null, usual: false, budget: '', ask: '' };
 
   const tell = (message) => { alert.textContent = message || ''; alert.hidden = !message; };
   async function api(path, body) {
@@ -114,9 +143,17 @@ export function start() {
     } catch (error) { tell(error.message); return null; }
   }
   async function refresh() {
-    try { const first = state === null; state = await api('/api/state'); if (first || viewModel(state).stepIndex >= 4) selected = viewModel(state).stepIndex; render(); }
+    try { const first = state === null; state = await api('/api/state'); selected = nextSelected(selected, viewModel(state).stepIndex, first); render(); }
     catch (error) { tell(error.message); }
   }
+
+  /** Runs one Claude call at a time; a second click while it is in flight does nothing. */
+  async function withClaude(kind, work) {
+    if (pending !== null) return;
+    pending = kind; render();
+    try { await work(); } finally { pending = null; render(); }
+  }
+  const claudeNote = () => { const status = claudeStatus(pending); return status.working ? element('p', 'meta', status.text) : null; };
 
   function renderSteps(model) {
     steps.replaceChildren();
@@ -168,7 +205,8 @@ export function start() {
     const budget = element('input'); budget.type = 'text'; budget.inputMode = 'decimal'; budget.placeholder = 'Opcjonalnie'; budget.id = 'budget'; budget.value = draftForm.budget; budget.addEventListener('input', () => { draftForm.budget = budget.value; });
     const budgetLabel = element('label', '', 'Budżet w zł'); budgetLabel.htmlFor = 'budget';
     append(form, note, usualLabel, budgetLabel, budget,
-      button('Ułóż szkic →', async () => { const parsed = parseBudget(budget.value); if (!parsed.ok) { tell(parsed.error); return; } const body = { note: note.value, includeUsual: usual.checked }; if (parsed.grosze !== undefined) body.budgetGrosze = parsed.grosze; await run('/api/note', body); selected = 1; render(); }, 'button', state.busy === 'fill'));
+      button('Ułóż szkic →', async () => { const parsed = parseBudget(budget.value); if (!parsed.ok) { tell(parsed.error); return; } const body = { note: note.value, includeUsual: usual.checked }; if (parsed.grosze !== undefined) body.budgetGrosze = parsed.grosze; await withClaude('note', async () => { await run('/api/note', body); selected = 1; }); }, 'button', state.busy === 'fill' || claudeStatus(pending).disableNote));
+    if (claudeNote()) form.append(claudeNote());
     const results = card('Wybrane produkty', 'Sprawdź nazwę, ilość i ocenę dopasowania.');
     const model = viewModel(state);
     const blockedNotice = state.trip.messages?.find((m) => m.startsWith('Pominięto zablokowane produkty:'));
@@ -212,7 +250,7 @@ export function start() {
     if (!included.length) box.append(element('p', 'empty', 'Lista jest pusta. Wróć do szkicu.'));
     if (model.unmatched.length) append(box, element('h3', '', 'Do dodania ręcznie w Auchan'), ...model.unmatched.map((u) => element('p', 'meta', unmatchedText(u))));
     append(box, element('div', 'total', `Szacowana kwota: ${zl(model.total)}`), model.inCart ? element('p', 'meta', 'Te zakupy są już w koszyku. Zacznij nowe zakupy, żeby dodać coś jeszcze.') : button('✓ Zatwierdź i dodaj do koszyka', async () => { const result = await run('/api/approve', {}); if (result?.started) { selected = 4; render(); } }, 'button', !model.canApprove));
-    if (!model.canApprove && !model.inCart) box.append(element('p', 'meta', 'Odpowiedz na pytania i zastosuj lub odrzuć propozycję zmian, aby zatwierdzić.'));
+    if (!model.canApprove && !model.inCart && model.approveHint) box.append(element('p', 'meta', model.approveHint));
     target.append(box);
   }
   function renderLogs() { const box = card('Dziennik'); logs.slice(-20).forEach((l) => box.append(element('p', 'message', l))); return box; }
@@ -297,7 +335,9 @@ export function start() {
     if (![1, 2, 3].includes(selected) || !state.trip.lines.length) return;
     const box = card('Powiedz, co zmienić', 'Możesz opisać zmianę własnymi słowami. Zobaczysz propozycję przed zastosowaniem.');
     const input = element('textarea', 'short-textarea'); input.setAttribute('aria-label', 'Polecenie dla Claude'); input.placeholder = 'Na przykład: wybierz większe opakowanie sera';
-    append(box, input, button('Zaproponuj zmianę', () => run('/api/ask', { text: input.value }), 'quiet', state.busy === 'fill'));
+    input.value = draftForm.ask; input.addEventListener('input', () => { draftForm.ask = input.value; });
+    append(box, input, button('Zaproponuj zmianę', () => withClaude('ask', async () => { const result = await run('/api/ask', { text: input.value }); if (result) draftForm.ask = ''; }), 'quiet', state.busy === 'fill' || claudeStatus(pending).disableAsk));
+    if (claudeNote()) box.append(claudeNote());
     target.append(box);
   }
   function render() {
@@ -315,7 +355,7 @@ export function start() {
       const box = card('Wskazówki'); messages.forEach((m) => box.append(element('p', 'message', m))); target.append(box);
     }
   }
-  document.querySelector('#new-trip').addEventListener('click', async () => { if (state.busy === 'fill') return; const result = await run('/api/trip/reset', {}); if (result?.step === 'dane') { selected = 0; rulesOpen = false; report = null; logs = []; draftForm.note = null; draftForm.usual = false; draftForm.budget = ''; render(); } });
+  document.querySelector('#new-trip').addEventListener('click', async () => { if (state.busy === 'fill') return; const result = await run('/api/trip/reset', {}); if (result?.step === 'dane') { selected = 0; rulesOpen = false; report = null; logs = []; draftForm.note = null; draftForm.usual = false; draftForm.budget = ''; draftForm.ask = ''; render(); } });
   const events = new EventSource(`/api/events?t=${encodeURIComponent(token)}`);
   events.addEventListener('state', () => { void refresh(); });
   events.addEventListener('progress', (event) => { progress = JSON.parse(event.data); if (selected === 4) render(); });
