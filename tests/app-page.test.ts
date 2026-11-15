@@ -43,6 +43,14 @@ test('payment report separates status sections, counts rows and keeps product ca
   assert.ok(view.sections.every((s) => s.items.every((item) => !item.title.startsWith('-'))));
 });
 
+test('readability styles keep body copy at 15px and touch controls at 44px', () => {
+  const css = readFileSync('public/app.css', 'utf8');
+  assert.match(css, /\.meta\{font-size:15px/);
+  assert.match(css, /\.badge\{font-size:13px/);
+  assert.match(css, /\.small\{min-height:44px/);
+  assert.match(css, /\.stepper \.small\{min-width:44px;min-height:44px/);
+});
+
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,
   reason: 'bought before', confidence: 'medium', confidenceReason: 'not bought before', included: true, kind: 'item',
   question: { text: 'Która?', options: ['a'] }, candidates: [{ productId: 'a', name: 'Mąka pszenna' }] };
