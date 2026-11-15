@@ -59,6 +59,10 @@ export function parseImage(images: unknown): { url: string; alt: string | null }
   return { url: url.replace(/\/\d+x\d+(\.[a-z]+)$/, '/300x300$1'), alt: alt === '' ? null : alt };
 }
 
+const MAX_FIELD = 200;
+/** Auchan's text kept short and clean: no control characters, at most 200 characters. */
+const tidy = (v: unknown): string => cleanText(String(v)).trim().slice(0, MAX_FIELD);
+
 function toProduct(p: Obj, unitLabel: string | null): Product {
   const image = parseImage(p.images);
   return {
@@ -66,9 +70,9 @@ function toProduct(p: Obj, unitLabel: string | null): Product {
     retailerProductId: str(p.retailerProductId, 'product.retailerProductId'),
     name: cleanText(str(p.name, 'product.name')),
     brand: cleanText(String(p.brand ?? '')).trim(),
-    categoryPath: Array.isArray(p.categoryPath) ? p.categoryPath.map(String) : [],
-    unitLabel,
-    size: typeof p.size?.value === 'string' && p.size.value.trim() !== '' ? p.size.value.trim() : null,
+    categoryPath: Array.isArray(p.categoryPath) ? p.categoryPath.map(tidy) : [],
+    unitLabel: unitLabel === null ? null : tidy(unitLabel),
+    size: typeof p.size?.value === 'string' && tidy(p.size.value) !== '' ? tidy(p.size.value) : null,
     inCatalogue: Boolean(p.isInCurrentCatalog),
     imageUrl: image?.url ?? null,
     imageAlt: image?.alt ?? null,
@@ -165,7 +169,7 @@ function readEntities(
   state: unknown,
   seenAt: string,
   source: PriceObservation['source'],
-  opts: { limit?: number; skipUnpriced?: boolean } = {},
+  opts: { limit?: number; skipUnpriced?: boolean; skipMalformed?: boolean } = {},
 ): { regionId: string; products: Product[]; prices: PriceObservation[] } {
   const s = obj(state, 'state');
   const regionId = obj(obj(s.session, 'session').metadata, 'session.metadata').regionId;
@@ -176,23 +180,30 @@ function readEntities(
   const prices: PriceObservation[] = [];
   for (const e of Object.values(entities)) {
     if (opts.limit !== undefined && products.length >= opts.limit) break;
-    const p = obj(e, 'productEntities[]');
-    if (opts.skipUnpriced && (p.price == null || typeof p.price !== 'object' || (p.price as Obj).current == null)) continue;
-    const price = obj(p.price, 'product.price');
-    const unit = price.unit as Obj | undefined;
-    const offer = Array.isArray(p.offers) && p.offers.length ? (p.offers[0] as Obj) : null;
-    products.push(toProduct(p, unit?.label ? String(unit.label) : null));
-    prices.push({
-      productId: str(p.productId, 'product.productId'),
-      seenAt,
-      regionId,
-      source,
-      originalGrosze: price.original ? money(price.original, 'price.original') : null,
-      currentGrosze: money(price.current, 'price.current'),
-      unitCurrentGrosze: unit?.current ? money(unit.current, 'price.unit.current') : null,
-      offerText: offer ? cleanText(str(offer.description, 'offer.description')) : null,
-      requiredQuantity: offer && typeof offer.requiredProductQuantity === 'number' ? offer.requiredProductQuantity : null,
-    });
+    try {
+      const p = obj(e, 'productEntities[]');
+      if (opts.skipUnpriced && (p.price == null || typeof p.price !== 'object' || (p.price as Obj).current == null)) continue;
+      const price = obj(p.price, 'product.price');
+      const unit = price.unit as Obj | undefined;
+      const offer = Array.isArray(p.offers) && p.offers.length ? (p.offers[0] as Obj) : null;
+      const product = toProduct(p, unit?.label ? String(unit.label) : null);
+      const observation: PriceObservation = {
+        productId: str(p.productId, 'product.productId'),
+        seenAt,
+        regionId,
+        source,
+        originalGrosze: price.original ? money(price.original, 'price.original') : null,
+        currentGrosze: money(price.current, 'price.current'),
+        unitCurrentGrosze: unit?.current ? money(unit.current, 'price.unit.current') : null,
+        offerText: offer ? cleanText(str(offer.description, 'offer.description')) : null,
+        requiredQuantity: offer && typeof offer.requiredProductQuantity === 'number' ? offer.requiredProductQuantity : null,
+      };
+      products.push(product);
+      prices.push(observation);
+    } catch (err) {
+      // On a search page one malformed product is left out; everywhere else the shape is checked strictly.
+      if (!(opts.skipMalformed && err instanceof ShapeError)) throw err;
+    }
   }
   return { regionId, products, prices };
 }
@@ -212,7 +223,7 @@ export function parseSearchState(
   term: string,
   seenAt: string = new Date().toISOString(),
 ): { term: string; regionId: string; products: Product[]; prices: PriceObservation[] } {
-  return { term, ...readEntities(state, seenAt, 'search', { limit: SEARCH_RESULT_CAP, skipUnpriced: true }) };
+  return { term, ...readEntities(state, seenAt, 'search', { limit: SEARCH_RESULT_CAP, skipUnpriced: true, skipMalformed: true }) };
 }
 
 export function parseCompletedOrdersPage(json: unknown): {

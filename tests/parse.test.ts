@@ -365,3 +365,28 @@ test('parseSearchState rejects a state without a region or products', () => {
   assert.throws(() => parseSearchState(null, 'x'), ShapeError);
   assert.throws(() => parseSearchState({ session: { metadata: { regionId: 'r' } }, data: {} }, 'x'), ShapeError);
 });
+
+test('category path, size and unit label are cleaned of control characters and cut to 200 characters', () => {
+  const state = fx('search-state.json');
+  const first = Object.values(state.data.products.productEntities)[0] as any;
+  first.categoryPath = ['Dział‮\u0007', 'x'.repeat(500)];
+  first.size = { value: `  1\u001b[31m kg${'y'.repeat(500)} ` };
+  first.price.unit.label = `fop.\u0000${'z'.repeat(500)}`;
+  const p = parseSearchState(state, 'x').products[0];
+  assert.equal(p.categoryPath[0], 'Dział');
+  assert.equal(p.categoryPath[1].length, 200);
+  assert.ok(!/[\u0000-\u001f‮]/.test(p.size!) && p.size!.length === 200);
+  assert.ok(!/\u0000/.test(p.unitLabel!) && p.unitLabel!.length === 200);
+});
+
+test('one malformed product on a search page is skipped, the others are kept', () => {
+  const state = fx('search-state.json');
+  const entities = state.data.products.productEntities as Record<string, any>;
+  const ids = Object.keys(entities);
+  entities[ids[1]].price.current = { amount: 'not money' };
+  entities[ids[2]].name = '';
+  const r = parseSearchState(state, 'x');
+  assert.deepEqual(r.products.map((p) => p.productId), [ids[0], ids[3]]);
+  assert.equal(r.prices.length, 2);
+  assert.throws(() => parsePromotionsState(state, '2026-11-01T10:00:00Z'), ShapeError, 'other pages stay strict');
+});
