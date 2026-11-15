@@ -47,6 +47,7 @@ async function start(fail = false) {
   writeFileSync(join(publicDir, 'index.html'), '<html>hi</html>');
   writeFileSync(join(publicDir, 'app.js'), 'x');
   writeFileSync(join(publicDir, 'app.css'), 'y');
+  writeFileSync(join(publicDir, 'theme.js'), 'z');
   writeFileSync(join(publicDir, 'icon.svg'), '<svg/>');
   writeFileSync(join(publicDir, 'shopping.svg'), '<svg/>');
   writeFileSync(join(publicDir, 'secret.txt'), 'nope');
@@ -333,6 +334,18 @@ test('icon.svg is served as an SVG with the security headers', async () => {
     assert.match(r.headers.get('content-type') ?? '', /^image\/svg\+xml/);
     assert.match(r.headers.get('content-security-policy') ?? '', /default-src 'self'/);
     assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
+  } finally { s.close(); }
+});
+
+test('theme.js is served as JavaScript with the security headers', async () => {
+  const s = await start();
+  try {
+    const r = await fetch(s.base + `/theme.js?t=${TOKEN}`);
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get('content-type') ?? '', /^application\/javascript/);
+    assert.match(r.headers.get('content-security-policy') ?? '', /script-src 'self'/);
+    assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(await r.text(), 'z');
   } finally { s.close(); }
 });
 

@@ -1,6 +1,8 @@
-export const STEPS = ['Dane', 'Szkic', 'Doprecyzowanie', 'Zatwierdzenie', 'Koszyk', 'Płatność'];
+export const STEPS = ['Dane', 'Lista', 'Przegląd', 'Doprecyzowanie', 'Zatwierdzenie', 'Koszyk', 'Płatność'];
+// The server keeps six steps; its 'szkic' is Lista without lines and Przegląd with lines (see stepIndexOf).
 const KEYS = ['dane', 'szkic', 'doprecyzowanie', 'zatwierdzenie', 'koszyk', 'platnosc'];
-const HELP = ['Sprawdź świeżość danych lub odśwież historię zakupów.', 'Wklej listę i sprawdź dobrane produkty.', 'Wybierz produkt przy niepewnych dopasowaniach.', 'Sprawdź całą listę przed dodaniem do koszyka.', 'Obserwuj dodawanie produktów.', 'Przejrzyj raport i przejdź do płatności w Auchan.'];
+const FIRST_CART = 5;
+const HELP = ['Sprawdź świeżość danych lub odśwież historię zakupów.', 'Wklej listę zakupów i poproś o szkic.', 'Sprawdź dobrane produkty i napisz, co zmienić.', 'Wybierz produkt przy niepewnych dopasowaniach.', 'Sprawdź całą listę przed dodaniem do koszyka.', 'Obserwuj dodawanie produktów.', 'Przejrzyj raport i przejdź do płatności w Auchan.'];
 const REASONS = {
   'not bought before': 'nie kupowano wcześniej', 'term only in the flavour': 'nazwa występuje tylko w opisie smaku',
   'pet product': 'produkt dla zwierząt', 'term not at the start of the name': 'nazwa produktu nie zaczyna się od szukanego słowa',
@@ -23,8 +25,7 @@ export function applyTheme(root, theme) {
   if (theme === 'light' || theme === 'dark') root.dataset.theme = theme; else delete root.dataset.theme;
 }
 function browserStorage() { try { return globalThis.localStorage; } catch { return undefined; } }
-// Applied while the module loads, before the first render, so the page does not flash the wrong palette.
-if (typeof document !== 'undefined') applyTheme(document.documentElement, readTheme(browserStorage()));
+// The first application happens in theme.js (a blocking script in the head), so the page does not flash the wrong palette.
 
 function setupThemeSwitch() {
   const buttons = [...document.querySelectorAll('[data-theme-choice]')];
@@ -45,7 +46,25 @@ const BLOCKED_TEXT = 'Auchan odrzucił zapytanie. Nie zatwierdzaj ponownie — s
 
 /** Which tab to show after the trip moved: a tab beyond the trip's step (cart, payment) follows the trip back. */
 export function nextSelected(selected, stepIndex, first = false) {
-  return first || selected >= 4 || stepIndex >= 4 ? stepIndex : selected;
+  return first || selected >= FIRST_CART || stepIndex >= FIRST_CART ? stepIndex : selected;
+}
+
+/** The tab shown when a note is done: Przegląd, unless the trip is already in the cart or paid. */
+export function afterNote(stepIndex) { return stepIndex >= FIRST_CART ? stepIndex : 2; }
+
+/** Where Dalej on Przegląd goes: Doprecyzowanie while something is open, else straight to Zatwierdzenie. */
+export function reviewNext(model) { return model.questions.length > 0 || model.proposalPending ? 3 : 4; }
+
+/** Lista's note about a draft that already exists; null when there is none. */
+export function listNotice(count) {
+  return count > 0 ? { text: `Masz już ułożony szkic (${plural(count, 'produkt', 'produkty', 'produktów')}) — `, link: 'Przejdź do przeglądu →' } : null;
+}
+
+/** Page step (0..6) of a trip: the server's 'szkic' is Lista (1) with no lines and Przegląd (2) with lines. */
+function stepIndexOf(trip) {
+  const i = Math.max(0, KEYS.indexOf(trip?.step));
+  if (i === 1) return (trip.lines || []).length ? 2 : 1;
+  return i > 1 ? i + 1 : i;
 }
 
 /** While Claude works on a note or a command, both buttons stay off and the page says what is happening. */
@@ -69,14 +88,14 @@ export function approveHint(model, busy) {
 export function viewModel(state) {
   const trip = state.trip || {};
   const lines = trip.lines || [];
-  const stepIndex = Math.max(0, KEYS.indexOf(trip.step));
+  const stepIndex = stepIndexOf(trip);
   const model = {
     stepIndex,
     freshnessText: state.freshness?.ageHours == null ? 'Brak pełnej synchronizacji' : `Dane sprzed ${state.freshness.ageHours} godz.`,
     lines: lines.filter((l) => l.kind === 'item'), suggestions: lines.filter((l) => l.kind === 'suggestion'),
     unmatched: trip.unmatched || [], total: lines.filter((l) => l.included).reduce((sum, l) => sum + l.lineCostGrosze, 0),
-    canApprove: stepIndex <= 3 && lines.some((l) => l.included) && !lines.some((l) => (l.included || l.held) && l.question) && !trip.proposal && !state.busy && !trip.blocked,
-    inCart: stepIndex >= 4,
+    canApprove: stepIndex <= 4 && lines.some((l) => l.included) && !lines.some((l) => (l.included || l.held) && l.question) && !trip.proposal && !state.busy && !trip.blocked,
+    inCart: stepIndex >= FIRST_CART,
     blocked: Boolean(trip.blocked),
     hasIncluded: lines.some((l) => l.included),
     questions: lines.filter((l) => (l.included || l.held) && l.question).map((l) => ({ ...l, label: lineLabel(l) })),
@@ -265,7 +284,7 @@ export function searchBlockText(block, timeZone) {
 /** The "search on Auchan" button: how many terms it covers, or a forced rerun when all were searched in the last 7 days. */
 export function searchButton(state, pending = null) {
   const search = state.search;
-  if (!search || search.block || KEYS.indexOf(state.trip?.step) >= 4) return null;
+  if (!search || search.block || stepIndexOf(state.trip) >= FIRST_CART) return null;
   const disabled = Boolean(state.busy) || pending !== null;
   if (search.terms.length > 0) return { label: `Szukaj w Auchan (${search.terms.length})`, force: false, disabled };
   if (search.recent.length > 0) return { label: `Szukaj ponownie (${search.recent.length})`, force: true, disabled };
@@ -459,22 +478,26 @@ export function start() {
 
   function renderData() {
     const box = card('1. Dane', 'Aktualna historia zakupów pomaga dobrać produkty i sprawdzić ceny.');
-    append(box, element('p', '', viewModel(state).freshnessText), button('↻ Odśwież dane', () => run('/api/sync', {})), button('Dalej: szkic →', () => { selected = 1; render(); }, 'quiet'));
+    append(box, element('p', '', viewModel(state).freshnessText), button('↻ Odśwież dane', () => run('/api/sync', {})), button('Dalej: lista →', () => { selected = 1; render(); }, 'quiet'));
     if (state.busy === 'sync') box.append(element('p', 'meta', 'Trwa synchronizacja. Jeśli otworzy się okno Auchan, zaloguj się i pozostaw je otwarte.'));
     target.append(box);
     if (logs.length) target.append(renderLogs());
   }
-  function renderDraft() {
-    const grid = element('div', 'grid');
-    const form = card('2. Szkic listy', 'Wklej listę. Możesz dopisać ilość na końcu każdego wiersza.');
+  function renderList() {
+    const form = card('2. Lista', 'Wklej listę. Możesz dopisać ilość na końcu każdego wiersza.');
+    const notice = listNotice(state.trip.lines.length);
+    if (notice) append(form, append(element('p', 'message', notice.text), button(notice.link, () => { selected = 2; render(); }, 'link-button')));
     const note = element('textarea'); note.value = draftForm.note ?? state.trip.note ?? ''; note.placeholder = 'mleko 2\nchleb\nmąka pszenna 1'; note.setAttribute('aria-label', 'Lista zakupów'); note.addEventListener('input', () => { draftForm.note = note.value; });
     const usual = element('input'); usual.type = 'checkbox'; usual.id = 'usual'; usual.checked = draftForm.usual; usual.addEventListener('change', () => { draftForm.usual = usual.checked; });
     const usualLabel = element('label', 'check'); append(usualLabel, usual, element('span', '', 'Dodaj to, co zwykle kupuję'));
     const budget = element('input'); budget.type = 'text'; budget.inputMode = 'decimal'; budget.placeholder = 'Opcjonalnie'; budget.id = 'budget'; budget.value = draftForm.budget; budget.addEventListener('input', () => { draftForm.budget = budget.value; });
     const budgetLabel = element('label', '', 'Budżet w zł'); budgetLabel.htmlFor = 'budget';
     append(form, note, usualLabel, budgetLabel, budget,
-      button('Ułóż szkic →', async () => { const parsed = parseBudget(budget.value); if (!parsed.ok) { tell(parsed.error); return; } const body = { note: note.value, includeUsual: usual.checked }; if (parsed.grosze !== undefined) body.budgetGrosze = parsed.grosze; await withClaude('note', async () => { const result = await run('/api/note', body, (m) => failureText('note', m)); if (result) { selected = Math.max(1, viewModel(state).stepIndex); tell(doneSummary(viewModel(state))); } }); }, 'button', state.busy === 'fill' || state.busy === 'search' || claudeStatus(pending).disableNote));
-    const results = card('Wybrane produkty', 'Sprawdź nazwę, ilość i ocenę dopasowania.');
+      button('Ułóż szkic →', async () => { const parsed = parseBudget(budget.value); if (!parsed.ok) { tell(parsed.error); return; } const body = { note: note.value, includeUsual: usual.checked }; if (parsed.grosze !== undefined) body.budgetGrosze = parsed.grosze; await withClaude('note', async () => { const result = await run('/api/note', body, (m) => failureText('note', m)); if (result) { selected = afterNote(viewModel(state).stepIndex); render(); tell(doneSummary(viewModel(state))); } }); }, 'button', state.busy === 'fill' || state.busy === 'search' || claudeStatus(pending).disableNote));
+    target.append(form);
+  }
+  function renderDraft() {
+    const results = card('3. Przegląd', 'Sprawdź nazwę, ilość i ocenę dopasowania.');
     const model = viewModel(state);
     const blockedNotice = state.trip.messages?.find((m) => m.startsWith('Pominięto zablokowane produkty:'));
     if (blockedNotice) results.append(element('p', 'message blocked', `⛔ ${blockedNotice}`));
@@ -490,13 +513,13 @@ export function start() {
       model.unmatched.forEach((item) => results.append(unmatchedNode(item)));
     }
     if (model.lines.length) results.append(element('div', 'total row', `Szacowana kwota: ${zl(model.total)}`));
-    append(grid, form, results); target.append(grid);
-    if (state.trip.lines.length) target.append(button('Dalej: doprecyzowanie →', () => { selected = 2; render(); }, 'quiet'));
+    target.append(results);
+    if (state.trip.lines.length) { const next = reviewNext(model); target.append(button(next === 4 ? 'Dalej: zatwierdzenie →' : 'Dalej: doprecyzowanie →', () => { selected = next; render(); }, 'quiet')); }
   }
   function renderQuestions() {
     const model = viewModel(state);
     const info = describeQuestions(model);
-    const box = card('3. Doprecyzowanie', 'Wybierz produkt tam, gdzie dopasowanie wymaga Twojej decyzji.');
+    const box = card('4. Doprecyzowanie', 'Wybierz produkt tam, gdzie dopasowanie wymaga Twojej decyzji.');
     if (info.intro) box.append(element('p', 'message', info.intro));
     if (info.empty) box.append(element('p', 'empty', info.empty));
     target.append(box);
@@ -505,28 +528,28 @@ export function start() {
     const find = model.unmatched.length || state.search?.terms?.length || state.search?.recent?.length ? searchButtonNode() : null;
     if (find) target.append(find);
     model.unmatched.forEach((item) => target.append(unmatchedNode(item)));
-    target.append(button('Dalej: zatwierdzenie →', () => { selected = 3; render(); }, 'quiet', !info.canContinue));
+    target.append(button('Dalej: zatwierdzenie →', () => { selected = 4; render(); }, 'quiet', !info.canContinue));
   }
   function renderReview() {
     const model = viewModel(state);
-    const box = card('4. Zatwierdzenie', 'Ostatnia kontrola przed dodaniem produktów do koszyka Auchan.');
+    const box = card('5. Zatwierdzenie', 'Ostatnia kontrola przed dodaniem produktów do koszyka Auchan.');
     const included = state.trip.lines.filter((l) => l.included);
     included.forEach((l) => box.append(lineCardNode(l, opsFor(l))));
-    if (!included.length) box.append(element('p', 'empty', 'Lista jest pusta. Wróć do szkicu.'));
+    if (!included.length) box.append(element('p', 'empty', 'Lista jest pusta. Wróć do listy.'));
     if (model.unmatched.length) append(box, element('h3', '', 'Do dodania ręcznie w Auchan'), ...model.unmatched.flatMap((u) => [element('p', 'meta', unmatchedText(u)), searchLink(u.term)]), element('p', 'meta', MANUAL_HINT));
-    append(box, element('div', 'total', `Szacowana kwota: ${zl(model.total)}`), model.inCart ? element('p', 'meta', 'Te zakupy są już w koszyku. Zacznij nowe zakupy, żeby dodać coś jeszcze.') : button('✓ Zatwierdź i dodaj do koszyka', async () => { const result = await run('/api/approve', {}); if (result?.started) { selected = 4; render(); } }, 'button', !model.canApprove));
+    append(box, element('div', 'total', `Szacowana kwota: ${zl(model.total)}`), model.inCart ? element('p', 'meta', 'Te zakupy są już w koszyku. Zacznij nowe zakupy, żeby dodać coś jeszcze.') : button('✓ Zatwierdź i dodaj do koszyka', async () => { const result = await run('/api/approve', {}); if (result?.started) { selected = 5; render(); } }, 'button', !model.canApprove));
     if (!model.canApprove && !model.inCart && model.approveHint) box.append(element('p', 'meta', model.approveHint));
     target.append(box);
   }
   function renderLogs() { const box = card('Dziennik'); logs.slice(-20).forEach((l) => box.append(element('p', 'message', l))); return box; }
   function renderCart() {
-    const box = card('5. Koszyk', 'Produkty są dodawane partiami. Możesz obserwować postęp.');
+    const box = card('6. Koszyk', 'Produkty są dodawane partiami. Możesz obserwować postęp.');
     const bar = element('progress'); bar.max = Math.max(progress.total, 1); bar.value = progress.sent; bar.setAttribute('aria-label', 'Postęp dodawania produktów do koszyka');
     append(box, bar, element('p', 'meta', `${progress.sent} z ${progress.total} produktów`)); target.append(box);
     if (logs.length) target.append(renderLogs());
   }
   function renderPayment() {
-    const box = card('6. Płatność', 'Sprawdź raport, potem przejdź do Auchan. Aplikacja nie składa zamówienia ani nie płaci.');
+    const box = card('7. Płatność', 'Sprawdź raport, potem przejdź do Auchan. Aplikacja nie składa zamówienia ani nie płaci.');
     const reportText = report?.text || state.trip.reportText;
     if (reportText) {
       let group = null;
@@ -600,7 +623,7 @@ export function start() {
   }
   function renderProposal() {
     const proposal = state.trip.proposal;
-    if (!proposal || ![1, 2, 3].includes(selected)) return;
+    if (!proposal || ![2, 3].includes(selected)) return;
     const view = proposalView(state.trip);
     const box = card('Claude proponuje zmiany', 'Przy produktach widać każdą zmianę osobno — możesz ją wziąć albo zostawić obecny wybór.');
     const note = proposalNote(state.trip);
@@ -624,7 +647,7 @@ export function start() {
     target.append(box);
   }
   function renderAsk() {
-    if (![1, 2, 3].includes(selected) || !state.trip.lines.length) return;
+    if (![2, 3].includes(selected) || !state.trip.lines.length) return;
     const box = card('Powiedz, co zmienić', 'Możesz opisać zmianę własnymi słowami. Zobaczysz propozycję przed zastosowaniem.');
     const input = element('textarea', 'short-textarea'); input.setAttribute('aria-label', 'Polecenie dla Claude'); input.placeholder = 'Na przykład: wybierz większe opakowanie sera';
     input.value = draftForm.ask; input.addEventListener('input', () => { draftForm.ask = input.value; });
@@ -640,9 +663,9 @@ export function start() {
     showSearch(); renderSteps(model); target.replaceChildren();
     if (rulesOpen) { void renderRules(version); return; }
     renderProposal();
-    [renderData, renderDraft, renderQuestions, renderReview, renderCart, renderPayment][selected]();
+    [renderData, renderList, renderDraft, renderQuestions, renderReview, renderCart, renderPayment][selected]();
     renderAsk();
-    const messages = (state.trip.messages || []).filter((m) => selected !== 1 || !m.startsWith('Pominięto zablokowane produkty:')).slice(-4);
+    const messages = (state.trip.messages || []).filter((m) => selected !== 2 || !m.startsWith('Pominięto zablokowane produkty:')).slice(-4);
     if (messages.length) {
       const box = card('Wskazówki'); messages.forEach((m) => box.append(element('p', 'message', m))); target.append(box);
     }
@@ -651,9 +674,9 @@ export function start() {
   const events = new EventSource(`/api/events?t=${encodeURIComponent(token)}`);
   events.addEventListener('state', () => { void refresh(); });
   events.addEventListener('working', (event) => { if (working !== null) { working.text = JSON.parse(event.data).text; showWorking(); } });
-  events.addEventListener('progress', (event) => { progress = JSON.parse(event.data); if (selected === 4) render(); });
-  events.addEventListener('log', (event) => { logs.push(JSON.parse(event.data).text); if (selected === 4 || selected === 0) render(); });
-  events.addEventListener('report', (event) => { report = JSON.parse(event.data).report; selected = 5; render(); });
+  events.addEventListener('progress', (event) => { progress = JSON.parse(event.data); if (selected === 5) render(); });
+  events.addEventListener('log', (event) => { logs.push(JSON.parse(event.data).text); if (selected === 5 || selected === 0) render(); });
+  events.addEventListener('report', (event) => { report = JSON.parse(event.data).report; selected = 6; render(); });
   events.addEventListener('search', (event) => { searchEvent = JSON.parse(event.data); showSearch(); if (searchEvent.status === 'done' || searchEvent.status === 'stopped') void refresh(); });
   events.addEventListener('done', () => { void refresh(); });
   void refresh();

@@ -34,3 +34,6 @@ export function normalizeTheme(value: unknown): 'system' | 'light' | 'dark';
 export function readTheme(storage: { getItem(key: string): string | null } | undefined | null): 'system' | 'light' | 'dark';
 export function saveTheme(storage: { setItem(key: string, value: string): void }, theme: string): boolean;
 export function applyTheme(root: { dataset: Record<string, string | undefined> }, theme: string): void;
+export function afterNote(stepIndex: number): number;
+export function reviewNext(model: any): number;
+export function listNotice(count: number): { text: string; link: string } | null;

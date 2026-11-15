@@ -1,15 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice } from '../public/app.js';
 
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,
   reason: 'bought before', confidence: 'medium', confidenceReason: 'not bought before', included: true, kind: 'item',
   question: { text: 'Która?', options: ['a'] }, candidates: [{ productId: 'a', name: 'Mąka pszenna' }] };
 
-test('the six steps and money formatter are stable', () => {
-  assert.equal(STEPS.length, 6);
-  assert.equal(progressLine(2), '[1 Dane ✓] → [2 Szkic ✓] → [3 Doprecyzowanie •] → [4 Zatwierdzenie] → [5 Koszyk] → [6 Płatność]');
+test('the seven steps and money formatter are stable', () => {
+  assert.equal(STEPS.length, 7);
+  assert.equal(progressLine(3), '[1 Dane ✓] → [2 Lista ✓] → [3 Przegląd ✓] → [4 Doprecyzowanie •] → [5 Zatwierdzenie] → [6 Koszyk] → [7 Płatność]');
   assert.equal(zl(1259), '12,59 zł');
 });
 
@@ -42,7 +42,40 @@ test('page loads same-origin assets and never injects untrusted HTML', () => {
 
 const tripAt = (step: string, extra: object = {}) => ({ trip: { step, lines: [{ ...line, question: null }], proposal: null, unmatched: [], messages: [], ...extra }, freshness: { ageHours: 2 } });
 
-test('approving is only possible up to the review step', () => {
+test('the server step szkic lands on Przegląd with lines and on Lista without; later steps shift by one', () => {
+  const at = (step: string, lines: object[]) => viewModel({ trip: { step, lines, proposal: null, unmatched: [], messages: [] } }).stepIndex;
+  assert.equal(at('dane', []), 0);
+  assert.equal(at('szkic', []), 1);
+  assert.equal(at('szkic', [line]), 2);
+  assert.equal(at('doprecyzowanie', [line]), 3);
+  assert.equal(at('zatwierdzenie', [line]), 4);
+  assert.equal(at('koszyk', [line]), 5);
+  assert.equal(at('platnosc', [line]), 6);
+});
+
+test('after a note the page shows Przegląd unless the trip is already in the cart or paid', () => {
+  assert.equal(afterNote(1), 2);
+  assert.equal(afterNote(2), 2);
+  assert.equal(afterNote(3), 2, 'open questions are reached with Dalej');
+  assert.equal(afterNote(4), 2);
+  assert.equal(afterNote(5), 5);
+  assert.equal(afterNote(6), 6);
+});
+
+test('Dalej on Przegląd goes to Doprecyzowanie, or straight to Zatwierdzenie when nothing is open', () => {
+  assert.equal(reviewNext({ questions: [], proposalPending: false }), 4);
+  assert.equal(reviewNext({ questions: [line], proposalPending: false }), 3);
+  assert.equal(reviewNext({ questions: [], proposalPending: true }), 3);
+});
+
+test('Lista tells about an existing draft and offers Przegląd', () => {
+  assert.equal(listNotice(0), null);
+  assert.deepEqual(listNotice(1), { text: 'Masz już ułożony szkic (1 produkt) — ', link: 'Przejdź do przeglądu →' });
+  assert.equal(listNotice(3)!.text, 'Masz już ułożony szkic (3 produkty) — ');
+  assert.equal(listNotice(5)!.text, 'Masz już ułożony szkic (5 produktów) — ');
+});
+
+test('approving is only possible up to the approval step', () => {
   assert.equal(viewModel(tripAt('zatwierdzenie')).canApprove, true);
   for (const step of ['koszyk', 'platnosc']) {
     const model = viewModel(tripAt(step));
@@ -80,11 +113,11 @@ test('an unmatched term keeps Claude\'s hint', () => {
 });
 
 test('a tab beyond the trip follows the trip back after a failed fill', () => {
-  assert.equal(nextSelected(4, 3), 3, 'cart tab after the fill failed');
-  assert.equal(nextSelected(5, 3), 3);
-  assert.equal(nextSelected(3, 4), 4, 'the fill started');
-  assert.equal(nextSelected(1, 3), 1, 'the user browsing earlier tabs is left alone');
-  assert.equal(nextSelected(0, 3, true), 3, 'first load');
+  assert.equal(nextSelected(5, 4), 4, 'cart tab after the fill failed');
+  assert.equal(nextSelected(6, 4), 4);
+  assert.equal(nextSelected(4, 5), 5, 'the fill started');
+  assert.equal(nextSelected(1, 4), 1, 'the user browsing earlier tabs is left alone');
+  assert.equal(nextSelected(0, 4, true), 4, 'first load');
 });
 
 test('while Claude works both buttons are off and the page says what happens', () => {
@@ -466,4 +499,32 @@ test('both palettes keep text at 4.5:1 and dark borders and focus at 3:1', () =>
   }
   for (const bg of ['surface', 'bg']) assert.ok(ratio(dark.line, dark[bg]) >= 3, `dark line/${bg}`);
   assert.ok(ratio(dark.field, dark.surface) >= 3, 'dark field');
+});
+
+test('theme.js is a blocking classic script in the head before the stylesheet', () => {
+  const html = readFileSync('public/index.html', 'utf8');
+  const tag = html.match(/<script[^>]*src="\/theme\.js[^>]*>/)?.[0] ?? '';
+  assert.ok(tag, 'theme.js is loaded');
+  assert.doesNotMatch(tag, /type="module"|defer|async/);
+  assert.ok(html.indexOf('/theme.js') < html.indexOf('/app.css'), 'before the stylesheet');
+  assert.ok(html.indexOf('/theme.js') < html.indexOf('</head>'), 'in the head');
+});
+
+test('theme.js applies the stored theme to the root and ignores broken storage', async () => {
+  const { runInNewContext } = await import('node:vm');
+  const src = readFileSync('public/theme.js', 'utf8');
+  const run = (storage: unknown) => {
+    const root = { dataset: {} as Record<string, string> };
+    runInNewContext(src, { document: { documentElement: root }, localStorage: storage });
+    return root.dataset.theme;
+  };
+  assert.equal(run({ getItem: () => 'dark' }), 'dark');
+  assert.equal(run({ getItem: () => 'light' }), 'light');
+  assert.equal(run({ getItem: () => 'system' }), undefined);
+  assert.equal(run({ getItem: () => 'purple' }), undefined);
+  assert.equal(run({ getItem() { throw new Error('denied'); } }), undefined);
+});
+
+test('app.js leaves the first theme application to theme.js', () => {
+  assert.doesNotMatch(readFileSync('public/app.js', 'utf8'), /^if \(typeof document !== 'undefined'\) applyTheme/m);
 });
