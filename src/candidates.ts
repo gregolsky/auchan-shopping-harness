@@ -27,7 +27,9 @@ export function matchesTerm(term: string, f: Pick<ProductFacts, 'name' | 'brand'
 /** Whether a normalised name word meets a normalised term word under the stem rule above. */
 function wordMatcher(w: string): (h: string) => boolean {
   const stem = w.length >= 4 ? w.replace(/[aeiouy]$/, '') : w;
-  return (h) => h.startsWith(stem) && h.length >= Math.min(w.length, 4) && h.length <= stem.length + 2;
+  // A stem under 4 letters ("mak" from "maka") would otherwise meet brand words such as "Makar", so it allows one extra letter only.
+  const extra = w.length >= 4 && stem.length < 4 ? 1 : 2;
+  return (h) => h.startsWith(stem) && h.length >= Math.min(w.length, 4) && h.length <= stem.length + extra;
 }
 
 const FLAVOUR_WORDS = new Set(['smaku', 'smak', 'aromat', 'aromatem', 'aromacie', 'smakowy', 'smakowe', 'smakowa', 'aromatyzowany', 'aromatyzowana', 'aromatyzowane']);

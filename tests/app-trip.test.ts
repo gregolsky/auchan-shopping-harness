@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   emptyTrip, tripFromDraft, applyOps, answer, setIncluded, openQuestions, needsQuestion,
-  approvedLines, totalGrosze, saveTrip, loadTrip, lineViews, lineKeyFor, chooseProduct, dropUnmatched,
+  approvedLines, totalGrosze, saveTrip, loadTrip, lineViews, lineKeyFor, chooseProduct, dropUnmatched, moveToUnmatched,
 } from '../src/app/trip.ts';
 import type { Draft, DraftLine } from '../src/draft.ts';
 
@@ -281,13 +281,13 @@ test('a low-confidence term line is held back with a question until the user ans
   assert.equal(t.lines[1]!.question, null);
 });
 
-test('options put the highest confidence first and fall back to the chosen product', () => {
+test('options put the highest confidence first and never offer a low candidate, not even the held product', () => {
   const d = draft();
   d.items[0] = dl({
     term: 'kurczak', productId: 'K', name: 'Pasztet z kurczaka', confidence: 'low',
     alternatives: [{ productId: 'L', name: 'Low', lineCostGrosze: 100, confidence: 'low' }, { productId: 'H', name: 'High', lineCostGrosze: 100, confidence: 'high' }],
   });
-  assert.deepEqual(tripFromDraft(emptyTrip(NOW), d, {}).lines[0]!.question!.options, ['H', 'K', 'L']);
+  assert.deepEqual(tripFromDraft(emptyTrip(NOW), d, {}).lines[0]!.question!.options, ['H']);
 });
 
 test('answering a held-back line with a product includes it, and skipping removes it', () => {
@@ -391,4 +391,24 @@ test('dropUnmatched removes one term by its normalised form', () => {
   const t = { ...base(), unmatched: [{ term: 'Kawior', hint: '' }, { term: 'trufle', hint: 'x' }] };
   assert.deepEqual(dropUnmatched(t, 'kawior').unmatched, [{ term: 'trufle', hint: 'x' }]);
   assert.equal(dropUnmatched(t, 'nic').unmatched.length, 2);
+});
+
+test('a held line with only low candidates asks with no options', () => {
+  const d = draft();
+  d.items[0] = dl({
+    term: 'pierś z kurczaka', productId: 'K', name: 'Przysmak dla psa', confidence: 'low',
+    alternatives: [{ productId: 'L', name: 'Low', lineCostGrosze: 100, confidence: 'low' }],
+  });
+  assert.deepEqual(tripFromDraft(emptyTrip(NOW), d, {}).lines[0]!.question!.options, []);
+});
+
+test('moveToUnmatched removes the line, records a removal and lists the term for adding by hand', () => {
+  const d = draft();
+  d.items[0] = dl({ term: 'pierś z kurczaka', productId: 'K', name: 'Przysmak', confidence: 'low' });
+  const t = tripFromDraft(emptyTrip(NOW), d, {});
+  const r = moveToUnmatched(t, t.lines[0]!.lineKey);
+  assert.equal(r.trip.lines.some((l) => l.term === 'pierś z kurczaka'), false);
+  assert.deepEqual(r.trip.unmatched.at(-1), { term: 'pierś z kurczaka', hint: '' });
+  assert.deepEqual(r.corrections, [{ term: 'pierś z kurczaka', proposedProductId: 'K', chosenProductId: null }]);
+  assert.equal(moveToUnmatched(t, 'nope').trip, t);
 });

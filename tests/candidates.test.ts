@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchConfidence, rankCandidates } from '../src/candidates.ts';
+import { matchConfidence, matchesTerm, rankCandidates } from '../src/candidates.ts';
 import { openStore } from '../src/store.ts';
 import type { ProductFacts, IntentRule } from '../src/store.ts';
 
@@ -371,4 +371,10 @@ test('the draft ranks a fillet above a sausage made from the same meat', () => {
   const r = rankCandidates('pierś z kurczaka', 1, facts, null);
   assert.deepEqual(ids(r), ['fillet', 'sausage']);
   assert.deepEqual([r[0].confidence, r[1].confidence], ['medium', 'low']);
+});
+
+test('a short stem does not match a longer brand word: "mąka" misses "Makar" but meets "Mąka pszenna"', () => {
+  assert.equal(matchesTerm('mąka', { name: 'Ryż preparowany Makar 200 g', brand: 'Makar' }), false);
+  assert.equal(matchesTerm('mąka', { name: 'Mąka pszenna typ 650', brand: 'Szymanowska' }), true);
+  assert.equal(matchesTerm('mąkę', { name: 'Mąka pszenna typ 650', brand: 'Szymanowska' }), true);
 });

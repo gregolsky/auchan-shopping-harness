@@ -112,6 +112,7 @@ const ROUTES: Record<string, Route> = {
     if (b.productId !== null && typeof b.productId !== 'string') throw bad();
     return s.answer(key(b.lineKey), b.productId === null ? null : key(b.productId));
   }),
+  '/api/line/by-hand': post((s, b) => s.addByHand(key(b.lineKey))),
   '/api/line': post((s, b) => {
     const lineKey = key(b.lineKey);
     if (b.productId !== undefined) {

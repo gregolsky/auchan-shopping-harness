@@ -58,11 +58,21 @@ function tripLine(d: DraftLine, kind: TripLine['kind'], notes: Record<string, st
 
 const CONFIDENCE_ORDER: Record<Confidence, number> = { high: 0, medium: 1, low: 2 };
 
+/** Candidate ids a question may offer, best first, at most 3. A low candidate is never offered, except the product the line currently holds. */
+export function questionOptions(l: TripLine): string[] {
+  return l.candidates
+    .map((c, i) => ({ c, i }))
+    .filter(({ c }) => c.confidence !== 'low' || (c.productId === l.productId && l.held !== true))
+    .sort((a, b) => CONFIDENCE_ORDER[a.c.confidence] - CONFIDENCE_ORDER[b.c.confidence] || a.i - b.i)
+    .slice(0, 3)
+    .map((x) => x.c.productId);
+}
+
 /** A low match is not put in the basket silently: the line waits, out of the basket, for a product or a skip. */
 function holdLow(l: TripLine): TripLine {
   if (l.term === null || l.kind !== 'item' || l.confidence !== 'low') return l;
-  const options = [...l.candidates].sort((a, b) => CONFIDENCE_ORDER[a.confidence] - CONFIDENCE_ORDER[b.confidence]).slice(0, 3).map((c) => c.productId);
-  return { ...l, included: false, held: true, question: { text: `Nie mam pewnego dopasowania dla „${l.term}”. Wybierz produkt albo pomiń.`, options } };
+  const held = { ...l, included: false, held: true };
+  return { ...held, question: { text: `Nie mam pewnego dopasowania dla „${l.term}”. Wybierz produkt albo pomiń.`, options: questionOptions(held) } };
 }
 
 /** Adds lines for new keys only; an existing line (the user's choice, quantity, included flag) is kept untouched. */
@@ -186,6 +196,14 @@ export function chooseProduct(trip: Trip, lineKey: string, productId: string): {
   const corrections: Correction[] = line.term !== null && productId !== line.proposedProductId
     ? [{ term: line.term, proposedProductId: line.proposedProductId, chosenProductId: productId }] : [];
   return { trip: { ...trip, lines: trip.lines.map((l) => (l === line ? picked : l)) }, corrections };
+}
+
+/** The user will add the term by hand on Auchan: the line goes, the term joins the unmatched list. */
+export function moveToUnmatched(trip: Trip, lineKey: string): { trip: Trip; corrections: Correction[] } {
+  const line = trip.lines.find((l) => l.lineKey === lineKey);
+  if (line === undefined || line.term === null) return { trip, corrections: [] };
+  const r = answer(trip, lineKey, null);
+  return { trip: applyOps(r.trip, [{ op: 'unmatched', term: line.term, hint: '' }]).trip, corrections: r.corrections };
 }
 
 export function dropUnmatched(trip: Trip, term: string): Trip {

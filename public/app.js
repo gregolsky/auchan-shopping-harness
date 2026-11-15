@@ -162,7 +162,7 @@ export function lineCard(line, ops = []) {
     badge: { text: badgeText(line), level: line.held ? 'low' : line.confidence, reason: doubtful ? confidenceReasonText(line.confidenceReason) : null },
     proposals,
     question: line.question ? { text: line.question.text, options: asked } : null,
-    alternatives: line.question ? [] : (line.candidates || []).filter((c) => c.productId !== line.productId).slice(0, 3).map(mini),
+    alternatives: line.question ? [] : (line.candidates || []).filter((c) => c.productId !== line.productId && c.confidence !== 'low').slice(0, 3).map(mini),
   };
 }
 
@@ -305,6 +305,7 @@ export function start() {
       ask.append(element('p', 'question', view.question.text));
       const options = element('div', 'options');
       view.question.options.forEach((o) => options.append(option(o, () => run('/api/answer', { lineKey: line.lineKey, productId: o.productId }))));
+      if (view.question.options.length === 0) ask.append(button('Dodam sam na Auchan', () => run('/api/line/by-hand', { lineKey: line.lineKey }), 'small'));
       append(ask, options, button('Pomiń', () => run('/api/answer', { lineKey: line.lineKey, productId: null }), 'small danger'));
       node.append(ask);
     } else if (view.alternatives.length) {

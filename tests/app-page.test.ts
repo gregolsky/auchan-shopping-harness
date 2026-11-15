@@ -277,3 +277,10 @@ test('app.js builds the page with textContent only; every image has a descriptio
   assert.match(body, /loading = 'lazy'/);
   assert.doesNotMatch(js, /\.style\b|setAttribute\('style'/);
 });
+
+test('lineCard never lists a low candidate as an alternative', () => {
+  const c = (id: string, confidence: string) => ({ productId: id, name: id, lineCostGrosze: 100, confidence });
+  const card = lineCard({ lineKey: 't:x', term: 'x', name: 'a', productId: 'a', quantity: 1, lineCostGrosze: 100, confidence: 'high', confidenceReason: '', kind: 'item', included: true, question: null,
+    candidates: [c('a', 'high'), c('b', 'low'), c('c', 'medium')] } as any);
+  assert.deepEqual(card.alternatives.map((a: any) => a.productId), ['c']);
+});

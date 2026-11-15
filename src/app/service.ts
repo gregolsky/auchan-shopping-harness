@@ -18,7 +18,7 @@ import type { Spawn } from './claude.ts';
 import { parseNote } from './fallback.ts';
 import type { Op } from './ops.ts';
 import {
-  answer as answerLine, applyOps, approvedLines, chooseProduct, dropUnmatched, emptyTrip, ListProblem, loadTrip, needsQuestion, openQuestions, saveTrip, setIncluded, tripFromDraft,
+  answer as answerLine, applyOps, approvedLines, chooseProduct, dropUnmatched, emptyTrip, ListProblem, loadTrip, moveToUnmatched, needsQuestion, openQuestions, questionOptions, saveTrip, setIncluded, tripFromDraft,
 } from './trip.ts';
 import type { Correction, Trip, TripLine } from './trip.ts';
 
@@ -47,7 +47,6 @@ const FALLBACK_MESSAGE = 'Tryb bez Claude: pytam o każdą niepewną pozycję.';
 const INTERRUPTED = 'Wypełnianie przerwane — uruchom ponownie; doda tylko brakujące.';
 const MAX_MESSAGES = 200;
 const MAX_MESSAGE = 2000;
-const CONF_RANK = { high: 0, medium: 1, low: 2 };
 
 const ALREADY_IN_CART = 'Te zakupy są już w koszyku. Zacznij nowe zakupy, żeby dodać coś jeszcze.';
 const FROZEN = 'Trwa dodawanie do koszyka — poczekaj na koniec.';
@@ -170,12 +169,7 @@ export function createService(d: ServiceDeps) {
   function askEveryDoubtfulLine(t: Trip): Trip {
     const lines = t.lines.map((l): TripLine => {
       if (!l.included || l.question !== null || !needsQuestion(l)) return l;
-      const options = l.candidates
-        .map((c, i) => ({ c, i }))
-        .sort((a, b) => CONF_RANK[a.c.confidence] - CONF_RANK[b.c.confidence] || a.i - b.i)
-        .slice(0, 3)
-        .map((x) => x.c.productId);
-      return { ...l, question: { text: `Który produkt wybrać dla „${l.term ?? l.name}”?`, options } };
+      return { ...l, question: { text: `Który produkt wybrać dla „${l.term ?? l.name}”?`, options: questionOptions(l) } };
     });
     return { ...t, lines };
   }
@@ -307,6 +301,14 @@ export function createService(d: ServiceDeps) {
     answer(lineKey: string, productId: string | null): Trip {
       if (frozen()) return hold();
       const r = answerLine(trip, lineKey, productId);
+      record(r.corrections);
+      return commit(settle(r.trip));
+    },
+
+    /** The user adds the product by hand on Auchan: the term moves to the unmatched list. */
+    addByHand(lineKey: string): Trip {
+      if (frozen()) return hold();
+      const r = moveToUnmatched(trip, lineKey);
       record(r.corrections);
       return commit(settle(r.trip));
     },
