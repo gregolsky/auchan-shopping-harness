@@ -5,11 +5,16 @@ Invoke any skill by typing `/<name>` inside a Claude Code session started from t
 
 ## Shopping app
 
-Run `npm run app` and open the printed `http://127.0.0.1` URL, including its access token. The local page guides you through **Dane → Szkic → Doprecyzowanie → Zatwierdzenie → Koszyk → Płatność**. Paste a list, review matches and suggestions, answer uncertain choices, then approve once to add products to the Auchan cart. You check the final report and pay on Auchan; this app never places an order or pays.
+`npm run app` is the main way to shop. It starts a local page with a six-step wizard: **Dane → Szkic → Doprecyzowanie → Zatwierdzenie → Koszyk → Płatność**. Paste a list, review the matches, answer the uncertain ones, then approve to add the products to the Auchan cart.
 
-Claude helps interpret the list and propose changes. It runs without tools or access to the logged-in browser. If Claude is unavailable, the app still builds a draft and asks about uncertain matches. Use `/zakupy` as the chat fallback. `npm run fill` remains available for a basket approved through the planner.
+- The server prints one URL, `http://127.0.0.1:<port>/?t=<token>`. It listens on 127.0.0.1 only and every request needs the random token, so open exactly that printed URL.
+- Claude is used through `claude -p` to read the list and propose changes. It runs with no tools, in isolation: no MCP servers, no settings or slash commands, no saved session, and an empty temporary working directory. It only proposes; nothing changes until you click Apply on a proposal.
+- Without Claude (not installed, failing or giving an unusable answer) the page shows "Tryb bez Claude": it still builds the draft and asks about every doubtful match.
+- The **Moje reguły** tab lists the choices the planner has learned (each can be removed) and the blocked products. All Mąka Szymanowska flours are blocked from the start, regardless of type or product ID. Search the local catalog there to block another product or lift the Szymanowska block. Changes are saved in `.state/harness.db` and apply to drafts, approval and cart filling; arrange the draft again after changing the list.
+- The app never pays and never places an order. The last step links to Auchan; check the cart and pay there.
+- Approve only once per trip: approving saves the basket and fills the cart, and the report is for that fill.
 
-The product blacklist initially blocks **all Mąka Szymanowska flours**, regardless of type or product ID. In **Moje reguły → Produkty zablokowane**, search the local catalog to block another product or remove the Szymanowska family block. Changes are saved in `.state/harness.db` and take effect in drafts, approval and cart filling. After changing the list, arrange the draft again.
+`/zakupy` is the chat fallback. `npm run fill` stays available for a basket approved through the planner (see the data layer section below).
 
 ## Skills
 

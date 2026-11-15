@@ -183,7 +183,7 @@ Each stage gets its own plan and is usable on its own.
 
 1. Data layer, with order and promotion sync.
 2. Planner and learning.
-3. Fast cart fill.
-4. Local app.
+3. Fast cart fill. Done 2026-11-15.
+4. Local app. Done 2026-11-15.
 
 Stage 4 adds the local shopping page; `/zakupy` remains the chat fallback.
