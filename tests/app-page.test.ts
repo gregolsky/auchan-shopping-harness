@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme } from '../public/app.js';
 
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,
   reason: 'bought before', confidence: 'medium', confidenceReason: 'not bought before', included: true, kind: 'item',
@@ -398,4 +398,72 @@ test('the page code lists the manual hint under the search links in steps 4 and 
   const js = readFileSync('public/app.js', 'utf8');
   assert.ok(js.match(/MANUAL_HINT/g)!.length >= 3, 'defined once, shown in step 2/3 cards, 4 and 6');
   assert.match(js, /\/api\/search/);
+});
+
+test('theme helpers accept only known themes and never throw on broken storage', () => {
+  assert.deepEqual(THEMES, ['system', 'light', 'dark']);
+  assert.equal(normalizeTheme('dark'), 'dark');
+  assert.equal(normalizeTheme('purple'), 'system');
+  assert.equal(normalizeTheme(null), 'system');
+  assert.equal(readTheme({ getItem: () => 'light' }), 'light');
+  assert.equal(readTheme({ getItem: () => 'nope' }), 'system');
+  const broken = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); } };
+  assert.equal(readTheme(broken), 'system');
+  assert.equal(readTheme(undefined), 'system');
+  assert.equal(saveTheme(broken, 'dark'), false);
+  const kept = new Map<string, string>();
+  const ok = { getItem: (k: string) => kept.get(k) ?? null, setItem: (k: string, v: string) => void kept.set(k, v) };
+  assert.equal(saveTheme(ok, 'dark'), true);
+  assert.equal(readTheme(ok), 'dark');
+});
+
+test('applyTheme sets data-theme for light and dark and removes it for system', () => {
+  const root = { dataset: {} as Record<string, string> };
+  applyTheme(root, 'dark');
+  assert.equal(root.dataset.theme, 'dark');
+  applyTheme(root, 'light');
+  assert.equal(root.dataset.theme, 'light');
+  applyTheme(root, 'system');
+  assert.equal('theme' in root.dataset, false);
+});
+
+test('the header has a three-button theme switch with aria-pressed', () => {
+  const html = readFileSync('public/index.html', 'utf8');
+  for (const theme of THEMES) assert.match(html, new RegExp(`<button[^>]*type="button"[^>]*data-theme-choice="${theme}"[^>]*aria-pressed="false"`));
+  assert.match(html, /role="group"[^>]*aria-label="Motyw"/);
+});
+
+test('dark palette is defined twice and no hard-coded colour sits outside the token blocks', () => {
+  const css = readFileSync('public/app.css', 'utf8');
+  assert.match(css, /@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*:root:not\(\[data-theme="light"\]\)/);
+  assert.match(css, /:root\[data-theme="dark"\]\s*\{/);
+  const outside = css.replace(/\/\*tokens\*\/[\s\S]*?\/\*end tokens\*\//g, '');
+  assert.doesNotMatch(outside, /#[0-9a-fA-F]{3,8}\b/);
+  assert.doesNotMatch(outside, /\b(?:rgba?|hsla?)\(/);
+  assert.doesNotMatch(outside, /:\s*(?:white|black)\b/);
+  assert.match(css, /body\{[^}]*background:var\(--bg\)/);
+});
+
+function ratio(a: string, b: string) {
+  const lum = (h: string) => { const c = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+  const [x, y] = [lum(a), lum(b)];
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+test('both palettes keep text at 4.5:1 and dark borders and focus at 3:1', () => {
+  const css = readFileSync('public/app.css', 'utf8');
+  const blocks = [...css.matchAll(/\/\*tokens\*\/([\s\S]*?)\/\*end tokens\*\//g)].map((m) => m[1]);
+  assert.equal(blocks.length, 3);
+  const tokens = (block: string) => Object.fromEntries([...block.matchAll(/--([\w-]+):(#[0-9a-fA-F]{6})/g)].map((m) => [m[1], m[2]]));
+  const light = tokens(blocks[0]);
+  const dark = { ...light, ...tokens(blocks[1]) };
+  assert.deepEqual(tokens(blocks[1]), tokens(blocks[2]));
+  const textPairs: [string, string][] = [['text', 'bg'], ['text', 'surface'], ['muted', 'bg'], ['muted', 'surface'], ['muted', 'mode-bg'], ['muted', 'work-bg'], ['green', 'bg'], ['green', 'surface'], ['on-accent', 'green'],
+    ['danger', 'surface'], ['active-text', 'active-bg'], ['badge-text', 'badge-bg'], ['med-text', 'med-bg'], ['low-text', 'low-bg'], ['alert-text', 'alert-bg'], ['block-text', 'block-bg'], ['text', 'row-bg'], ['text', 'prop-bg'], ['alert-text', 'prop-bg'], ['dis-text', 'dis-bg'], ['text', 'wait-bg'], ['text', 'work-bg'], ['text', 'hover-bg'], ['text', 'flash-bg'], ['text', 'msg-bg']];
+  for (const [name, palette] of [['light', light], ['dark', dark]] as const) {
+    for (const [fg, bg] of textPairs) assert.ok(ratio(palette[fg], palette[bg]) >= 4.5, `${name} ${fg}/${bg} ${ratio(palette[fg], palette[bg]).toFixed(2)}`);
+    assert.ok(ratio(palette.focus, palette.bg) >= 3 && ratio(palette.focus, palette.surface) >= 3, `${name} focus`);
+  }
+  for (const bg of ['surface', 'bg']) assert.ok(ratio(dark.line, dark[bg]) >= 3, `dark line/${bg}`);
+  assert.ok(ratio(dark.field, dark.surface) >= 3, 'dark field');
 });

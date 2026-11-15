@@ -29,3 +29,8 @@ export function auchanSearchUrl(term: string): string;
 export function searchPanel(event: any, busy: string | null, block?: { until: string; status: number } | null): any;
 export function searchBlockText(block: { until: string; status: number }, timeZone?: string): string;
 export function searchButton(state: any, pending?: string | null): any;
+export const THEMES: string[];
+export function normalizeTheme(value: unknown): 'system' | 'light' | 'dark';
+export function readTheme(storage: { getItem(key: string): string | null } | undefined | null): 'system' | 'light' | 'dark';
+export function saveTheme(storage: { setItem(key: string, value: string): void }, theme: string): boolean;
+export function applyTheme(root: { dataset: Record<string, string | undefined> }, theme: string): void;

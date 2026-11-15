@@ -8,6 +8,34 @@ const REASONS = {
   'mixed with another ingredient': 'produkt zawiera też inny składnik',
 };
 
+export const THEMES = ['system', 'light', 'dark'];
+const THEME_KEY = 'zakupy-theme';
+export function normalizeTheme(value) { return THEMES.includes(value) ? value : 'system'; }
+/** The stored choice, or 'system' when nothing valid is stored or storage throws (private window, blocked data). */
+export function readTheme(storage) {
+  try { return normalizeTheme(storage?.getItem(THEME_KEY)); } catch { return 'system'; }
+}
+export function saveTheme(storage, theme) {
+  try { storage.setItem(THEME_KEY, normalizeTheme(theme)); return true; } catch { return false; }
+}
+/** 'light' and 'dark' pin the palette; 'system' removes the attribute so prefers-color-scheme decides. */
+export function applyTheme(root, theme) {
+  if (theme === 'light' || theme === 'dark') root.dataset.theme = theme; else delete root.dataset.theme;
+}
+function browserStorage() { try { return globalThis.localStorage; } catch { return undefined; } }
+// Applied while the module loads, before the first render, so the page does not flash the wrong palette.
+if (typeof document !== 'undefined') applyTheme(document.documentElement, readTheme(browserStorage()));
+
+function setupThemeSwitch() {
+  const buttons = [...document.querySelectorAll('[data-theme-choice]')];
+  const show = (theme) => { for (const b of buttons) b.setAttribute('aria-pressed', String(b.dataset.themeChoice === theme)); };
+  show(readTheme(browserStorage()));
+  for (const b of buttons) b.addEventListener('click', () => {
+    const theme = normalizeTheme(b.dataset.themeChoice);
+    applyTheme(document.documentElement, theme); saveTheme(browserStorage(), theme); show(theme);
+  });
+}
+
 export function progressLine(index) {
   return STEPS.map((name, i) => `[${i + 1} ${name}${i < index ? ' ✓' : i === index ? ' •' : ''}]`).join(' → ');
 }
@@ -279,6 +307,7 @@ function thumb(url, alt, className = 'thumb') {
 }
 
 export function start() {
+  setupThemeSwitch();
   const token = new URL(location.href).searchParams.get('t') || '';
   const target = document.querySelector('#content');
   const steps = document.querySelector('#steps');
