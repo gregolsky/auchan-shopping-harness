@@ -1,5 +1,5 @@
 import { MAX_BATCH, MAX_QUANTITY, Rejected, UUID, type CartAccess, type CartChange, type LimitedItem } from './http-worker.ts';
-import { Blocked } from './worker.ts';
+import { Refused } from './worker.ts';
 import { compareCart, parseCart, planFill, type BasketLine, type FillReport, type LimitNote } from './cart.ts';
 
 type ParsedCart = ReturnType<typeof parseCart>;
@@ -18,7 +18,6 @@ export interface FillOptions {
 
 const sendable = (c: CartChange): boolean => UUID.test(c.productId) && Number.isInteger(c.quantity) && c.quantity >= 1 && c.quantity <= MAX_QUANTITY;
 /** Out of stock means nothing went in; a partial add or any other limit is reported as missing, with its numbers. */
-const STOP = 'Auchan refused several cart changes; stopping';
 const MAX_REJECTIONS = 3;
 const isOutOfStock = (l: LimitedItem) => l.reason === 'OUT_OF_STOCK' && l.addedAmount === 0;
 
@@ -37,9 +36,10 @@ export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOp
   let processed = 0;
   let rejections = 0;
   /** Counts a refusal; a single line refused, or the third refusal overall, means Auchan is saying no: stop. */
-  const refused = (single: boolean) => {
+  const names = new Map(basket.map((b) => [b.productId, b.name]));
+  const refused = (single: boolean, productId: string) => {
     rejections++;
-    if (single || rejections >= MAX_REJECTIONS) throw new Blocked(STOP);
+    if (single || rejections >= MAX_REJECTIONS) throw new Refused(productId, names.get(productId) ?? '');
   };
 
   const tick = (n: number) => {
@@ -63,7 +63,7 @@ export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOp
       await send(chunk);
     } catch (e) {
       if (!(e instanceof Rejected)) throw e;
-      refused(chunk.length === 1);
+      refused(chunk.length === 1, chunk[0].productId);
       // Re-plan against a fresh cart so nothing the batch may have added is added twice.
       const settled = processed + chunk.length;
       const ids = new Set(chunk.map((c) => c.productId));
@@ -73,7 +73,7 @@ export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOp
           await send([change]);
         } catch (e2) {
           if (!(e2 instanceof Rejected)) throw e2;
-          refused(true);
+          refused(true, change.productId);
         }
       }
       if (processed < settled) tick(settled - processed); // products the fresh cart already had

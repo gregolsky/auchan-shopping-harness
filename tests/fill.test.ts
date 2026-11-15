@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { fillCart } from '../src/fill.ts';
 import { ShapeError } from '../src/parse.ts';
 import { Rejected } from '../src/http-worker.ts';
-import { Blocked } from '../src/worker.ts';
+import { Blocked, Refused } from '../src/worker.ts';
 import type { BasketLine } from '../src/types.ts';
 import { fakeCart } from './helpers/fake-cart.ts';
 
@@ -38,7 +38,7 @@ test('a rejected batch is retried line by line, and a rejected single line stops
   const cart = fakeCart({}, { reject: ['00000000-0000-4000-8000-000000000002'] });
   await assert.rejects(
     fillCart(cart, [bl('00000000-0000-4000-8000-000000000001', 1), bl('00000000-0000-4000-8000-000000000002', 1), bl('00000000-0000-4000-8000-000000000003', 1)]),
-    (e: Error) => e instanceof Blocked && e.message === 'Auchan refused several cart changes; stopping',
+    (e: Error) => e instanceof Refused && e instanceof Blocked && e.productId === '00000000-0000-4000-8000-000000000002' && e.productName === 'n-00000000-0000-4000-8000-000000000002' && e.message === 'Auchan refused several cart changes; stopping',
   );
   assert.deepEqual(cart.applyCalls.map((c) => c.map((x) => x.productId)), [['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003'], ['00000000-0000-4000-8000-000000000001'], ['00000000-0000-4000-8000-000000000002']]);
 });
@@ -54,7 +54,7 @@ test('three rejections in total stop the fill even when the single lines pass', 
     return inner(c);
   };
   const basket = Array.from({ length: 50 }, (_, i) => bl(uid(i), 1));
-  await assert.rejects(fillCart(cart, basket), (e: Error) => e instanceof Blocked && /refused several/.test(e.message));
+  await assert.rejects(fillCart(cart, basket), (e: Error) => e instanceof Refused && /refused several/.test(e.message));
   assert.equal(cart.applyCalls.filter((c) => c.length > 1).length, 3);
 });
 

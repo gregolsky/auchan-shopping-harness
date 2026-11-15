@@ -27,6 +27,17 @@ export class Blocked extends Error {
     this.name = 'Blocked';
   }
 }
+/** Auchan refused a cart change (or several); the fill stopped. Carries the product, for the message to the user. */
+export class Refused extends Blocked {
+  productId: string;
+  productName: string;
+  constructor(productId: string, productName: string) {
+    super('Auchan refused several cart changes; stopping');
+    this.name = 'Refused';
+    this.productId = productId;
+    this.productName = productName;
+  }
+}
 /** Auchan said to slow down. Stops the run like Blocked; retrySeconds comes from Retry-After when sent. */
 export class RateLimited extends Blocked {
   retrySeconds?: number;

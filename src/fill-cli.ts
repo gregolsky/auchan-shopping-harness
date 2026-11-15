@@ -187,9 +187,9 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
     console.log(formatReport(report, basket.unmatched, subs, names));
     return 0;
   } catch (err) {
-    if (runId !== undefined) store?.finishFill(runId, { status: 'failed', sent: 0, missing: 0, checkBeforePaying: 0 });
+    if (runId !== undefined) store?.finishFill(runId, { status: 'failed', sent: tally.sent, missing: 0, checkBeforePaying: 0 });
     console.error(describeFailure(err, 'fill'));
-    if (!(err instanceof Blocked)) console.error(RERUN_SAFE);
+    if (!(err instanceof Blocked)) console.error(RERUN_SAFE); // Refused is a Blocked: its own text says what to do
     return 1;
   } finally {
     removeHandlers();

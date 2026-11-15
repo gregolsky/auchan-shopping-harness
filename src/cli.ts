@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openStore, type Store } from './store.ts';
-import { browserLogin, LoginRequired, Blocked, ProfileBusy, RateLimited, type Worker } from './worker.ts';
+import { browserLogin, LoginRequired, Blocked, Refused, ProfileBusy, RateLimited, type Worker } from './worker.ts';
 import { createHttpWorker } from './http-worker.ts';
 import { cleanText, ShapeError } from './parse.ts';
 import { checkOrders, syncOrders } from './sync-orders.ts';
@@ -51,6 +51,7 @@ function describe(err: unknown, action: 'sync' | 'fill'): string {
     const wait = err.retrySeconds === undefined ? 'later' : `in ${Math.max(1, Math.ceil(err.retrySeconds / 60))} min`;
     return `Auchan asked us to slow down, so the ${action} stopped. Saved data is kept; run it again ${wait}.`;
   }
+  if (err instanceof Refused) return `Auchan odrzucił zmianę koszyka (${err.productName}); zatrzymano. Część produktów mogła już trafić do koszyka — sprawdź koszyk, usuń ten produkt z listy i uruchom ponownie.`;
   if (err instanceof Blocked) return 'Auchan refused the request. Do not rerun; the request format may need review.';
   if (err instanceof ProfileBusy) return 'Browser profile is busy: close the other browser first.';
   if (err instanceof ShapeError) return `Unexpected response shape: ${err.message}`;

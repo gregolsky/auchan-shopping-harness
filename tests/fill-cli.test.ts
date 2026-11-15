@@ -296,3 +296,16 @@ test('formatReport strips terminal and bidi control characters from every untrus
   assert.doesNotMatch(text, /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/);
   for (const w of ['Jaja', 'Masło', 'Ser', 'Mleko', 'MAX', 'ser żółty', 'Masło B']) assert.ok(text.includes(w), w);
 });
+
+test('a single refused line stops the fill, names the product and records how many were sent', async (t) => {
+  const cart = fakeCart({}, { reject: [B] });
+  const { log, deps } = setup(cart);
+  quiet(t, log);
+  assert.equal(await main([], deps), 1);
+  const err = log.err.join('\n');
+  assert.match(err, /Auchan odrzucił zmianę koszyka \(Chleb\); zatrzymano\./);
+  assert.match(err, /sprawdź koszyk, usuń ten produkt z listy i uruchom ponownie/);
+  assert.doesNotMatch(err, /Ponowne uruchomienie jest bezpieczne/);
+  assert.equal(log.finished.length, 1);
+  assert.deepEqual(log.finished[0], { status: 'failed', sent: 1, missing: 0, checkBeforePaying: 0 });
+});

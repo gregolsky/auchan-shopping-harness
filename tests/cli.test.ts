@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { describeFailure, main, type Deps } from '../src/cli.ts';
 import { openStore, type Store } from '../src/store.ts';
-import { Blocked, LoginRequired, type Worker } from '../src/worker.ts';
+import { Blocked, LoginRequired, Refused, type Worker } from '../src/worker.ts';
 import { parseDecoratedOrder, ShapeError } from '../src/parse.ts';
 import { readFileSync } from 'node:fs';
 
@@ -322,4 +322,10 @@ test('sync output cleans the oldest-seen date', async (t) => {
   assert.equal(await main(['orders'], deps), 0);
   assert.match(log.out[0], /oldest seen 2026-01-02\]52;c;eA==;/);
   assert.doesNotMatch(log.out[0], /[\u0000-\u001f\u007f-\u009f\u202a-\u202e]/);
+});
+
+test('describeFailure names the refused product in fixed Polish text, cleaned; a plain 403 keeps its text', () => {
+  const text = describeFailure(new Refused('id1', 'Mleko\u001b]52;c;eA==\u0007\u202e'), 'fill');
+  assert.equal(text, 'Auchan odrzucił zmianę koszyka (Mleko]52;c;eA==); zatrzymano. Część produktów mogła już trafić do koszyka — sprawdź koszyk, usuń ten produkt z listy i uruchom ponownie.');
+  assert.equal(describeFailure(new Blocked('403'), 'fill'), 'Auchan refused the request. Do not rerun; the request format may need review.');
 });
