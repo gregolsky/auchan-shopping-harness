@@ -74,7 +74,7 @@ export function questionOptions(l: TripLine): string[] {
 function holdLow(l: TripLine): TripLine {
   if (l.term === null || l.kind !== 'item' || l.confidence !== 'low') return l;
   const held = { ...l, included: false, held: true };
-  return { ...held, question: { text: `Nie mam pewnego dopasowania dla „${l.term}”. Wybierz produkt albo pomiń.`, options: questionOptions(held) } };
+  return { ...held, question: { text: `Nie mam pewnego dopasowania dla „${l.term}”. Wybierz produkt albo zdecyduj, co z tą pozycją zrobić.`, options: questionOptions(held) } };
 }
 
 /** Adds lines for new keys only; an existing line (the user's choice, quantity, included flag) is kept untouched. */

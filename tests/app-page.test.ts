@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionNote } from '../public/app.js';
 
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,
   reason: 'bought before', confidence: 'medium', confidenceReason: 'not bought before', included: true, kind: 'item',
@@ -335,9 +335,9 @@ test('proposalNote counts the changes shown at products and names each line', ()
 });
 
 test('proposal buttons say what accepting does for each kind', () => {
-  assert.deepEqual(proposalButtons({ op: 'unmatched', term: 'x' }), { accept: 'OK, dodam sam na Auchan', skip: 'Pomiń' });
-  assert.deepEqual(proposalButtons({ op: 'add', term: 'x', quantity: 1 }), { accept: 'Dodaj do listy', skip: 'Pomiń' });
-  assert.deepEqual(proposalButtons({ op: 'remove', lineKey: 'a' }), { accept: 'Weź to', skip: 'Pomiń' });
+  assert.deepEqual(proposalButtons({ op: 'unmatched', term: 'x' }), { accept: 'OK, dodam sam na Auchan', skip: 'Odrzuć' });
+  assert.deepEqual(proposalButtons({ op: 'add', term: 'x', quantity: 1 }), { accept: 'Dodaj do listy', skip: 'Odrzuć' });
+  assert.deepEqual(proposalButtons({ op: 'remove', lineKey: 'a' }), { accept: 'Weź to', skip: 'Odrzuć' });
 });
 
 test('accept-all summary says what the number contains', () => {
@@ -527,4 +527,30 @@ test('theme.js applies the stored theme to the root and ignores broken storage',
 
 test('app.js leaves the first theme application to theme.js', () => {
   assert.doesNotMatch(readFileSync('public/app.js', 'utf8'), /^if \(typeof document !== 'undefined'\) applyTheme/m);
+});
+
+test('a product card offers explicit actions, each with what it does to the item', () => {
+  const card = (extra: object = {}) => lineCard({ ...line, question: null, candidates: [{ productId: 'a', name: 'A', confidence: 'high', lineCostGrosze: 1 }, { productId: 'b', name: 'B', confidence: 'high', lineCostGrosze: 2 }], ...extra });
+  assert.deepEqual(lineActions(card()).map((a) => a.id), ['other', 'search', 'byHand', 'remove']);
+  assert.deepEqual(lineActions(card()).map((a) => a.label), ['Wybierz inny', 'Szukaj innego w Auchan', 'Dodam sam na Auchan', 'Nie kupuję']);
+  assert.deepEqual(lineActions(card()).map((a) => a.consequence), [
+    'Pozycja zostaje na liście, zmienisz tylko produkt.',
+    'Pozycja zostaje na liście; szukasz innego produktu w Auchan.',
+    'Pozycja znika z koszyka i trafia na listę do dodania ręcznie.',
+    'Pozycja znika z tych zakupów całkiem.',
+  ]);
+  const lone = lineActions(card({ candidates: [{ productId: 'a', name: 'A', confidence: 'high', lineCostGrosze: 1 }] }));
+  assert.ok(!lone.some((a) => a.id === 'other'), 'no other candidates to choose from');
+  const asked = lineActions(lineCard({ ...line, question: { text: 'Która?', options: ['a'] } }));
+  assert.deepEqual(asked.map((a) => a.id), ['other', 'search', 'byHand', 'remove']);
+  assert.deepEqual(lineActions(lineCard({ ...line, term: null, kind: 'suggestion', question: null })), []);
+  assert.deepEqual(lineActions(lineCard({ ...line, term: null, question: null })).map((a) => a.id), ['remove'], 'no term: nothing to search or add by hand');
+  for (const a of lineActions(card())) assert.doesNotMatch(a.label, /Pomiń/);
+});
+
+test('after an action the page says the new state of the item in words', () => {
+  assert.equal(actionNote('byHand', 'chleb tostowy'), 'chleb tostowy → dodasz sam na Auchan');
+  assert.equal(actionNote('remove', 'chleb tostowy'), 'chleb tostowy — usunięty z zakupów');
+  assert.equal(actionNote('search', 'chleb tostowy'), 'chleb tostowy — zostaje na liście, szukasz innego produktu');
+  assert.equal(actionNote('other', 'chleb tostowy'), 'chleb tostowy — zostaje na liście, wybierz inny produkt');
 });

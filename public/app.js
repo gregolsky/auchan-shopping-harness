@@ -208,9 +208,9 @@ export function proposalNote(trip) {
 
 /** Button labels for a proposal row: accepting an unmatched term only means the user adds it on Auchan themselves. */
 export function proposalButtons(op) {
-  if (op.op === 'unmatched') return { accept: 'OK, dodam sam na Auchan', skip: 'Pomiń' };
-  if (op.op === 'add') return { accept: 'Dodaj do listy', skip: 'Pomiń' };
-  return { accept: 'Weź to', skip: 'Pomiń' };
+  if (op.op === 'unmatched') return { accept: 'OK, dodam sam na Auchan', skip: 'Odrzuć' };
+  if (op.op === 'add') return { accept: 'Dodaj do listy', skip: 'Odrzuć' };
+  return { accept: 'Weź to', skip: 'Odrzuć' };
 }
 
 /** One line saying what "accept all" contains. */
@@ -241,7 +241,8 @@ export function lineCard(line, ops = []) {
   const asked = line.question ? line.question.options.map(find).filter(Boolean).map(mini) : [];
   const doubtful = line.held || line.confidence !== 'high';
   return {
-    lineKey: line.lineKey, label: lineLabel(line), name: line.name, priceText: zl(line.lineCostGrosze),
+    lineKey: line.lineKey, term: line.term ?? null, hasOthers: asked.length > 0 || (line.candidates || []).some((c) => c.productId !== line.productId && c.confidence !== 'low'),
+    label: lineLabel(line), name: line.name, priceText: zl(line.lineCostGrosze),
     imageUrl: line.imageUrl || null, imageAlt: line.imageAlt || line.name,
     quantity: line.quantity, canDec: line.quantity > 1, canInc: line.quantity < 20,
     suggestion: line.kind === 'suggestion', included: Boolean(line.included), held: Boolean(line.held),
@@ -250,6 +251,29 @@ export function lineCard(line, ops = []) {
     question: line.question ? { text: line.question.text, options: asked } : null,
     alternatives: line.question ? [] : (line.candidates || []).filter((c) => c.productId !== line.productId && c.confidence !== 'low').slice(0, 3).map(mini),
   };
+}
+
+const ACTIONS = {
+  other: ['Wybierz inny', 'Pozycja zostaje na liście, zmienisz tylko produkt.'],
+  search: ['Szukaj innego w Auchan', 'Pozycja zostaje na liście; szukasz innego produktu w Auchan.'],
+  byHand: ['Dodam sam na Auchan', 'Pozycja znika z koszyka i trafia na listę do dodania ręcznie.'],
+  remove: ['Nie kupuję', 'Pozycja znika z tych zakupów całkiem.'],
+};
+/** What the user can do with a product that does not fit; each action says what happens to the item. Suggestions only have their own add toggle. */
+export function lineActions(card) {
+  if (card.suggestion) return [];
+  const ids = [...(card.hasOthers ? ['other'] : []), ...(card.term !== null ? ['search', 'byHand'] : []), 'remove'];
+  return ids.map((id) => ({ id, label: ACTIONS[id][0], consequence: ACTIONS[id][1] }));
+}
+
+/** The item's new state in words, shown after an action. */
+export function actionNote(id, name) {
+  return {
+    byHand: `${name} → dodasz sam na Auchan`,
+    remove: `${name} — usunięty z zakupów`,
+    search: `${name} — zostaje na liście, szukasz innego produktu`,
+    other: `${name} — zostaje na liście, wybierz inny produkt`,
+  }[id];
 }
 
 /** A term Claude could not match: its own card, with the hint when there is one. */
@@ -448,8 +472,7 @@ export function start() {
       ask.append(element('p', 'question', view.question.text));
       const options = element('div', 'options');
       view.question.options.forEach((o) => options.append(option(o, () => run('/api/answer', { lineKey: line.lineKey, productId: o.productId }))));
-      if (view.question.options.length === 0) ask.append(button('Dodam sam na Auchan', () => run('/api/line/by-hand', { lineKey: line.lineKey }), 'small'));
-      append(ask, options, button('Pomiń', () => run('/api/answer', { lineKey: line.lineKey, productId: null }), 'small danger'));
+      append(ask, options);
       node.append(ask);
     } else if (view.alternatives.length) {
       const others = element('div', 'others');
@@ -458,8 +481,31 @@ export function start() {
       view.alternatives.forEach((o) => options.append(option(o, () => run('/api/line', { lineKey: line.lineKey, productId: o.productId }))));
       node.append(append(others, options));
     }
-    if (!view.suggestion && !view.question) node.append(button('Usuń z listy', () => run('/api/line', { lineKey: line.lineKey, remove: true }), 'link-button'));
+    node.append(actionsNode(line, view));
     return node;
+  }
+  /** The explicit actions of a card, with one line under the buttons saying what the focused or last-pressed action does. */
+  function actionsNode(line, view) {
+    const box = element('div', 'item-actions');
+    const actions = lineActions(view);
+    if (!actions.length) return box;
+    const name = line.term || line.name;
+    const consequence = element('p', 'meta consequence', '');
+    const say = (a) => { consequence.textContent = a.consequence; };
+    const handlers = {
+      other: () => { const first = box.parentElement?.querySelector('.options .option'); if (first) { first.scrollIntoView({ block: 'nearest' }); first.focus(); } },
+      search: () => { if (state.search?.block) window.open(auchanSearchUrl(line.term), '_blank', 'noopener,noreferrer'); else { searchEvent = null; void run('/api/search', { terms: [line.term] }).then(showSearch); } },
+      byHand: async () => { if (await run('/api/line/by-hand', { lineKey: line.lineKey })) tell(actionNote('byHand', name)); },
+      remove: async () => { const r = line.question ? await run('/api/answer', { lineKey: line.lineKey, productId: null }) : await run('/api/line', { lineKey: line.lineKey, remove: true }); if (r) tell(actionNote('remove', name)); },
+    };
+    const row = element('div', 'actions');
+    actions.forEach((a) => {
+      const b = button(a.label, () => { say(a); void handlers[a.id](); }, a.id === 'remove' ? 'small danger' : 'small quiet', a.id === 'search' && Boolean(state.busy));
+      b.addEventListener('focus', () => say(a)); b.addEventListener('mouseenter', () => say(a));
+      row.append(b);
+    });
+    consequence.textContent = actions.map((a) => `${a.label}: ${a.consequence}`).join(' ');
+    return append(box, row, consequence);
   }
   const opsFor = (line) => proposalView(state.trip).byLine[line.lineKey] || [];
   const ownTerms = new Set();

@@ -283,7 +283,7 @@ test('a low-confidence term line is held back with a question until the user ans
   const t = tripFromDraft(emptyTrip(NOW), d, {});
   const line = t.lines[0]!;
   assert.equal(line.included, false);
-  assert.deepEqual(line.question, { text: 'Nie mam pewnego dopasowania dla „pierś z kurczaka”. Wybierz produkt albo pomiń.', options: ['X1', 'X2', 'X3'] });
+  assert.deepEqual(line.question, { text: 'Nie mam pewnego dopasowania dla „pierś z kurczaka”. Wybierz produkt albo zdecyduj, co z tą pozycją zrobić.', options: ['X1', 'X2', 'X3'] });
   assert.equal(t.lines[1]!.included, true);
   assert.equal(t.lines[1]!.question, null);
 });
