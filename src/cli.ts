@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { openStore, type Store } from './store.ts';
 import { browserLogin, LoginRequired, Blocked, ProfileBusy, RateLimited, type Worker } from './worker.ts';
 import { createHttpWorker } from './http-worker.ts';
-import { ShapeError } from './parse.ts';
+import { cleanText, ShapeError } from './parse.ts';
 import { checkOrders, syncOrders } from './sync-orders.ts';
 import { syncPromotions } from './sync-promotions.ts';
 import { DB_PATH, SESSION_PATH } from './dbpath.ts';
@@ -42,6 +42,10 @@ export const liveDeps: Deps = {
 
 /** The one line printed for a failure. Fixed text for the known cases so no response content can leak. */
 export function describeFailure(err: unknown, action: 'sync' | 'fill' = 'sync'): string {
+  return cleanText(describe(err, action));
+}
+
+function describe(err: unknown, action: 'sync' | 'fill'): string {
   if (err instanceof LoginRequired) return NOT_LOGGED_IN;
   if (err instanceof RateLimited) {
     const wait = err.retrySeconds === undefined ? 'later' : `in ${Math.max(1, Math.ceil(err.retrySeconds / 60))} min`;

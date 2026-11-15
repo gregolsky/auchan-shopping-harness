@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeFileSync } from 'node:fs';
-import { main, formatReport, type FillDeps } from '../src/fill-cli.ts';
+import { main, formatReport, interruptHandler, type FillDeps } from '../src/fill-cli.ts';
 import { openStore, type Store } from '../src/store.ts';
 import { Blocked, LoginRequired, type Worker } from '../src/worker.ts';
 import type { CartAccess } from '../src/http-worker.ts';
@@ -163,15 +163,17 @@ test('a 403 never invites a rerun', async (t) => {
 
 test('a second fill is refused while a live pid holds the lock, a stale lock is replaced', async (t) => {
   const busy = setup(fakeCart({}));
-  writeFileSync(busy.lockFile, String(process.pid));
+  writeFileSync(busy.lockFile, JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
   quiet(t, busy.log);
   assert.equal(await main([], busy.deps), 1);
   assert.equal(busy.log.opened, 0);
   assert.equal(existsSync(busy.lockFile), true); // not ours to remove
   assert.match(busy.log.err[0], /Inny fill/);
+  assert.match(busy.log.err[0], /\.state\/fill\.lock/);
+  assert.match(busy.log.err[0], /usuń/);
 
   const stale = setup(fakeCart({}));
-  writeFileSync(stale.lockFile, '999999999');
+  writeFileSync(stale.lockFile, JSON.stringify({ pid: 999999999, startedAt: Date.now() }));
   quiet(t, stale.log);
   assert.equal(await main([], stale.deps), 0);
   assert.equal(existsSync(stale.lockFile), false);
@@ -244,4 +246,53 @@ test('the plan total is printed once, before the first apply', async (t) => {
   assert.equal(log.out.indexOf('Do dodania: 2 produktów, ok. 6,48 zł'), 0);
   assert.equal(log.out.filter((l) => l.startsWith('Do dodania')).length, 1);
   assert.ok(log.out.indexOf('APPLY') > 0);
+});
+
+test('the interrupt handler removes the lock we own, marks the run failed and exits 130', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'int-'));
+  const lockFile = join(dir, 'fill.lock');
+  writeFileSync(lockFile, '{}');
+  const calls: string[] = [];
+  const handler = interruptHandler({ lockFile, owns: () => true, markFailed: () => calls.push('failed') }, (c) => calls.push(`exit ${c}`));
+  handler();
+  assert.equal(existsSync(lockFile), false);
+  assert.deepEqual(calls, ['failed', 'exit 130']);
+});
+
+test('the interrupt handler leaves a lock we do not own alone, and still exits 130 even if marking fails', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'int-'));
+  const lockFile = join(dir, 'fill.lock');
+  writeFileSync(lockFile, '{}');
+  const calls: string[] = [];
+  interruptHandler({ lockFile, owns: () => false, markFailed: () => { throw new Error('db closed'); } }, (c) => calls.push(`exit ${c}`))();
+  assert.equal(existsSync(lockFile), true);
+  assert.deepEqual(calls, ['exit 130']);
+});
+
+test('a fill installs SIGINT, SIGTERM and SIGHUP handlers and removes them afterwards', async (t) => {
+  const { log, deps } = setup(fakeCart({}));
+  quiet(t, log);
+  const during: number[] = [];
+  const before = (['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map((s) => process.listenerCount(s));
+  const orig = deps.openWorker;
+  deps.openWorker = async () => {
+    during.push(...(['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map((s) => process.listenerCount(s)));
+    return orig();
+  };
+  assert.equal(await main([], deps), 0);
+  assert.deepEqual(during, before.map((n) => n + 1));
+  assert.deepEqual((['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map((s) => process.listenerCount(s)), before);
+});
+
+test('formatReport strips terminal and bidi control characters from every untrusted text', () => {
+  const dirty = (n: string) => `${n}\u001b]52;c;ZXZpbA==\u0007\u202e`;
+  const line = (id: string, name: string) => ({ term: null, productId: id, name, quantity: 1, approvedPriceGrosze: 100 });
+  const text = formatReport({
+    added: [], alreadyEnough: [line('e', dirty('Jaja'))], extras: [], missing: [line('m', dirty('Masło'))], outOfStock: [line('o', dirty('Ser'))],
+    limits: { m: { reason: dirty('MAX'), added: 1, requested: 3 } },
+    checkBeforePaying: [{ productId: 'c', name: dirty('Mleko'), approvedGrosze: 100, nowGrosze: 200, risePercent: 100 }],
+    smallRises: [], cartTotalGrosze: 100, sent: 0,
+  }, [dirty('ser żółty')], { m: [dirty('Masło B')] }, {});
+  assert.doesNotMatch(text, /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/);
+  for (const w of ['Jaja', 'Masło', 'Ser', 'Mleko', 'MAX', 'ser żółty', 'Masło B']) assert.ok(text.includes(w), w);
 });

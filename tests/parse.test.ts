@@ -7,6 +7,7 @@ import {
   parsePromotionsState,
   parseCompletedOrdersPage,
   ShapeError,
+  cleanText,
 } from '../src/parse.ts';
 
 const fx = (n: string) => JSON.parse(readFileSync(new URL(`./fixtures/${n}`, import.meta.url), 'utf8'));
@@ -243,4 +244,42 @@ test('completed orders page shape errors throw ShapeError', () => {
   const noId = fx('completed-orders.json');
   delete noId.data.customer.ordersCompleted.edges[0].node.orderId;
   assert.throws(() => parseCompletedOrdersPage(noId), ShapeError);
+});
+
+const DIRTY = 'Mleko\u001b]52;c;ZXZpbA==\u0007 3,2%\u202e\u2066x\u2069\u009b\u007f';
+
+test('cleanText strips control and bidi characters and keeps the rest', () => {
+  assert.equal(cleanText(DIRTY), 'Mleko]52;c;ZXZpbA== 3,2%x');
+  assert.equal(cleanText('Żółć 1\u00a0l – ok'), 'Żółć 1\u00a0l – ok');
+});
+
+test('parsing cleans product names, brands and offer texts from Auchan', () => {
+  const order = fx('order-decorated.json');
+  const raw = order.entities.order[order.result];
+  const first = raw.groupedProducts.products[0];
+  order.entities.product[first.productId].name = DIRTY;
+  order.entities.product[first.productId].brand = DIRTY;
+  first.promotions = [{ name: DIRTY }];
+  const parsed = parseDecoratedOrder(order);
+  const product = parsed.products.find((p) => p.productId === first.productId)!;
+  assert.equal(product.name, 'Mleko]52;c;ZXZpbA== 3,2%x');
+  assert.equal(product.brand, 'Mleko]52;c;ZXZpbA== 3,2%x');
+  assert.equal(parsed.prices.find((p) => p.productId === first.productId)!.offerText, 'Mleko]52;c;ZXZpbA== 3,2%x');
+
+  const promo = fx('promotions-state.json');
+  const entity = Object.values<any>(promo.data.products.productEntities).find((e) => Array.isArray(e.offers) && e.offers.length)!;
+  entity.name = DIRTY;
+  entity.offers[0].description = DIRTY;
+  const out = parsePromotionsState(promo, '2026-10-31T10:00:00Z');
+  const id = entity.productId;
+  assert.equal(out.products.find((p) => p.productId === id)!.name, 'Mleko]52;c;ZXZpbA== 3,2%x');
+  assert.equal(out.prices.find((p) => p.productId === id)!.offerText, 'Mleko]52;c;ZXZpbA== 3,2%x');
+});
+
+test('fixtures carry no real location data', () => {
+  for (const f of ['completed-orders.json', 'promotions-state.json', 'order-decorated.json']) {
+    const text = readFileSync(new URL(`./fixtures/${f}`, import.meta.url), 'utf8');
+    for (const m of text.matchAll(/"regionId": "([^"]+)"/g)) assert.equal(m[1], '00000000-0000-4000-8000-000000000010');
+    for (const m of text.matchAll(/"retailerRegionId": "([^"]+)"/g)) assert.equal(m[1], 'PL_00000_TEST');
+  }
 });

@@ -4,6 +4,11 @@ export class ShapeError extends Error {}
 
 type Obj = Record<string, any>;
 
+/** Auchan's text is untrusted: no terminal escapes, control characters or bidi overrides reach a screen. */
+export function cleanText(s: string): string {
+  return s.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '');
+}
+
 function obj(v: unknown, path: string): Obj {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) throw new ShapeError(`expected object at ${path}`);
   return v as Obj;
@@ -42,8 +47,8 @@ function toProduct(p: Obj, unitLabel: string | null): Product {
   return {
     productId: str(p.productId, 'product.productId'),
     retailerProductId: str(p.retailerProductId, 'product.retailerProductId'),
-    name: str(p.name, 'product.name'),
-    brand: String(p.brand ?? '').trim(),
+    name: cleanText(str(p.name, 'product.name')),
+    brand: cleanText(String(p.brand ?? '')).trim(),
     categoryPath: Array.isArray(p.categoryPath) ? p.categoryPath.map(String) : [],
     unitLabel,
     size: typeof p.size?.value === 'string' && p.size.value.trim() !== '' ? p.size.value.trim() : null,
@@ -120,7 +125,7 @@ export function parseDecoratedOrder(json: unknown): {
       originalGrosze: retail > current ? retail : null,
       currentGrosze: current,
       unitCurrentGrosze: unit?.value ? money(unit.value, 'pricePerUnit.value') : null,
-      offerText: Array.isArray(line.promotions) && line.promotions.length ? str(obj(line.promotions[0], 'line.promotions[0]').name, 'promotion.name') : null,
+      offerText: Array.isArray(line.promotions) && line.promotions.length ? cleanText(str(obj(line.promotions[0], 'line.promotions[0]').name, 'promotion.name')) : null,
       requiredQuantity: null,
     });
   }
@@ -162,7 +167,7 @@ export function parsePromotionsState(
       originalGrosze: price.original ? money(price.original, 'price.original') : null,
       currentGrosze: money(price.current, 'price.current'),
       unitCurrentGrosze: unit?.current ? money(unit.current, 'price.unit.current') : null,
-      offerText: offer ? str(offer.description, 'offer.description') : null,
+      offerText: offer ? cleanText(str(offer.description, 'offer.description')) : null,
       requiredQuantity: offer && typeof offer.requiredProductQuantity === 'number' ? offer.requiredProductQuantity : null,
     });
   }

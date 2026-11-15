@@ -5,6 +5,7 @@ import { browserLogin, Blocked, type Worker } from './worker.ts';
 import { createHttpWorker, type CartAccess } from './http-worker.ts';
 import { describeFailure, ensureStateDir, liveDeps as syncDeps, withLogin } from './cli.ts';
 import { fillCart } from './fill.ts';
+import { cleanText } from './parse.ts';
 import { buildDraft } from './draft.ts';
 import { parseCart, type FillReport, type PriceNote } from './cart.ts';
 import { acquireLock } from './lock.ts';
@@ -19,7 +20,7 @@ export interface FillDeps {
 const CHECKOUT = 'https://zakupy.auchan.pl/checkout';
 const NO_BASKET = 'Brak zatwierdzonego koszyka z ostatnich 24 godzin: zatwierdź koszyk (approve_basket) i uruchom ponownie';
 const LOG_IN = 'Log in in the browser window and leave it open; the fill continues on its own';
-const BUSY = 'Inny fill już trwa (blokada .state/fill.lock): poczekaj, aż się skończy';
+const BUSY = 'Inny fill już trwa: poczekaj, aż się skończy. Jeśli żaden nie działa, usuń plik .state/fill.lock i uruchom ponownie';
 const RERUN_SAFE = 'Ponowne uruchomienie jest bezpieczne: wczyta koszyk od nowa i doda tylko to, czego jeszcze brakuje.';
 
 const liveDeps: FillDeps = {
@@ -34,7 +35,7 @@ export const zl = (grosze: number): string => `${(grosze / 100).toFixed(2).repla
 const qty = (n: number): string => String(Math.round(n * 1000) / 1000).replace('.', ',');
 
 function note(n: PriceNote): string {
-  return `${n.name}: ${zl(n.approvedGrosze)} -> ${zl(n.nowGrosze)} (+${n.risePercent.toFixed(1).replace('.', ',')}%)`;
+  return `${cleanText(n.name)}: ${zl(n.approvedGrosze)} -> ${zl(n.nowGrosze)} (+${n.risePercent.toFixed(1).replace('.', ',')}%)`;
 }
 
 /** substitutes: product id -> names of up to 2 alternatives. The cart has no names; lines are named from the basket. */
@@ -46,24 +47,43 @@ export function formatReport(
     if (rows.length) out.push(`${title}:`, ...rows.map((x) => `  - ${x}`), '');
   };
   const withSubs = (l: { productId: string; name: string; quantity: number }) => {
-    const subs = (substitutes[l.productId] ?? []).slice(0, 2);
+    const subs = (substitutes[l.productId] ?? []).slice(0, 2).map(cleanText);
     const lim = r.limits?.[l.productId];
-    const limit = lim ? ` — dodano ${qty(lim.added)} z ${qty(lim.requested)} (powód: ${lim.reason})` : '';
-    return `${l.name} x ${qty(l.quantity)}${limit}${subs.length ? ` (zamiast tego: ${subs.join('; ')})` : ''}`;
+    const limit = lim ? ` — dodano ${qty(lim.added)} z ${qty(lim.requested)} (powód: ${cleanText(lim.reason)})` : '';
+    return `${cleanText(l.name)} x ${qty(l.quantity)}${limit}${subs.length ? ` (zamiast tego: ${subs.join('; ')})` : ''}`;
   };
   section('Sprawdź przed zapłatą', r.checkBeforePaying.map(note));
   section('Brak w sklepie', r.outOfStock.map(withSubs));
   section('Nie dodano', r.missing.map(withSubs));
-  section('Dodaj sam na Auchan', unmatched);
+  section('Dodaj sam na Auchan', unmatched.map(cleanText));
   section('Było już w koszyku', [
-    ...r.alreadyEnough.map((l) => `${l.name} x ${qty(l.quantity)}`),
-    ...r.extras.map((l) => `${names[l.productId] ?? `produkt spoza koszyka ${l.productId}`} x ${qty(l.quantity)}`),
+    ...r.alreadyEnough.map((l) => `${cleanText(l.name)} x ${qty(l.quantity)}`),
+    ...r.extras.map((l) => `${cleanText(names[l.productId] ?? `produkt spoza koszyka ${l.productId}`)} x ${qty(l.quantity)}`),
   ]);
   section('Niewielkie podwyżki', r.smallRises.map(note));
   out.push(`Dodano produktów: ${r.added.length}`);
   out.push(`Razem w koszyku: ${r.cartTotalGrosze === null ? 'nieznana kwota' : zl(r.cartTotalGrosze)}`);
   out.push(`Zapłać na ${CHECKOUT}`);
   return out.join('\n');
+}
+
+const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+
+/** What a fill does when it is killed: free the lock if we hold it, record the failure, exit 130. */
+export function interruptHandler(
+  h: { lockFile: string; owns(): boolean; markFailed(): void },
+  exit: (code: number) => void = (code) => process.exit(code),
+): () => void {
+  return () => {
+    try {
+      if (h.owns()) rmSync(h.lockFile, { force: true });
+      h.markFailed();
+    } catch {
+      // Exiting matters more than a tidy record.
+    } finally {
+      exit(130);
+    }
+  };
 }
 
 /** Names of cart lines outside the basket, where the store knows them. */
@@ -97,6 +117,8 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
   let worker: (Worker & CartAccess) | undefined;
   let locked = false;
   let runId: number | undefined;
+  const tally = { sent: 0 };
+  let removeHandlers = () => {};
   try {
     store = deps.openStore();
     // Taken atomically before the basket is read and held for the whole run, so two fills never overlap
@@ -106,6 +128,15 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
       return 1;
     }
     locked = true;
+    const onInterrupt = interruptHandler({
+      lockFile,
+      owns: () => locked,
+      markFailed: () => {
+        if (runId !== undefined) store?.finishFill(runId, { status: 'failed', sent: tally.sent, missing: 0, checkBeforePaying: 0 });
+      },
+    });
+    for (const sig of SIGNALS) process.on(sig, onInterrupt);
+    removeHandlers = () => SIGNALS.forEach((sig) => process.off(sig, onInterrupt));
     const basket = store.latestApprovedBasket();
     if (!basket) {
       console.error(NO_BASKET);
@@ -118,7 +149,6 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
     // as it was at the start, and the sent count carries over.
     let baseline: ReturnType<typeof parseCart> | undefined;
     let planShown = false;
-    const tally = { sent: 0 };
     const report = await withLogin(
       cart,
       async () => {
@@ -162,6 +192,7 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
     if (!(err instanceof Blocked)) console.error(RERUN_SAFE);
     return 1;
   } finally {
+    removeHandlers();
     try {
       if (locked) rmSync(lockFile, { force: true });
     } finally {

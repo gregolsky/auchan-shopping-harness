@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { main, type Deps } from '../src/cli.ts';
+import { describeFailure, main, type Deps } from '../src/cli.ts';
 import { openStore, type Store } from '../src/store.ts';
 import { Blocked, LoginRequired, type Worker } from '../src/worker.ts';
-import { parseDecoratedOrder } from '../src/parse.ts';
+import { parseDecoratedOrder, ShapeError } from '../src/parse.ts';
 import { readFileSync } from 'node:fs';
 
 const page = (ids: string[]) => ({
@@ -305,4 +305,11 @@ test('check waits for the window on LoginRequired', async (t) => {
   quiet(t, log);
   assert.equal(await main(['check'], checkDeps(deps)), 1);
   assert.equal(log.waited, 1);
+});
+
+test('describeFailure output carries no control or bidi characters', () => {
+  const dirty = 'boom\u001b]52;c;ZXZpbA==\u0007\u202e';
+  assert.doesNotMatch(describeFailure(new Error(dirty)), /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/);
+  assert.doesNotMatch(describeFailure(new ShapeError(dirty)), /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/);
+  assert.match(describeFailure(new Error(dirty), 'fill'), /boom/);
 });
