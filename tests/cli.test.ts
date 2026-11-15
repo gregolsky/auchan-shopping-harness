@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { describeFailure, main, type Deps } from '../src/cli.ts';
+import { describeFailure, main, runSync, type Deps } from '../src/cli.ts';
 import { openStore, type Store } from '../src/store.ts';
 import { Blocked, LoginRequired, Refused, type Worker } from '../src/worker.ts';
 import { parseDecoratedOrder, ShapeError } from '../src/parse.ts';
@@ -328,4 +328,12 @@ test('describeFailure names the refused product in fixed Polish text, cleaned; a
   const text = describeFailure(new Refused('id1', 'Mleko\u001b]52;c;eA==\u0007\u202e'), 'fill');
   assert.equal(text, 'Auchan odrzucił zmianę koszyka (Mleko]52;c;eA==); zatrzymano. Część produktów mogła już trafić do koszyka — sprawdź koszyk, usuń ten produkt z listy i uruchom ponownie.');
   assert.equal(describeFailure(new Blocked('403'), 'fill'), 'Auchan refused the request. Do not rerun; the request format may need review.');
+});
+
+test('runSync with four arguments prints through the console', async (t) => {
+  const { log, deps, store } = setup();
+  quiet(t, log);
+  const worker = await deps.openWorker();
+  assert.equal(await runSync('promotions', worker, store, 0), 1);
+  assert.match(log.err.join('\n'), /Sync orders first/);
 });

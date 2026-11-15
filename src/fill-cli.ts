@@ -112,6 +112,8 @@ export interface FillHooks {
   progress(sent: number, total: number): void;
   /** Failure lines; the CLI prints them on stderr. Defaults to log. */
   error?(line: string): void;
+  /** Takes the printable report instead of log (the CLI prints it with log, the app shows it in its own panel). */
+  report?(text: string): void;
   /** Called once the lock is held; returns a cleanup run when the fill ends. The CLI installs its signal handlers here. */
   onLocked?(h: { lockFile: string; token: string; markFailed(): void }): () => void;
 }
@@ -196,7 +198,7 @@ export async function runFill(deps: FillDeps, hooks: FillHooks): Promise<FillRes
       // The report is worth more than its extras.
     }
     const text = formatReport(report, basket.unmatched, subs, names);
-    hooks.log(text);
+    (hooks.report ?? hooks.log)(text);
     return { code: 0, report, substitutes: subs, text };
   } catch (err) {
     if (runId !== undefined) store?.finishFill(runId, { status: 'failed', sent: tally.sent, missing: 0, checkBeforePaying: 0 });

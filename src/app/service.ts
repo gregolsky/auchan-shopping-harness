@@ -6,7 +6,7 @@ import { syncAll } from '../cli.ts';
 import type { Deps } from '../cli.ts';
 import { BUSY, formatReport, runFill } from '../fill-cli.ts';
 import type { FillDeps } from '../fill-cli.ts';
-import { lockHeld } from '../lock.ts';
+import { lockHeld, releaseLock } from '../lock.ts';
 import { LOCK_PATH } from '../dbpath.ts';
 import { zl } from '../money.ts';
 import { normaliseTerm } from '../store.ts';
@@ -46,12 +46,26 @@ const MAX_MESSAGES = 200;
 const MAX_MESSAGE = 2000;
 const CONF_RANK = { high: 0, medium: 1, low: 2 };
 
+const FROZEN = 'Trwa dodawanie do koszyka — poczekaj na koniec.';
+
 const refuse = (reason: string): Start => ({ started: false, reason });
 const dropped = (n: number) => `pominięto ${n} nieprawidłowych zmian`;
 
 export function createService(d: ServiceDeps) {
   let trip: Trip = loadTrip(d.tripFile) ?? emptyTrip(d.now());
   let busy: Busy = null;
+  let generation = 0;
+  let stopped = false;
+  let active: { markFailed(): void; release(): void } | null = null;
+
+  /** Emits from background work: a failing listener must never become an unhandled rejection. */
+  const safeEmit = (e: AppEvent) => {
+    try {
+      d.emit(e);
+    } catch (err) {
+      console.error(`Błąd zdarzenia: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
   const withStore = <T>(f: (s: Store) => T): T => {
     const s = d.openStore();
@@ -78,6 +92,13 @@ export function createService(d: ServiceDeps) {
   function settle(t: Trip): Trip {
     if (t.step !== 'szkic' && t.step !== 'doprecyzowanie' && t.step !== 'zatwierdzenie') return t;
     return { ...t, step: openQuestions(t).length > 0 || t.proposal !== null ? 'doprecyzowanie' : 'zatwierdzenie' };
+  }
+
+  const frozen = () => busy === 'fill' || trip.step === 'koszyk';
+  /** While the cart is being filled the trip stays as it is; the page is told why. */
+  function hold(): Trip {
+    if (trip.messages.at(-1) !== FROZEN) commit({ ...trip, messages: [...trip.messages, FROZEN] });
+    return trip;
   }
 
   if (trip.step === 'koszyk') commit({ ...trip, step: 'zatwierdzenie', messages: [...trip.messages, INTERRUPTED] });
@@ -125,8 +146,12 @@ export function createService(d: ServiceDeps) {
     },
 
     async note(input: { note: string; includeUsual: boolean; budgetGrosze?: number }): Promise<Trip> {
+      if (frozen()) return hold();
+      const mine = ++generation;
+      const stale = () => frozen() || mine !== generation;
       let t: Trip = { ...emptyTrip(d.now()), note: input.note };
       const parsed = await askClaude(d.spawn, 'parse', t, input.note);
+      if (stale()) return frozen() ? hold() : trip;
       const mode: Trip['mode'] = parsed === null ? 'fallback' : 'claude';
       const items = parsed === null
         ? parseNote(input.note)
@@ -146,6 +171,7 @@ export function createService(d: ServiceDeps) {
 
       if (mode === 'claude' && t.lines.length > 0) {
         const chosen = await askClaude(d.spawn, 'choose', t, input.note);
+        if (stale()) return frozen() ? hold() : trip;
         if (chosen === null) {
           t = { ...t, mode: 'fallback', messages: [...t.messages, FALLBACK_MESSAGE] };
         } else {
@@ -159,12 +185,17 @@ export function createService(d: ServiceDeps) {
     },
 
     async ask(text: string): Promise<Trip> {
+      if (frozen()) return hold();
+      const before = generation;
       const r = await askClaude(d.spawn, 'adhoc', trip, text);
+      if (frozen()) return hold();
+      if (before !== generation) return trip;
       if (r === null) return commit({ ...trip, messages: [...trip.messages, 'Claude jest niedostępny — nie mogę wykonać polecenia.'] });
       return commit(settle(holdProposal(trip, r.ops, r.dropped)));
     },
 
     apply(proposalId: string): Trip {
+      if (frozen()) return hold();
       const p = trip.proposal;
       if (p === null || p.id !== proposalId) return trip;
       const r = applyOps({ ...trip, proposal: null }, p.ops);
@@ -178,19 +209,26 @@ export function createService(d: ServiceDeps) {
     },
 
     reject(proposalId: string): Trip {
+      if (frozen()) return hold();
       if (trip.proposal === null || trip.proposal.id !== proposalId) return trip;
       return commit(settle({ ...trip, proposal: null }));
     },
 
     answer(lineKey: string, productId: string | null): Trip {
+      if (frozen()) return hold();
       const r = answerLine(trip, lineKey, productId);
       record(r.corrections);
       return commit(settle(r.trip));
     },
 
     line(lineKey: string, change: { quantity?: number; remove?: true; included?: boolean }): Trip {
+      if (frozen()) return hold();
       let t = trip;
-      if (change.remove) t = applyOps(t, [{ op: 'remove', lineKey }]).trip;
+      if (change.remove) {
+        const r = applyOps(t, [{ op: 'remove', lineKey }]);
+        record(r.corrections);
+        t = r.trip;
+      }
       else {
         if (change.quantity !== undefined) t = applyOps(t, [{ op: 'setQuantity', lineKey, quantity: change.quantity }]).trip;
         if (change.included !== undefined) t = setIncluded(t, lineKey, change.included);
@@ -200,6 +238,7 @@ export function createService(d: ServiceDeps) {
 
     async approve(): Promise<Start> {
       if (busy !== null) return refuse('Inna operacja trwa: poczekaj, aż się skończy.');
+      if (trip.proposal !== null) return refuse('Najpierw zastosuj albo odrzuć propozycję zmian.');
       if (openQuestions(trip).length > 0) return refuse('Najpierw odpowiedz na pytania o produkty.');
       let lines;
       try {
@@ -214,28 +253,45 @@ export function createService(d: ServiceDeps) {
       } catch (e) {
         return refuse(`Nie udało się zatwierdzić koszyka: ${e instanceof Error ? e.message : String(e)}`);
       }
+      const previous = trip;
+      try {
+        commit({ ...trip, step: 'koszyk' });
+      } catch (e) {
+        trip = previous;
+        return refuse(`Nie udało się zapisać wyprzedzającego stanu: ${e instanceof Error ? e.message : String(e)}`);
+      }
       busy = 'fill';
-      commit({ ...trip, step: 'koszyk' });
-      void runInBackground();
+      void runInBackground(generation).catch((e) => {
+        console.error(`Błąd wypełniania: ${e instanceof Error ? e.message : String(e)}`);
+        busy = null;
+      });
       return { started: true };
     },
 
     async sync(): Promise<Start> {
       if (busy !== null) return refuse('Inna operacja trwa: poczekaj, aż się skończy.');
       busy = 'sync';
-      d.emit({ type: 'state' });
+      try {
+        d.emit({ type: 'state' });
+      } catch (e) {
+        busy = null;
+        return refuse(`Nie udało się uruchomić synchronizacji: ${e instanceof Error ? e.message : String(e)}`);
+      }
       void (async () => {
         let code = 1;
         try {
-          code = await syncAll(d.syncDeps, (text) => d.emit({ type: 'log', text }));
+          code = await syncAll(d.syncDeps, (text) => safeEmit({ type: 'log', text }));
         } catch (e) {
-          d.emit({ type: 'log', text: `Synchronizacja nie powiodła się: ${e instanceof Error ? e.message : String(e)}` });
+          safeEmit({ type: 'log', text: `Synchronizacja nie powiodła się: ${e instanceof Error ? e.message : String(e)}` });
         } finally {
           busy = null;
-          d.emit({ type: 'state' });
-          d.emit({ type: 'done', code });
+          safeEmit({ type: 'state' });
+          safeEmit({ type: 'done', code });
         }
-      })();
+      })().catch((e) => {
+        console.error(`Błąd synchronizacji: ${e instanceof Error ? e.message : String(e)}`);
+        busy = null;
+      });
       return { started: true };
     },
 
@@ -249,8 +305,20 @@ export function createService(d: ServiceDeps) {
       withStore((s) => s.setBrandFixed(term, null));
     },
 
+    shutdown(): void {
+      if (busy !== 'fill') return;
+      stopped = true;
+      try {
+        active?.markFailed();
+        active?.release();
+      } catch {
+        // Exiting matters more than a tidy record.
+      }
+    },
+
     reset(): Trip {
       if (busy === 'fill') return trip;
+      generation++;
       trip = emptyTrip(d.now());
       rmSync(d.tripFile, { force: true });
       d.emit({ type: 'state' });
@@ -258,32 +326,40 @@ export function createService(d: ServiceDeps) {
     },
   };
 
-  async function runInBackground(): Promise<void> {
+  async function runInBackground(startedGeneration: number): Promise<void> {
     const problems: string[] = [];
     let result: Awaited<ReturnType<typeof runFill>> | null = null;
     try {
       result = await runFill(d.fillDeps, {
-        log: (text) => { if (!text.includes('\nZapłać na ')) d.emit({ type: 'log', text }); },
-        progress: (sent, total) => d.emit({ type: 'progress', sent, total }),
-        error: (text) => { problems.push(text); d.emit({ type: 'log', text }); },
+        log: (text) => safeEmit({ type: 'log', text }),
+        report: () => {},
+        progress: (sent, total) => safeEmit({ type: 'progress', sent, total }),
+        error: (text) => { problems.push(text); safeEmit({ type: 'log', text }); },
+        onLocked: ({ lockFile, token, markFailed }) => {
+          active = { markFailed, release: () => releaseLock(lockFile, token) };
+          return () => { active = null; };
+        },
       });
     } catch (e) {
       problems.push(e instanceof Error ? e.message : String(e));
     }
     const code = result?.code ?? 1;
     try {
+      const mine = !stopped && startedGeneration === generation;
       if (result !== null && result.report !== null) {
         const { report, substitutes } = result;
-        d.emit({ type: 'report', report: { ...report, substitutes, text: result.text ?? formatReport(report, trip.unmatched.map((u) => u.term), substitutes) } });
+        safeEmit({ type: 'report', report: { ...report, substitutes, text: result.text ?? formatReport(report, trip.unmatched.map((u) => u.term), substitutes) } });
         busy = null;
-        commit({ ...trip, step: 'platnosc' });
+        if (mine) commit({ ...trip, step: 'platnosc' });
       } else {
         busy = null;
-        commit({ ...trip, step: 'zatwierdzenie', messages: [...trip.messages, `Wypełnianie nie powiodło się: ${problems.join(' ') || 'nieznany błąd'}`] });
+        if (mine) commit({ ...trip, step: 'zatwierdzenie', messages: [...trip.messages, `Wypełnianie nie powiodło się: ${problems.join(' ') || 'nieznany błąd'}`] });
       }
+    } catch (e) {
+      console.error(`Błąd zapisu po wypełnianiu: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       busy = null;
-      d.emit({ type: 'done', code });
+      safeEmit({ type: 'done', code });
     }
   }
 

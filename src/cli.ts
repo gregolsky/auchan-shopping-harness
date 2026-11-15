@@ -72,7 +72,7 @@ export async function withLogin<T>(worker: Worker, work: () => Promise<T>, messa
 
 export async function runSync(
   which: string | undefined, worker: Worker, store: Store, paceMs: number,
-  log: (line: string) => void = (l) => log(l), err: (line: string) => void = (l) => err(l),
+  log: (line: string) => void = (l) => console.log(l), err: (line: string) => void = (l) => console.error(l),
 ): Promise<number> {
   if (which !== 'promotions') {
     const r = await syncOrders(worker, store, { paceMs });

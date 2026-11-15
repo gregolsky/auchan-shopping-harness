@@ -23,7 +23,7 @@ const price = (id: string, grosze: number): PriceObservation => ({
 });
 
 type Reply = object | null;
-function setup(opts: { claude?: { parse?: Reply; choose?: Reply; adhoc?: Reply }; cart?: CartAccess & Partial<FakeCart>; seedHigh?: boolean } = {}) {
+function setup(opts: { claude?: { parse?: Reply; choose?: Reply; adhoc?: Reply }; cart?: CartAccess & Partial<FakeCart>; seedHigh?: boolean; emit?: (e: AppEvent) => void } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'svc-'));
   const lockFile = join(dir, 'fill.lock');
   const tripFile = join(dir, 'trip.json');
@@ -34,6 +34,7 @@ function setup(opts: { claude?: { parse?: Reply; choose?: Reply; adhoc?: Reply }
     prices: [price(A, 199), price(B, 250), price(C, 210)],
   });
   const events: AppEvent[] = [];
+  const finished: { status: string }[] = [];
   const spawned: string[] = [];
   const spawn: Spawn = async (_c, _a, input) => {
     const task = input.includes('Task: turn the note') ? 'parse' : input.includes('Task: use the user input') ? 'choose' : 'adhoc';
@@ -50,11 +51,11 @@ function setup(opts: { claude?: { parse?: Reply; choose?: Reply; adhoc?: Reply }
   } as Worker & CartAccess;
   const shared = (): Store => ({ ...store, close() {} });
   const make = () => createService({
-    openStore: shared, spawn, tripFile, now: () => new Date('2026-11-15T10:00:00Z'), emit: (e) => events.push(e),
-    fillDeps: { lockFile, openWorker: async () => worker, openStore: shared },
+    openStore: shared, spawn, tripFile, now: () => new Date('2026-11-15T10:00:00Z'), emit: (e) => { opts.emit?.(e); events.push(e); },
+    fillDeps: { lockFile, openWorker: async () => worker, openStore: () => ({ ...store, close() {}, finishFill: (id: number, r: any) => (finished.push(r), store.finishFill(id, r)) }) },
     syncDeps: { openStore: shared, openWorker: async () => worker, paceMs: 0 },
   });
-  return { svc: make(), make, store, events, spawned, lockFile, tripFile, cart };
+  return { svc: make(), make, store, events, finished, spawned, lockFile, tripFile, cart };
 }
 
 const done = (events: AppEvent[]) => new Promise<void>((resolve) => {
@@ -279,3 +280,100 @@ test('line changes quantity and removes', async () => {
   assert.equal(svc.line(k, { remove: true }).lines.length, 0);
 });
 
+
+/** A cart whose adds wait until released, so a test can act while a fill runs. */
+function slowCart() {
+  const cart = fakeCart({});
+  let release = () => {};
+  let started = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  const reached = new Promise<void>((r) => (started = r));
+  const real = cart.applyQuantities;
+  cart.applyQuantities = async (c) => { started(); await gate; return real(c); };
+  return { cart, release, reached };
+}
+
+async function runningFill(extra: Parameters<typeof setup>[0] = {}) {
+  const slow = slowCart();
+  const s = setup({ ...extra, cart: slow.cart });
+  const t = await s.svc.note({ note: 'chleb', includeUsual: false });
+  s.svc.answer(t.lines[0].lineKey, B);
+  assert.equal((await s.svc.approve()).started, true);
+  await slow.reached;
+  return { ...s, ...slow, key: t.lines[0].lineKey };
+}
+
+test('while a fill runs the trip is frozen and nothing is recorded', async () => {
+  const { svc, store, events, release, key } = await runningFill({ claude: { parse: { ops: [{ op: 'add', term: 'chleb', quantity: 1 }] }, choose: { ops: [] }, adhoc: { ops: [{ op: 'remove', lineKey: 't:chleb' }] } } });
+  const before = svc.state().trip;
+  const n = await svc.note({ note: 'mleko', includeUsual: false });
+  assert.equal(n.note, 'chleb');
+  assert.ok(n.messages.includes('Trwa dodawanie do koszyka — poczekaj na koniec.'));
+  assert.equal(n.lines.length, before.lines.length);
+  await svc.ask('usuń');
+  svc.apply('x'); svc.reject('x'); svc.line(key, { remove: true });
+  assert.equal(svc.answer(key, C).lines[0].productId, B);
+  assert.equal(svc.state().trip.lines.length, 1);
+  assert.deepEqual(store.corrections().filter((c) => c.chosenProductId === C), []);
+  release();
+  await done(events);
+  assert.equal(svc.state().trip.step, 'platnosc');
+});
+
+test('a failing listener never becomes an unhandled rejection and busy is cleared', async () => {
+  const rejections: unknown[] = [];
+  const onRej = (e: unknown) => rejections.push(e);
+  process.on('unhandledRejection', onRej);
+  const errors: string[] = [];
+  const orig = console.error;
+  console.error = (m: string) => void errors.push(String(m));
+  try {
+    let armed = false;
+    const { svc, events } = setup({ emit: (e) => { if (armed && e.type !== 'state') throw new Error('listener'); } });
+    const t = await svc.note({ note: 'chleb', includeUsual: false });
+    svc.answer(t.lines[0].lineKey, B);
+    armed = true;
+    assert.equal((await svc.approve()).started, true);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(svc.state().busy, null);
+    assert.equal(svc.state().trip.step, 'platnosc');
+    void events;
+    assert.deepEqual(rejections, []);
+    assert.ok(errors.some((m) => /listener/.test(m)));
+    const sync = await svc.sync();
+    assert.equal(sync.started, true);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(svc.state().busy, null);
+    assert.deepEqual(rejections, []);
+  } finally {
+    console.error = orig;
+    process.off('unhandledRejection', onRej);
+  }
+});
+
+test('approve refuses while a proposal is pending', async () => {
+  const { svc } = setup({ claude: { parse: { ops: [{ op: 'add', term: 'chleb', quantity: 1 }] }, choose: { ops: [{ op: 'setQuantity', lineKey: 't:chleb', quantity: 2 }] } } });
+  const t = await svc.note({ note: 'chleb', includeUsual: false });
+  svc.answer(t.lines[0].lineKey, B);
+  const r = await svc.approve();
+  assert.equal(r.started, false);
+  assert.equal(r.reason, 'Najpierw zastosuj albo odrzuć propozycję zmian.');
+});
+
+test('shutdown marks a running fill failed and frees the lock', async () => {
+  const { svc, finished, lockFile, release, events } = await runningFill();
+  assert.ok(existsSync(lockFile));
+  svc.shutdown();
+  assert.deepEqual(finished.map((f) => f.status), ['failed']);
+  assert.equal(existsSync(lockFile), false);
+  release();
+  await done(events);
+  assert.equal(svc.state().trip.step, 'koszyk', 'a stopped run does not rewrite the trip');
+});
+
+test('removing a term line directly records a removal correction', async () => {
+  const { svc, store } = setup({ claude: { parse: { ops: [{ op: 'add', term: 'chleb', quantity: 1 }] }, choose: { ops: [] } } });
+  const t = await svc.note({ note: 'chleb', includeUsual: false });
+  svc.line(t.lines[0].lineKey, { remove: true });
+  assert.deepEqual(store.corrections().map((c) => [c.term, c.chosenProductId]), [['chleb', null]]);
+});
