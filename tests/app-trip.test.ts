@@ -344,6 +344,24 @@ test('a choice moves the picked candidate image onto the line', () => {
   assert.equal(trip.lines.find((l) => l.lineKey === CHEESE)!.imageAlt, 'Ser B alt');
 });
 
+test('catalog categories follow a choice and survive saving while old trips remain readable', () => {
+  const d = draft();
+  d.items[0] = { ...d.items[0], categoryPath: ['Artykuły spożywcze', 'Sery'], alternatives: [{ productId: 'B', name: 'Ser B', lineCostGrosze: 800, confidence: 'high', categoryPath: ['Artykuły spożywcze', 'Mleko, nabiał i jaja'] }] };
+  const t = tripFromDraft(emptyTrip(NOW), d, {});
+  assert.deepEqual(t.lines[0].categoryPath, ['Artykuły spożywcze', 'Sery']);
+  assert.deepEqual(t.lines[0].candidates[1].categoryPath, ['Artykuły spożywcze', 'Mleko, nabiał i jaja']);
+  const chosen = chooseProduct(t, CHEESE, 'B').trip;
+  assert.deepEqual(chosen.lines[0].categoryPath, ['Artykuły spożywcze', 'Mleko, nabiał i jaja']);
+  const file = join(mkdtempSync(join(tmpdir(), 'trip-category-')), 'trip.json');
+  saveTrip(file, chosen);
+  assert.deepEqual(loadTrip(file)?.lines[0].categoryPath, chosen.lines[0].categoryPath);
+  const old = structuredClone(t);
+  delete old.lines[0].categoryPath;
+  old.lines[0].candidates.forEach((c) => { delete c.categoryPath; });
+  saveTrip(file, old);
+  assert.equal(loadTrip(file)?.lines[0].categoryPath, undefined);
+});
+
 test('loadTrip treats an invalid image as none instead of rejecting the trip', () => {
   const file = join(mkdtempSync(join(tmpdir(), 'trip-')), 'trip.json');
   const t = JSON.parse(JSON.stringify(base()));

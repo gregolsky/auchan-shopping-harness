@@ -29,7 +29,8 @@ export interface DraftLine {
   confidenceReason: string;
   imageUrl?: string | null;
   imageAlt?: string | null;
-  alternatives: { productId: string; name: string; lineCostGrosze: number; confidence: Confidence; imageUrl?: string | null; imageAlt?: string | null }[];
+  categoryPath?: string[];
+  alternatives: { productId: string; name: string; lineCostGrosze: number; confidence: Confidence; imageUrl?: string | null; imageAlt?: string | null; categoryPath?: string[] }[];
 }
 
 export interface Draft {
@@ -75,7 +76,7 @@ function line(f: Buyable, p: { term: string | null; quantity: number; reason: st
     term: p.term, productId: f.productId, name: f.name, quantity: p.quantity, lineCostGrosze: costAt(f, p.quantity),
     reason: p.reason, guess: p.guess ?? false, capped: p.capped ?? false, lastBought: lastBoughtText(f, now),
     confidence: p.confidence ?? 'high', confidenceReason: p.confidenceReason ?? '', alternatives: p.alternatives ?? [],
-    imageUrl: f.imageUrl, imageAlt: f.imageAlt,
+    imageUrl: f.imageUrl, imageAlt: f.imageAlt, categoryPath: f.categoryPath,
   };
 }
 
@@ -116,7 +117,7 @@ export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: Inte
     let reason = basisReason(top, term) + savingNote(top);
     const note = perishableNote(top, quantity);
     if (note) reason += `; ${note}`;
-    const alternatives = ranked.slice(1, 4).filter(buyable).sort((a, b) => CONF_RANK[a.confidence] - CONF_RANK[b.confidence]).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, quantity), confidence: c.confidence, imageUrl: c.imageUrl, imageAlt: c.imageAlt }));
+    const alternatives = ranked.slice(1, 4).filter(buyable).sort((a, b) => CONF_RANK[a.confidence] - CONF_RANK[b.confidence]).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, quantity), confidence: c.confidence, imageUrl: c.imageUrl, imageAlt: c.imageAlt, categoryPath: c.categoryPath }));
     used.add(top.productId);
     items.push(line(top, { term, quantity, reason, guess: top.guess, alternatives, confidence: top.confidence, confidenceReason: top.confidenceReason }, now));
   }

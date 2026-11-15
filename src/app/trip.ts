@@ -9,7 +9,7 @@ import type { LineView, Op } from './ops.ts';
 
 export type Step = 'dane' | 'szkic' | 'doprecyzowanie' | 'zatwierdzenie' | 'koszyk' | 'platnosc';
 /** baseCostGrosze is the cost at baseQuantity; lineCostGrosze is derived from it so quantity changes never drift. */
-export interface TripCandidate { productId: string; name: string; lineCostGrosze: number; confidence: Confidence; baseCostGrosze?: number; baseQuantity?: number; imageUrl?: string | null; imageAlt?: string | null }
+export interface TripCandidate { productId: string; name: string; lineCostGrosze: number; confidence: Confidence; baseCostGrosze?: number; baseQuantity?: number; imageUrl?: string | null; imageAlt?: string | null; categoryPath?: string[] }
 export interface TripLine {
   lineKey: string; term: string | null; note: string; productId: string; name: string; quantity: number;
   lineCostGrosze: number; reason: string; confidence: Confidence; confidenceReason: string;
@@ -18,6 +18,7 @@ export interface TripLine {
   /** A low match kept out of the basket until the user picks a product or skips it; it still blocks approval. */
   held?: boolean;
   imageUrl?: string | null; imageAlt?: string | null;
+  categoryPath?: string[];
 }
 /** A term with no product yet; it keeps the parsed quantity (1..20) and note so a later search drafts it as asked. */
 export interface UnmatchedTerm { term: string; hint: string; quantity?: number; note?: string }
@@ -41,7 +42,7 @@ export function lineKeyFor(term: string | null, productId: string): string {
 }
 
 function tripLine(d: DraftLine, kind: TripLine['kind'], notes: Record<string, string>): TripLine {
-  const cand = (c: { productId: string; name: string; lineCostGrosze: number; confidence: Confidence; imageUrl?: string | null; imageAlt?: string | null }): TripCandidate =>
+  const cand = (c: { productId: string; name: string; lineCostGrosze: number; confidence: Confidence; imageUrl?: string | null; imageAlt?: string | null; categoryPath?: string[] }): TripCandidate =>
     ({ ...c, baseCostGrosze: c.lineCostGrosze, baseQuantity: d.quantity });
   const own = cand(d);
   const others = d.alternatives.filter((a) => a.productId !== d.productId).map(cand);
@@ -51,6 +52,7 @@ function tripLine(d: DraftLine, kind: TripLine['kind'], notes: Record<string, st
     productId: d.productId, name: d.name, quantity: d.quantity, lineCostGrosze: d.lineCostGrosze, reason: d.reason,
     confidence: d.confidence, confidenceReason: d.confidenceReason, candidates: [own, ...others],
     proposedProductId: d.productId, question: null, included: kind === 'item', kind, imageUrl: d.imageUrl ?? null, imageAlt: d.imageAlt ?? null,
+    ...(d.categoryPath ? { categoryPath: d.categoryPath } : {}),
   };
   // The planner can suggest more than the app allows; the line is cut to the limit and says so.
   if (d.quantity > MAX_QUANTITY) return { ...withQuantity(line, MAX_QUANTITY), reason: `${d.reason}; ilość ograniczona do ${MAX_QUANTITY}` };
@@ -126,7 +128,8 @@ function withQuantity(l: TripLine, quantity: number): TripLine {
 function withProduct(l: TripLine, productId: string): TripLine {
   const c = l.candidates.find((x) => x.productId === productId);
   if (!c) return l;
-  return { ...l, productId, name: c.name, imageUrl: c.imageUrl ?? null, imageAlt: c.imageAlt ?? null, lineCostGrosze: c.lineCostGrosze, confidence: 'high', confidenceReason: '', question: null, included: l.held ? true : l.included, held: false };
+  const { categoryPath: _oldCategory, ...rest } = l;
+  return { ...rest, productId, name: c.name, imageUrl: c.imageUrl ?? null, imageAlt: c.imageAlt ?? null, ...(c.categoryPath ? { categoryPath: c.categoryPath } : {}), lineCostGrosze: c.lineCostGrosze, confidence: 'high', confidenceReason: '', question: null, included: l.held ? true : l.included, held: false };
 }
 
 function pick(l: TripLine, productId: string): TripLine | null {
@@ -279,11 +282,13 @@ const isRec = (v: unknown): v is Rec => v !== null && typeof v === 'object' && !
 const isStr = (v: unknown): v is string => typeof v === 'string';
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 const isArr = <T>(v: unknown, ok: (x: unknown) => x is T): v is T[] => Array.isArray(v) && v.every(ok);
+const validCategoryPath = (v: unknown): v is string[] => isArr(v, isStr) && v.length <= 8 && v.every((part) => part.length <= 120);
 
 function validCandidate(v: unknown): v is TripCandidate {
   return isRec(v) && isStr(v.productId) && isStr(v.name) && isInt(v.lineCostGrosze) && v.lineCostGrosze >= 0 && v.lineCostGrosze <= MAX_COST && isStr(v.confidence) && CONFS.includes(v.confidence)
     && (v.baseCostGrosze === undefined || (isInt(v.baseCostGrosze) && v.baseCostGrosze >= 0 && v.baseCostGrosze <= MAX_COST))
-    && (v.baseQuantity === undefined || (isInt(v.baseQuantity) && v.baseQuantity >= 1));
+    && (v.baseQuantity === undefined || (isInt(v.baseQuantity) && v.baseQuantity >= 1))
+    && (v.categoryPath === undefined || validCategoryPath(v.categoryPath));
 }
 
 function validLine(v: unknown): v is TripLine {
@@ -293,7 +298,8 @@ function validLine(v: unknown): v is TripLine {
     && v.candidates.some((c) => c.productId === v.productId) && v.candidates.some((c) => c.productId === v.proposedProductId)
     && (v.question === null || (isRec(v.question) && isStr(v.question.text) && isArr(v.question.options, isStr) && v.question.options.length <= 3
       && v.question.options.every((o) => (v.candidates as TripCandidate[]).some((c) => c.productId === o))))
-    && typeof v.included === 'boolean' && (v.held === undefined || typeof v.held === 'boolean') && (v.kind === 'item' || v.kind === 'suggestion');
+    && typeof v.included === 'boolean' && (v.held === undefined || typeof v.held === 'boolean') && (v.kind === 'item' || v.kind === 'suggestion')
+    && (v.categoryPath === undefined || validCategoryPath(v.categoryPath));
 }
 
 function validProposal(v: unknown): boolean {

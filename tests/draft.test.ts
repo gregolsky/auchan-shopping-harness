@@ -20,6 +20,8 @@ test('a term becomes one line with a reason and up to 3 alternatives', () => {
   assert.equal(d.items[0].reason, 'bought 5 times');
   assert.equal(d.items[0].lineCostGrosze, 2000);
   assert.equal(d.items[0].alternatives.length, 3);
+  assert.deepEqual(d.items[0].categoryPath, ['Produkty', 'Kawa, herbata']);
+  assert.deepEqual(d.items[0].alternatives[0].categoryPath, ['Produkty', 'Kawa, herbata']);
 });
 
 test('usual products join when asked, and not otherwise', () => {
