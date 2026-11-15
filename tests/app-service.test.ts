@@ -783,6 +783,20 @@ test('terms searched in the last 7 days are skipped unless forced', async () => 
   assert.equal(searchEvents(t.events).filter((e) => e.status === 'searching').length, 1);
 });
 
+test('"search again" (force with no terms) searches the recent terms too', async () => {
+  const log: string[] = [];
+  const t = await draftWithUnmatched({ page: () => fakeSearchPage(undefined, { log }) });
+  await t.svc.searchAuchan();
+  await searchEnd(t.events);
+  t.events.length = 0;
+  log.length = 0;
+  assert.deepEqual(t.svc.state().search.terms, []);
+  assert.deepEqual(t.svc.state().search.recent, ['kawior']);
+  assert.deepEqual(await t.svc.searchAuchan(undefined, { force: true }), { started: true });
+  await searchEnd(t.events);
+  assert.deepEqual(log.filter((u) => u.includes('/search?q=')).map((u) => decodeURIComponent(u.split('q=')[1]!)), ['kawior']);
+});
+
 test('at most 10 terms are searched', async () => {
   const log: string[] = [];
   const t = await draftWithUnmatched({ page: () => fakeSearchPage({}, { log }) });

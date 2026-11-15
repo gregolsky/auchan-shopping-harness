@@ -415,7 +415,8 @@ export function createService(d: ServiceDeps) {
       try {
         if (lockHeld(lockFile)) return refuse(BUSY);
         region = withStore((s) => s.latestOrderRegion());
-        const given = terms === undefined ? searchPlan().terms : [...new Map(terms.map((x) => x.trim()).filter(Boolean).map((x) => [normaliseTerm(x), x])).values()];
+        const plan = terms === undefined ? searchPlan() : null;
+        const given = plan !== null ? (opts.force ? [...plan.terms, ...plan.recent] : plan.terms) : [...new Map((terms ?? []).map((x) => x.trim()).filter(Boolean).map((x) => [normaliseTerm(x), x])).values()];
         wanted = opts.force || terms === undefined ? given : withStore((s) => given.filter((x) => !s.searchedRecently(x, d.now())));
         if (terms !== undefined && !opts.force && wanted.length < given.length && wanted.length === 0) return refuse('Te hasła były szukane niedawno (w ostatnich 7 dniach). Kliknij ponownie, jeśli chcesz szukać jeszcze raz.');
       } catch (e) {
