@@ -186,6 +186,7 @@ export function createHttpWorker(o: HttpOptions): Worker & CartAccess {
           throw new Error('quantity must be above 0 and at most 100');
         }
       }
+      csrf = undefined; // a stale token must not survive a page that has none (an expired session)
       await loadState('/orders'); // a fresh token for every batch
       if (!csrf) throw new LoginRequired('no CSRF token in page state: session not logged in');
       const meta = { itemListName: 'search', favorite: false, pageViewId: crypto.randomUUID(), pageType: 'search' };

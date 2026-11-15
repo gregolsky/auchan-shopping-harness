@@ -225,6 +225,18 @@ test('applyQuantities posts the body to apply-quantity with the CSRF token from 
   cleanup();
 });
 
+test('applyQuantities asks for a login when the session expired since the last token, and posts nothing', async () => {
+  let loggedIn = true;
+  const { worker, calls, cleanup } = setup((url) =>
+    url.endsWith('/orders') ? new Response(page({ session: loggedIn ? { csrf: { token: 't1' } } : { isLoggedIn: false } })) : new Response('{}'),
+  );
+  await worker.applyQuantities([{ productId: P1, quantity: 1 }]);
+  loggedIn = false;
+  await assert.rejects(() => worker.applyQuantities([{ productId: P1, quantity: 1 }]), LoginRequired);
+  assert.equal(calls.filter((c) => c.init.method === 'POST').length, 1);
+  cleanup();
+});
+
 test('applyQuantities fetches a fresh CSRF token on every call', async () => {
   const { worker, calls, cleanup } = setup(cartServer());
   await worker.applyQuantities([{ productId: P1, quantity: 1 }]);
