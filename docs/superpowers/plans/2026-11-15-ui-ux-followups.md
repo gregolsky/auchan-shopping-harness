@@ -21,3 +21,5 @@ The first browser review covered the six-step local app at desktop and 375 px wi
 ## To fix (reported by the shopper, 2026-11-15)
 
 - **Sync and fill messages are unclear.** After "Odśwież dane" the page shows the CLI's English technical lines ("orders: imported 0, skipped 21, oldest seen …; zero-quantity lines …", "promotions: 263 products from 10 pages", "capped (may be incomplete): /promotions/…"). Show plain Polish instead, e.g. "Zamówienia: brak nowych (21 już w bazie). Nowe pojawiają się po dostawie." and "Promocje: 263 produkty odświeżone; 5 kategorii mogło się nie wczytać w całości." Same review for every log line the app passes through from `src/cli.ts` and `src/fill-cli.ts` (login prompt, plan total, progress, failures). Keep the CLI's own output unchanged; translate in the app layer, with tests.
+- **Claude's own `ask` options** are not filtered for low-confidence candidates (pet treats could still appear when Claude asks). Filter them like the planner's questions.
+- **Matcher regression:** after the "mąka"/"Makar" fix, a short stem allows only one extra letter, so "ryba" no longer matches "rybka". Find a rule that keeps both.
