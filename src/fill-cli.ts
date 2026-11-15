@@ -119,7 +119,7 @@ export async function main(args: string[], deps: FillDeps = liveDeps): Promise<n
       LOG_IN,
     );
     if (!report) {
-      console.error('Nie zalogowano: nic nie dodano poza tym, co już było w koszyku.');
+      console.error('Nie zalogowano: wypełnianie przerwane. Część produktów mogła już trafić do koszyka; ponowne uruchomienie doda tylko to, czego brakuje.');
       store.finishFill(runId, { status: 'failed', sent: 0, missing: 0, checkBeforePaying: 0 });
       return 1;
     }

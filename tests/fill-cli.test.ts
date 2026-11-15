@@ -202,7 +202,7 @@ test('giving up on login says nothing was added and exits 1', async (t) => {
   const { log, deps } = setup(cart, { worker: { waitForLogin: async () => false } });
   quiet(t, log);
   assert.equal(await main([], deps), 1);
-  assert.ok(log.err.includes('Nie zalogowano: nic nie dodano poza tym, co już było w koszyku.'));
+  assert.ok(log.err.includes('Nie zalogowano: wypełnianie przerwane. Część produktów mogła już trafić do koszyka; ponowne uruchomienie doda tylko to, czego brakuje.'));
   assert.deepEqual(log.finished, [{ status: 'failed', sent: 0, missing: 0, checkBeforePaying: 0 }]);
 });
 
