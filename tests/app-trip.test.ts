@@ -171,3 +171,74 @@ test('saveTrip replaces a symlink instead of following it', () => {
   assert.equal(lstatSync(file).isSymbolicLink(), false);
   assert.notEqual(loadTrip(file), null);
 });
+
+test('corrections come from the final state, not each op', () => {
+  const alt = (id: string) => ({ productId: id, name: id, lineCostGrosze: 100, confidence: 'low' as const });
+  const d = draft();
+  d.items[0]!.alternatives = [alt('B'), alt('C')];
+  const t = tripFromDraft(emptyTrip(NOW), d, {});
+  const run = (ops: Parameters<typeof applyOps>[1]) => applyOps(t, ops).corrections;
+  assert.deepEqual(run([{ op: 'choose', lineKey: CHEESE, productId: 'B' }, { op: 'choose', lineKey: CHEESE, productId: 'A' }]), []);
+  assert.deepEqual(run([{ op: 'choose', lineKey: CHEESE, productId: 'B' }, { op: 'choose', lineKey: CHEESE, productId: 'C' }]),
+    [{ term: 'Ser żółty', proposedProductId: 'A', chosenProductId: 'C' }]);
+  assert.deepEqual(run([{ op: 'choose', lineKey: CHEESE, productId: 'B' }, { op: 'remove', lineKey: CHEESE }]),
+    [{ term: 'Ser żółty', proposedProductId: 'A', chosenProductId: null }]);
+});
+
+test('answer with a non-candidate or a non-offered option leaves the trip unchanged', () => {
+  const t = base();
+  assert.equal(answer(t, CHEESE, 'ZZZ').trip, t);
+  const asked = applyOps(t, [{ op: 'ask', lineKey: CHEESE, question: 'Ktory?', options: ['A'] }]).trip;
+  const r = answer(asked, CHEESE, 'B');
+  assert.equal(r.trip, asked);
+  assert.deepEqual(r.corrections, []);
+  assert.notEqual(r.trip.lines[0]!.question, null);
+});
+
+test('tripFromDraft keeps existing lines, dedupes fresh ones and clears matched unmatched terms', () => {
+  let t = base();
+  t = applyOps(t, [{ op: 'setQuantity', lineKey: CHEESE, quantity: 5 }, { op: 'unmatched', term: 'chleb', hint: 'x' }]).trip;
+  t = setIncluded(t, 'p:S', true);
+  const d2 = draft();
+  d2.items = [dl({ term: 'chleb', productId: 'H', name: 'Chleb 1' }), dl({ term: 'Chleb', productId: 'H2', name: 'Chleb 2' }), d2.items[0]!];
+  d2.unmatched = [];
+  const r = tripFromDraft(t, d2, {});
+  assert.equal(r.lines.find((l) => l.lineKey === CHEESE)!.quantity, 5);
+  assert.equal(r.lines.find((l) => l.lineKey === 'p:S')!.included, true);
+  assert.deepEqual(r.lines.filter((l) => l.lineKey === 't:chleb').map((l) => l.productId), ['H']);
+  assert.deepEqual(r.unmatched.map((u) => u.term), ['kawior']);
+  const again = tripFromDraft(r, { ...draft(), unmatched: ['chleb'] }, {});
+  assert.deepEqual(again.unmatched.map((u) => u.term), ['kawior']);
+});
+
+test('quantity changes never drift and a chosen line is not asked again', () => {
+  const t = base();
+  const r = applyOps(t, [{ op: 'setQuantity', lineKey: CHEESE, quantity: 1 }, { op: 'setQuantity', lineKey: CHEESE, quantity: 3 }, { op: 'setQuantity', lineKey: CHEESE, quantity: 2 }]).trip;
+  assert.equal(r.lines[0]!.lineCostGrosze, 1000);
+  assert.deepEqual(r.lines[0]!.candidates.map((c) => c.lineCostGrosze), [1000, 800]);
+  assert.equal(applyOps(t, [{ op: 'setQuantity', lineKey: CHEESE, quantity: 21 }]).trip.lines[0]!.quantity, 2);
+  const c = applyOps(t, [{ op: 'choose', lineKey: CHEESE, productId: 'B' }]).trip.lines[0]!;
+  assert.equal(needsQuestion(c), false);
+  assert.equal(c.confidenceReason, '');
+  const a = answer(t, CHEESE, 'A').trip.lines[0]!;
+  assert.equal(needsQuestion(a), false);
+});
+
+test('loadTrip rejects out-of-range values and dangling references', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'trip-'));
+  const f = join(dir, 't.json');
+  const mut = (fn: (t: ReturnType<typeof base>) => void) => { const t = JSON.parse(JSON.stringify(base())); fn(t); writeFileSync(f, JSON.stringify(t)); return loadTrip(f); };
+  assert.notEqual(mut(() => {}), null);
+  assert.equal(mut((t) => { t.lines[0]!.quantity = 21; }), null);
+  assert.equal(mut((t) => { t.lines[0]!.lineCostGrosze = -1; }), null);
+  assert.equal(mut((t) => { t.lines[0]!.productId = 'NOPE'; }), null);
+  assert.equal(mut((t) => { t.lines[0]!.proposedProductId = 'NOPE'; }), null);
+  assert.equal(mut((t) => { t.lines[0]!.question = { text: 'q', options: ['NOPE'] }; }), null);
+  assert.equal(mut((t) => { t.lines[1]!.lineKey = t.lines[0]!.lineKey; }), null);
+  assert.equal(mut((t) => { t.messages = Array(201).fill('x'); }), null);
+  assert.equal(mut((t) => { t.messages = ['x'.repeat(2001)]; }), null);
+  writeFileSync(f, JSON.stringify({ ...base(), messages: ['x'.repeat(1_100_000)] }));
+  assert.equal(loadTrip(f), null);
+  const p = mut((t) => { t.proposal = { id: 'p', source: 'claude', dropped: 0, ops: [{ op: 'remove', lineKey: CHEESE }, { op: 'remove', lineKey: 'nope' }] }; });
+  assert.deepEqual(p!.proposal!.ops, [{ op: 'remove', lineKey: CHEESE }]);
+});
