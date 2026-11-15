@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText } from '../public/app.js';
 
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,
   reason: 'bought before', confidence: 'medium', confidenceReason: 'not bought before', included: true, kind: 'item',
@@ -38,4 +38,43 @@ test('page loads same-origin assets and never injects untrusted HTML', () => {
   assert.match(html, /__APP_TOKEN__/);
   assert.doesNotMatch(html, /<script(?![^>]*src=)|<style|\son\w+=/i);
   assert.doesNotMatch(js, /innerHTML|outerHTML|insertAdjacentHTML|document\.write/);
+});
+
+const tripAt = (step: string, extra: object = {}) => ({ trip: { step, lines: [{ ...line, question: null }], proposal: null, unmatched: [], messages: [], ...extra }, freshness: { ageHours: 2 } });
+
+test('approving is only possible up to the review step', () => {
+  assert.equal(viewModel(tripAt('zatwierdzenie')).canApprove, true);
+  for (const step of ['koszyk', 'platnosc']) {
+    const model = viewModel(tripAt(step));
+    assert.equal(model.canApprove, false);
+    assert.equal(model.inCart, true);
+  }
+});
+
+test('a budget that is not a number is refused with a Polish message', () => {
+  assert.deepEqual(parseBudget('149,99'), { ok: true, grosze: 14999 });
+  assert.deepEqual(parseBudget(' 150 '), { ok: true, grosze: 15000 });
+  assert.deepEqual(parseBudget(''), { ok: true, grosze: undefined });
+  for (const bad of ['abc', '12zł', '-5', '1,234', '1e3', 'NaN']) {
+    assert.deepEqual(parseBudget(bad), { ok: false, error: 'Podaj budżet jako liczbę, np. 150 lub 149,99' }, bad);
+  }
+});
+
+test('step 3 puts a pending proposal first and blocks moving on until it is decided', () => {
+  const proposal = { id: 'p', ops: [], dropped: 0 };
+  const pending = describeQuestions(viewModel(tripAt('doprecyzowanie', { proposal })));
+  assert.equal(pending.intro, 'Najpierw zastosuj albo odrzuć propozycję Claude.');
+  assert.equal(pending.empty, null);
+  assert.equal(pending.canContinue, false);
+  const none = describeQuestions(viewModel(tripAt('doprecyzowanie')));
+  assert.equal(none.empty, 'Nie ma pytań do rozstrzygnięcia.');
+  assert.equal(none.canContinue, true);
+  const asked = describeQuestions(viewModel({ trip: { step: 'doprecyzowanie', lines: [line], proposal: null, unmatched: [], messages: [] } }));
+  assert.equal(asked.empty, null);
+  assert.equal(asked.canContinue, false);
+});
+
+test('an unmatched term keeps Claude\'s hint', () => {
+  assert.equal(unmatchedText({ term: 'ser', hint: 'Dodaj ręcznie, brak w katalogu' }), 'ser · Dodaj ręcznie, brak w katalogu');
+  assert.equal(unmatchedText({ term: 'ser', hint: '' }), 'ser');
 });

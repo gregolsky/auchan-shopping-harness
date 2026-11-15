@@ -46,6 +46,7 @@ const MAX_MESSAGES = 200;
 const MAX_MESSAGE = 2000;
 const CONF_RANK = { high: 0, medium: 1, low: 2 };
 
+const ALREADY_IN_CART = 'Te zakupy są już w koszyku. Zacznij nowe zakupy, żeby dodać coś jeszcze.';
 const FROZEN = 'Trwa dodawanie do koszyka — poczekaj na koniec.';
 
 const refuse = (reason: string): Start => ({ started: false, reason });
@@ -262,6 +263,7 @@ export function createService(d: ServiceDeps) {
 
     async approve(): Promise<Start> {
       if (busy !== null) return refuse('Inna operacja trwa: poczekaj, aż się skończy.');
+      if (trip.step === 'koszyk' || trip.step === 'platnosc') return refuse(ALREADY_IN_CART);
       if (trip.proposal !== null) return refuse('Najpierw zastosuj albo odrzuć propozycję zmian.');
       if (openQuestions(trip).length > 0) return refuse('Najpierw odpowiedz na pytania o produkty.');
       let lines;

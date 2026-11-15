@@ -98,3 +98,10 @@ test('fill runs record status and counts', () => {
     assert.ok(row.finished_at);
   });
 });
+
+test('a blocked product error names the product, not only its id', () => {
+  withStore((s) => {
+    s.blockProduct('a');
+    assert.throws(() => s.approveBasket([{ term: null, productId: 'a', quantity: 1 }], []), /Produkt zablokowany: Produkt a$/);
+  });
+});

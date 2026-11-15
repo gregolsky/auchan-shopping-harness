@@ -41,7 +41,7 @@ function note(n: PriceNote): string {
 
 /** substitutes: product id -> names of up to 2 alternatives. The cart has no names; lines are named from the basket. */
 export function formatReport(
-  r: FillReport & { sent: number }, unmatched: string[], substitutes: Record<string, string[]> = {}, names: Record<string, string> = {},
+  r: FillReport & { sent: number }, unmatched: string[], substitutes: Record<string, string[]> = {}, names: Record<string, string> = {}, blockedInCart: string[] = [],
 ): string {
   const out: string[] = [];
   const section = (title: string, rows: string[]) => {
@@ -53,7 +53,10 @@ export function formatReport(
     const limit = lim ? ` — dodano ${qty(lim.added)} z ${qty(lim.requested)} (powód: ${cleanText(lim.reason)})` : '';
     return `${cleanText(l.name)} x ${qty(l.quantity)}${limit}${subs.length ? ` (zamiast tego: ${subs.join('; ')})` : ''}`;
   };
-  section('Sprawdź przed zapłatą', r.checkBeforePaying.map(note));
+  section('Sprawdź przed zapłatą', [
+    ...blockedInCart.map((n) => `${cleanText(n)} — zablokowany produkt w koszyku, usuń go na Auchan`),
+    ...r.checkBeforePaying.map(note),
+  ]);
   section('Brak w sklepie', r.outOfStock.map(withSubs));
   section('Nie dodano', r.missing.map(withSubs));
   section('Dodaj sam na Auchan', unmatched.map(cleanText));
@@ -202,8 +205,12 @@ export async function runFill(deps: FillDeps, hooks: FillHooks): Promise<FillRes
     } catch {
       // The report is worth more than its extras.
     }
+    // A blocked product already in the cart is only reported; it is never removed automatically.
+    const blockedInCart = report.extras
+      .filter((e) => isBlockedProduct({ productId: e.productId, name: names[e.productId] }, blockedProducts))
+      .map((e) => names[e.productId] ?? `produkt ${e.productId}`);
     const skippedText = skippedBlocked.length ? `Pominięto zablokowane produkty:\n${skippedBlocked.map((l) => `  - ${cleanText(l.name)}`).join('\n')}\n\n` : '';
-    const text = skippedText + formatReport(report, basket.unmatched, subs, names);
+    const text = skippedText + formatReport(report, basket.unmatched, subs, names, blockedInCart);
     (hooks.report ?? hooks.log)(text);
     return { code: 0, report, substitutes: subs, text };
   } catch (err) {

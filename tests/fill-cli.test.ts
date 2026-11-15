@@ -109,6 +109,24 @@ test('fill reports products blocked after an older basket was approved', async (
   assert.match(log.out.join('\n'), /Pominięto zablokowane produkty:[\s\S]*Chleb/);
 });
 
+test('a blocked product already in the cart is listed first under the pre-payment checks and never removed', async (t) => {
+  const cart = fakeCart({ [C]: 1 });
+  const { log, deps, store } = setup(cart);
+  store.blockProduct(C);
+  quiet(t, log);
+  assert.equal(await main([], deps), 0);
+  assert.match(log.out.join('\n'), /Sprawdź przed zapłatą:\n  - Mleko 3% — zablokowany produkt w koszyku, usuń go na Auchan\n/);
+  assert.equal(cart.quantities[C], 1);
+  assert.equal(cart.applyCalls.flat().some((c) => c.productId === C), false);
+});
+
+test('formatReport lists blocked cart products before price warnings', () => {
+  const report: any = { added: [], alreadyEnough: [], extras: [], missing: [], outOfStock: [], smallRises: [], cartTotalGrosze: 100, sent: 0,
+    checkBeforePaying: [{ productId: A, name: 'Mleko', approvedGrosze: 100, nowGrosze: 200, risePercent: 100 }] };
+  const text = formatReport(report, [], {}, {}, ['Chleb']);
+  assert.match(text, /Sprawdź przed zapłatą:\n  - Chleb — zablokowany produkt w koszyku, usuń go na Auchan\n  - Mleko:/);
+});
+
 test('fill resumes after login', async (t) => {
   const cart = fakeCart({});
   let first = true;

@@ -21,9 +21,30 @@ export function viewModel(state) {
     freshnessText: state.freshness?.ageHours == null ? 'Brak pełnej synchronizacji' : `Dane sprzed ${state.freshness.ageHours} godz.`,
     lines: lines.filter((l) => l.kind === 'item'), suggestions: lines.filter((l) => l.kind === 'suggestion'),
     unmatched: trip.unmatched || [], total: lines.filter((l) => l.included).reduce((sum, l) => sum + l.lineCostGrosze, 0),
-    canApprove: lines.some((l) => l.included) && !lines.some((l) => l.included && l.question) && !trip.proposal && !state.busy,
+    canApprove: stepIndex <= 3 && lines.some((l) => l.included) && !lines.some((l) => l.included && l.question) && !trip.proposal && !state.busy,
+    inCart: stepIndex >= 4,
+    questions: lines.filter((l) => l.included && l.question),
+    proposalPending: Boolean(trip.proposal),
     proposalText: trip.proposal?.ops?.map((op) => describeOp(op, new Map(lines.map((l) => [l.lineKey, l])))) || [],
   };
+}
+
+/** What step 3 shows: a pending proposal comes first and blocks moving on; "no questions" only when nothing waits. */
+export function describeQuestions(model) {
+  if (model.proposalPending) return { intro: 'Najpierw zastosuj albo odrzuć propozycję Claude.', empty: null, canContinue: false };
+  if (model.questions.length === 0) return { intro: null, empty: 'Nie ma pytań do rozstrzygnięcia.', canContinue: true };
+  return { intro: null, empty: null, canContinue: false };
+}
+
+/** A term Claude could not match keeps its hint next to it. */
+export function unmatchedText(item) { return item.hint ? `${item.term} · ${item.hint}` : item.term; }
+
+/** Budget in zł as typed ("150", "149,99"): empty is fine (no budget), anything else that is not a number is refused. */
+export function parseBudget(text) {
+  const value = String(text ?? '').trim();
+  if (value === '') return { ok: true, grosze: undefined };
+  if (!/^\d+([.,]\d{1,2})?$/.test(value)) return { ok: false, error: 'Podaj budżet jako liczbę, np. 150 lub 149,99' };
+  return { ok: true, grosze: Math.round(Number(value.replace(',', '.')) * 100) };
 }
 
 export function describeOp(op, linesByKey) {
@@ -144,10 +165,10 @@ export function start() {
     const note = element('textarea'); note.value = draftForm.note ?? state.trip.note ?? ''; note.placeholder = 'mleko 2\nchleb\nmąka pszenna 1'; note.setAttribute('aria-label', 'Lista zakupów'); note.addEventListener('input', () => { draftForm.note = note.value; });
     const usual = element('input'); usual.type = 'checkbox'; usual.id = 'usual'; usual.checked = draftForm.usual; usual.addEventListener('change', () => { draftForm.usual = usual.checked; });
     const usualLabel = element('label', 'check'); append(usualLabel, usual, element('span', '', 'Dodaj to, co zwykle kupuję'));
-    const budget = element('input'); budget.type = 'number'; budget.min = '0'; budget.step = '0.01'; budget.placeholder = 'Opcjonalnie'; budget.id = 'budget'; budget.value = draftForm.budget; budget.addEventListener('input', () => { draftForm.budget = budget.value; });
+    const budget = element('input'); budget.type = 'text'; budget.inputMode = 'decimal'; budget.placeholder = 'Opcjonalnie'; budget.id = 'budget'; budget.value = draftForm.budget; budget.addEventListener('input', () => { draftForm.budget = budget.value; });
     const budgetLabel = element('label', '', 'Budżet w zł'); budgetLabel.htmlFor = 'budget';
     append(form, note, usualLabel, budgetLabel, budget,
-      button('Ułóż szkic →', async () => { const value = budget.value.trim(); const body = { note: note.value, includeUsual: usual.checked }; if (value) body.budgetGrosze = Math.round(Number(value.replace(',', '.')) * 100); await run('/api/note', body); selected = 1; render(); }, 'button', state.busy === 'fill'));
+      button('Ułóż szkic →', async () => { const parsed = parseBudget(budget.value); if (!parsed.ok) { tell(parsed.error); return; } const body = { note: note.value, includeUsual: usual.checked }; if (parsed.grosze !== undefined) body.budgetGrosze = parsed.grosze; await run('/api/note', body); selected = 1; render(); }, 'button', state.busy === 'fill'));
     const results = card('Wybrane produkty', 'Sprawdź nazwę, ilość i ocenę dopasowania.');
     const model = viewModel(state);
     const blockedNotice = state.trip.messages?.find((m) => m.startsWith('Pominięto zablokowane produkty:'));
@@ -167,18 +188,21 @@ export function start() {
     if (state.trip.lines.length) target.append(button('Dalej: doprecyzowanie →', () => { selected = 2; render(); }, 'quiet'));
   }
   function renderQuestions() {
+    const model = viewModel(state);
+    const info = describeQuestions(model);
+    if (model.proposalPending) renderProposal(true);
     const box = card('3. Doprecyzowanie', 'Wybierz produkt tam, gdzie dopasowanie wymaga Twojej decyzji.');
-    const questions = state.trip.lines.filter((l) => l.included && l.question);
-    if (!questions.length) box.append(element('p', 'empty', 'Nie ma pytań do rozstrzygnięcia.'));
+    if (info.intro) box.append(element('p', 'message', info.intro));
+    if (info.empty) box.append(element('p', 'empty', info.empty));
     target.append(box);
-    questions.forEach((l) => {
+    model.questions.forEach((l) => {
       const row = card(l.question.text);
       const options = element('div', 'choices');
       l.question.options.forEach((id) => options.append(button(l.candidates.find((c) => c.productId === id)?.name || id, () => run('/api/answer', { lineKey: l.lineKey, productId: id }), 'small')));
       options.append(button('Pomiń produkt', () => run('/api/answer', { lineKey: l.lineKey, productId: null }), 'small danger'));
       row.append(options); target.append(row);
     });
-    if (!questions.length) target.append(button('Dalej: zatwierdzenie →', () => { selected = 3; render(); }, 'quiet'));
+    target.append(button('Dalej: zatwierdzenie →', () => { selected = 3; render(); }, 'quiet', !info.canContinue));
   }
   function renderReview() {
     const model = viewModel(state);
@@ -186,9 +210,9 @@ export function start() {
     const included = state.trip.lines.filter((l) => l.included);
     included.forEach((l) => box.append(lineRow(l)));
     if (!included.length) box.append(element('p', 'empty', 'Lista jest pusta. Wróć do szkicu.'));
-    if (model.unmatched.length) append(box, element('h3', '', 'Do dodania ręcznie w Auchan'), ...model.unmatched.map((u) => element('p', 'meta', u.term)));
-    append(box, element('div', 'total', `Szacowana kwota: ${zl(model.total)}`), button('✓ Zatwierdź i dodaj do koszyka', async () => { const result = await run('/api/approve', {}); if (result?.started) { selected = 4; render(); } }, 'button', !model.canApprove));
-    if (!model.canApprove) box.append(element('p', 'meta', 'Odpowiedz na pytania i zastosuj lub odrzuć propozycję zmian, aby zatwierdzić.'));
+    if (model.unmatched.length) append(box, element('h3', '', 'Do dodania ręcznie w Auchan'), ...model.unmatched.map((u) => element('p', 'meta', unmatchedText(u))));
+    append(box, element('div', 'total', `Szacowana kwota: ${zl(model.total)}`), model.inCart ? element('p', 'meta', 'Te zakupy są już w koszyku. Zacznij nowe zakupy, żeby dodać coś jeszcze.') : button('✓ Zatwierdź i dodaj do koszyka', async () => { const result = await run('/api/approve', {}); if (result?.started) { selected = 4; render(); } }, 'button', !model.canApprove));
+    if (!model.canApprove && !model.inCart) box.append(element('p', 'meta', 'Odpowiedz na pytania i zastosuj lub odrzuć propozycję zmian, aby zatwierdzić.'));
     target.append(box);
   }
   function renderLogs() { const box = card('Dziennik'); logs.slice(-20).forEach((l) => box.append(element('p', 'message', l))); return box; }
@@ -260,9 +284,9 @@ export function start() {
       target.append(searchBox);
     } catch (error) { tell(error.message); }
   }
-  function renderProposal() {
+  function renderProposal(early = false) {
     const proposal = state.trip.proposal;
-    if (!proposal || ![1, 2, 3].includes(selected)) return;
+    if (!proposal || ![1, 2, 3].includes(selected) || (selected === 2 && !early)) return;
     const box = card('Propozycja zmian od Claude', 'Zmiany czekają na Twoją decyzję.');
     viewModel(state).proposalText.forEach((t) => box.append(element('p', 'message', t)));
     if (proposal.dropped) box.append(element('p', 'meta', `Pominięto ${proposal.dropped} nieprawidłowych zmian.`));

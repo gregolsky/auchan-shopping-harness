@@ -410,3 +410,41 @@ test('removing a term line directly records a removal correction', async () => {
   svc.line(t.lines[0].lineKey, { remove: true });
   assert.deepEqual(store.corrections().map((c) => [c.term, c.chosenProductId]), [['chleb', null]]);
 });
+
+test('approve after platnosc is refused so the paid basket is not added again', async () => {
+  const cart = fakeCart({});
+  const { svc, events } = setup({ cart });
+  const t = await svc.note({ note: 'chleb', includeUsual: false });
+  svc.answer(t.lines[0].lineKey, B);
+  assert.equal((await svc.approve()).started, true);
+  await done(events);
+  assert.equal(svc.state().trip.step, 'platnosc');
+  const before = (cart as FakeCart).applyCalls.length;
+  const again = await svc.approve();
+  assert.equal(again.started, false);
+  assert.equal(again.reason, 'Te zakupy są już w koszyku. Zacznij nowe zakupy, żeby dodać coś jeszcze.');
+  assert.equal((cart as FakeCart).applyCalls.length, before);
+});
+
+test('approving a trip with a product blocked meanwhile is refused with its name', async () => {
+  const { svc, store } = setup();
+  const t = await svc.note({ note: 'chleb', includeUsual: false });
+  svc.answer(t.lines[0].lineKey, B);
+  store.blockProduct(B);
+  const r = await svc.approve();
+  assert.equal(r.started, false);
+  assert.match(r.reason!, /Produkt zablokowany: Chleb/);
+});
+
+test('the app report lists a blocked product already in the cart first, and leaves it there', async () => {
+  const cart = fakeCart({ [C]: 1 });
+  const { svc, events, store } = setup({ cart });
+  const t = await svc.note({ note: 'chleb', includeUsual: false });
+  svc.answer(t.lines[0].lineKey, B);
+  store.blockProduct(C);
+  await svc.approve();
+  await done(events);
+  const rep = events.find((e) => e.type === 'report') as { type: 'report'; report: any };
+  assert.match(rep.report.text, /Sprawdź przed zapłatą:\n  - Mleko 3% — zablokowany produkt w koszyku, usuń go na Auchan/);
+  assert.equal((cart as FakeCart).quantities[C], 1);
+});
