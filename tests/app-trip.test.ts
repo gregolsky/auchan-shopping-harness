@@ -108,15 +108,22 @@ test('applyOps add returns the term for drafting; say, unmatched, setQuantity', 
   assert.deepEqual(l.candidates.map((c) => c.lineCostGrosze), [2000, 1600]);
 });
 
+/** The cheese line with a medium alternative, so Claude's ask may offer it. */
+function baseMediumB() {
+  const d = draft();
+  d.items[0]!.alternatives = [{ productId: 'B', name: 'Ser B', lineCostGrosze: 800, confidence: 'medium' }];
+  return tripFromDraft(emptyTrip(NOW), d, { 'Ser żółty': 'bez laktozy' });
+}
+
 test('applyOps ask sets the question and openQuestions lists it', () => {
-  const r = applyOps(base(), [{ op: 'ask', lineKey: CHEESE, question: 'Ktory?', options: ['A', 'B'] }]);
+  const r = applyOps(baseMediumB(), [{ op: 'ask', lineKey: CHEESE, question: 'Ktory?', options: ['A', 'B'] }]);
   assert.deepEqual(r.trip.lines[0]!.question, { text: 'Ktory?', options: ['A', 'B'] });
   assert.deepEqual(openQuestions(r.trip).map((l) => l.lineKey), [CHEESE]);
   assert.deepEqual(openQuestions(setIncluded(r.trip, CHEESE, false)), []);
 });
 
 test('answer with a product sets it and clears the question', () => {
-  const asked = applyOps(base(), [{ op: 'ask', lineKey: CHEESE, question: 'Ktory?', options: ['A', 'B'] }]).trip;
+  const asked = applyOps(baseMediumB(), [{ op: 'ask', lineKey: CHEESE, question: 'Ktory?', options: ['A', 'B'] }]).trip;
   const r = answer(asked, CHEESE, 'B');
   assert.equal(r.trip.lines[0]!.productId, 'B');
   assert.equal(r.trip.lines[0]!.question, null);
@@ -443,4 +450,12 @@ test('loadTrip validates the unmatched quantity and note', () => {
     writeFileSync(f, withU({ term: 'a', hint: '', ...bad }));
     assert.equal(loadTrip(f), null, JSON.stringify(bad));
   }
+});
+
+test('Claude\'s ask never offers a low candidate; with none left it asks with no options', () => {
+  const t = base();
+  const mixed = applyOps(t, [{ op: 'ask', lineKey: CHEESE, question: 'Który?', options: ['B', 'A'] }]).trip.lines.find((l) => l.lineKey === CHEESE)!;
+  assert.deepEqual(mixed.question, { text: 'Który?', options: ['A'] });
+  const onlyLow = applyOps(t, [{ op: 'ask', lineKey: CHEESE, question: 'Który?', options: ['B'] }]).trip.lines.find((l) => l.lineKey === CHEESE)!;
+  assert.deepEqual(onlyLow.question, { text: 'Który?', options: [] });
 });

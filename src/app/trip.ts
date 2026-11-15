@@ -174,8 +174,13 @@ export function applyOps(trip: Trip, ops: Op[]): { trip: Trip; corrections: Corr
         break;
       case 'ask': {
         if (!line) break;
-        const options = op.options.filter((id) => line.candidates.some((c) => c.productId === id)).slice(0, 3);
-        if (options.length > 0) update(line.lineKey, (l) => ({ ...l, question: { text: op.question, options } }));
+        const known = op.options.filter((id) => line.candidates.some((c) => c.productId === id));
+        if (known.length === 0) break;
+        // Like the planner's questions: no low candidate is offered. With none left the question offers only skip / add by hand.
+        const options = known
+          .filter((id) => line.candidates.some((c) => c.productId === id && (c.confidence !== 'low' || (c.productId === line.productId && line.held !== true))))
+          .slice(0, 3);
+        update(line.lineKey, (l) => ({ ...l, question: { text: op.question, options } }));
         break;
       }
     }
