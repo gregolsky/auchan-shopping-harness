@@ -9,6 +9,7 @@ import {
   createLoginWatcher,
   type PageLike,
   assertGraphqlOperation,
+  GET_COMPLETED_ORDERS_QUERY,
   mapLaunchError,
   whenClosed,
   keepSessionOnRestart,
@@ -42,6 +43,8 @@ test('graphql rejects operations other than GetCompletedOrders', () => {
   assertGraphqlOperation('GetCompletedOrders');
   assert.throws(() => assertGraphqlOperation('AddToCart'));
   assert.throws(() => assertGraphqlOperation(''));
+  assertGraphqlOperation('GetCompletedOrders', GET_COMPLETED_ORDERS_QUERY);
+  assert.throws(() => assertGraphqlOperation('GetCompletedOrders', 'mutation GetCompletedOrders { x }'), /pinned/);
 });
 
 test('profile lock error becomes ProfileBusy with a clear message', () => {
@@ -114,7 +117,7 @@ test('keepSessionOnRestart turns on session restore, keeps other settings, skips
 
 const never = () => new Promise<void>(() => {});
 
-test('createLoginWatcher.waitForLogin is true once the open page reports a login,', async () => {
+test('createLoginWatcher.waitForLogin is true once the open page reports a login', async () => {
   const state: any = { session: { isLoggedIn: false } };
   const { page } = fakePage({ state });
   setTimeout(() => (state.session.isLoggedIn = true), 5);

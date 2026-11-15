@@ -68,6 +68,19 @@ test('getJson sends the cookie and version header and does not follow redirects'
   cleanup();
 });
 
+test('graphql refuses a query that is not the pinned document, before any request', async () => {
+  const { worker, calls, cleanup } = setup(() => new Response('{}'));
+  await assert.rejects(() => worker.graphql('GetCompletedOrders', 'mutation GetCompletedOrders { x }', {}), /pinned/);
+  assert.equal(calls.length, 0);
+  cleanup();
+});
+
+test('a non-JSON body gives a fixed ShapeError with no body text', async () => {
+  const { worker, cleanup } = setup(() => new Response('<html>secret</html>'));
+  await assert.rejects(() => worker.getJson('/orders'), (e: Error) => e instanceof ShapeError && e.message === 'response was not JSON');
+  cleanup();
+});
+
 test('paths outside the allowlist are refused before any request', async () => {
   const { worker, calls, cleanup } = setup(() => new Response('{}'));
   await assert.rejects(() => worker.getJson('/checkout'), /not allowed/);
