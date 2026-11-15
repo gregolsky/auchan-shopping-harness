@@ -36,9 +36,31 @@ test('a saved basket cannot send a newly blacklisted product to the cart', () =>
   assert.deepEqual(planFill([{ term: 'mąka', productId: ID, name: NAME, quantity: 1, approvedPriceGrosze: 500 }], []).send, []);
 });
 
-test('a relisted Szymanowska type 480 is blocked by its name, but other flour is allowed', () => {
+test('every Szymanowska flour is blocked by name, while other flour and non-flour products are allowed', () => {
   assert.equal(isBlockedProduct({ productId: other, name: NAME }), true);
+  assert.equal(isBlockedProduct({ productId: other, name: 'Mąka Szymanowska pszenna typ 550 1 kg' }), true);
+  assert.equal(isBlockedProduct({ productId: other, name: 'Mąka żytnia typ 720 Szymanowska 1 kg' }), true);
+  assert.equal(isBlockedProduct({ productId: other, name: 'Maka Szymanowska typ 650' }), true);
   assert.equal(isBlockedProduct({ productId: other, name: 'Mąka pszenna typ 480 inna marka' }), false);
+  assert.equal(isBlockedProduct({ productId: other, name: 'Makaron Szymanowski' }), false);
+  assert.equal(isBlockedProduct({ productId: other, name: 'Mąka Szymanowska typ 550' }, []), false);
+});
+
+test('another Szymanowska flour cannot enter a draft, approved basket or cart fill', () => {
+  const flourId = '00000000-0000-4000-8000-000000000004';
+  const name = 'Mąka Szymanowska pszenna typ 550 1 kg';
+  const fact: ProductFacts = { productId: flourId, name, brand: 'Polskie Młyny', categoryPath: [], size: '1 kg', timesBought: 3,
+    lastBoughtAt: null, usualQuantity: 1, latestPriceGrosze: 500, offerText: null, requiredQuantity: null,
+    medianUnitPriceGrosze: null, pricePoints: 0, inCatalogue: true, boughtInLatest10: 3, seenInLatestPromotions: false };
+  const draft = buildDraft({ items: [{ term: name, quantity: 1 }], includeUsual: true }, [fact], [], new Date());
+  assert.deepEqual(draft.items, []);
+  assert.deepEqual(draft.blocked, [name]);
+  assert.deepEqual(planFill([{ term: name, productId: flourId, name, quantity: 1, approvedPriceGrosze: 500 }], []).send, []);
+  const store = openStore(':memory:');
+  store.savePromotions({ regionId: 'r', products: [{ productId: flourId, retailerProductId: flourId, name, brand: 'Polskie Młyny', categoryPath: [], unitLabel: 'kg', size: '1 kg', inCatalogue: true }],
+    prices: [{ productId: flourId, seenAt: new Date().toISOString(), regionId: 'r', source: 'promotion', originalGrosze: null, currentGrosze: 500, unitCurrentGrosze: 500, offerText: null, requiredQuantity: null }] });
+  assert.throws(() => store.approveBasket([{ term: name, productId: flourId, quantity: 1 }], []), /zablokowan/i);
+  store.close();
 });
 
 test('the app can search, block, unblock and persist catalog products', () => {
@@ -51,6 +73,7 @@ test('the app can search, block, unblock and persist catalog products', () => {
   store.savePromotions({ regionId: 'r', products: [product(ID, NAME), product(other, 'Mąka pszenna inna'), product(pasta, 'Makaron spaghetti'), product(rice, 'Ryż preparowany Makar')], prices: [price(ID), price(other), price(pasta), price(rice)] });
   assert.deepEqual(store.searchProducts('maka').map((p) => p.productId).sort(), [other, ID].sort());
   assert.deepEqual(store.blockedProducts().map((p) => p.productId), [ID]);
+  assert.equal(store.blockedProducts()[0].name, 'Wszystkie mąki Szymanowskie');
   store.blockProduct(other);
   assert.throws(() => store.approveBasket([{ term: 'mąka', productId: other, quantity: 1 }], []), /zablokowan/i);
   store.close();
@@ -59,6 +82,7 @@ test('the app can search, block, unblock and persist catalog products', () => {
   assert.deepEqual(store.blockedProducts().map((p) => p.productId).sort(), [other, ID].sort());
   store.unblockProduct(ID);
   assert.equal(isBlockedProduct({ productId: ID, name: NAME }, store.blockedProducts()), false);
+  assert.equal(isBlockedProduct({ productId: pasta, name: 'Mąka Szymanowska typ 550' }, store.blockedProducts()), false);
   assert.doesNotThrow(() => store.approveBasket([{ term: 'mąka', productId: ID, quantity: 1 }], []));
   store.unblockProduct(other);
   store.close();

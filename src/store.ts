@@ -238,7 +238,7 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
   }
   const blockedProducts = (): BlockedProduct[] => hasBlacklist()
     ? (db.prepare('SELECT product_id, name FROM product_blacklist ORDER BY name').all() as { product_id: string; name: string }[])
-      .map((r) => ({ productId: r.product_id, name: r.name }))
+      .map((r) => ({ productId: r.product_id, name: r.product_id === BLOCKED_PRODUCTS[0].productId ? BLOCKED_PRODUCTS[0].name : r.name }))
     : [...BLOCKED_PRODUCTS];
 
   // A sparse source (an order line with no entity) must not wipe what a richer one stored.

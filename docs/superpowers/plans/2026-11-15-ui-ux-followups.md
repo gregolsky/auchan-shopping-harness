@@ -15,5 +15,5 @@ The first browser review covered the six-step local app at desktop and 375 px wi
 ## Next UX review with the shopper
 
 1. Try a real list in `npm run app` without approving the cart. Check the chosen products, confidence explanations and question wording.
-2. Decide whether the Szymanowska block covers only type 480 or the entire brand.
+2. Confirm in the app that the family block for all Szymanowska flours matches the shopper's expectation.
 3. After an approved run, check that the report groups and payment hand-off are easy to scan. The app still requires the shopper to pay on Auchan.
