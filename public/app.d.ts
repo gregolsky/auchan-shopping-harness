@@ -10,3 +10,4 @@ export function parseBudget(text: string): { ok: true; grosze: number | undefine
 export function nextSelected(selected: number, stepIndex: number, first?: boolean): number;
 export function claudeStatus(pending: 'note' | 'ask' | null): { working: boolean; text: string | null; disableNote: boolean; disableAsk: boolean };
 export function approveHint(model: any, busy: string | null): string | null;
+export function lineLabel(line: any): string;

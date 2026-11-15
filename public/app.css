@@ -16,3 +16,4 @@ button:disabled{opacity:1;cursor:not-allowed;border-color:#68796c;background:#e8
   .steps{flex-wrap:wrap;overflow-x:visible;gap:6px;padding-bottom:14px}
   .step{white-space:normal;min-width:0;border:1px solid #cad7cc}
 }
+.from-list{font-weight:650;color:var(--green);margin-bottom:2px}

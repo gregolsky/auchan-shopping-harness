@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, lineLabel } from '../public/app.js';
 
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,
   reason: 'bought before', confidence: 'medium', confidenceReason: 'not bought before', included: true, kind: 'item',
@@ -25,7 +25,7 @@ test('proposal operations have readable descriptions', () => {
   const byKey = new Map([['t:maka', line]]);
   assert.match(describeOp({ op: 'choose', lineKey: 't:maka', productId: 'a' }, byKey), /Mąka pszenna/);
   assert.match(describeOp({ op: 'setQuantity', lineKey: 't:maka', quantity: 3 }, byKey), /3/);
-  assert.match(describeOp({ op: 'remove', lineKey: 't:maka' }, byKey), /Usuń/);
+  assert.match(describeOp({ op: 'remove', lineKey: 't:maka' }, byKey), /usuń/);
 });
 
 test('page loads same-origin assets and never injects untrusted HTML', () => {
@@ -114,4 +114,26 @@ test('the ask box keeps its text and Claude calls are guarded in the page code',
   const js = readFileSync('public/app.js', 'utf8');
   assert.match(js, /input\.value = draftForm\.ask/);
   assert.match(js, /if \(pending !== null\) return/);
+});
+
+test('every line says which item of the list it answers', () => {
+  const cheese = { ...line, term: 'ser żółty', note: 'duża paczka, gouda albo edam' };
+  assert.equal(lineLabel(cheese), 'z Twojej listy: ser żółty — duża paczka, gouda albo edam');
+  assert.equal(lineLabel({ ...line, note: '' }), 'z Twojej listy: mąka');
+  const sug = (reason: string) => lineLabel({ ...line, term: null, note: '', reason, kind: 'suggestion' });
+  assert.equal(sug('on offer: 2 za 1'), 'propozycja: promocja');
+  assert.equal(sug('25% below its usual unit price'), 'propozycja: promocja');
+  assert.equal(sug('bought in 8 of the latest 10 orders'), 'propozycja: kupujesz często');
+  assert.equal(sug('bought 5 times'), 'propozycja: kupujesz często');
+  assert.equal(sug('x'), 'propozycja');
+  assert.equal(viewModel(tripAt('doprecyzowanie', { lines: [line] })).questions[0].label, 'z Twojej listy: mąka');
+});
+
+test('proposal texts name the list item they change', () => {
+  const cheese = { ...line, lineKey: 't:ser', term: 'ser żółty', name: 'Ser żółty Królewski', candidates: [{ productId: 'g', name: 'Ser Gouda Auchan 500 g' }] };
+  const meat = { ...line, lineKey: 't:kurczak', term: 'pierś z kurczaka', name: 'Kiełbasa' };
+  const byKey = new Map([['t:ser', cheese], ['t:kurczak', meat]]);
+  assert.equal(describeOp({ op: 'choose', lineKey: 't:ser', productId: 'g' }, byKey), 'ser żółty: zamień „Ser żółty Królewski” na „Ser Gouda Auchan 500 g”');
+  assert.equal(describeOp({ op: 'remove', lineKey: 't:kurczak' }, byKey), 'pierś z kurczaka: usuń „Kiełbasa”');
+  assert.equal(describeOp({ op: 'setQuantity', lineKey: 't:ser', quantity: 3 }, byKey), 'ser żółty: ustaw „Ser żółty Królewski” na 3 szt.');
 });

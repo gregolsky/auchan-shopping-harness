@@ -50,7 +50,7 @@ export function viewModel(state) {
     inCart: stepIndex >= 4,
     blocked: Boolean(trip.blocked),
     hasIncluded: lines.some((l) => l.included),
-    questions: lines.filter((l) => l.included && l.question),
+    questions: lines.filter((l) => l.included && l.question).map((l) => ({ ...l, label: lineLabel(l) })),
     proposalPending: Boolean(trip.proposal),
     proposalText: trip.proposal?.ops?.map((op) => describeOp(op, new Map(lines.map((l) => [l.lineKey, l])))) || [],
   };
@@ -76,15 +76,25 @@ export function parseBudget(text) {
   return { ok: true, grosze: Math.round(Number(value.replace(',', '.')) * 100) };
 }
 
+/** Which item of the user's list a line answers: their own words, or why a suggestion was made. */
+export function lineLabel(line) {
+  if (line.term) return `z Twojej listy: ${line.note ? `${line.term} — ${line.note}` : line.term}`;
+  const reason = String(line.reason || '');
+  if (/^on offer|below its usual/.test(reason)) return 'propozycja: promocja';
+  if (/^bought /.test(reason)) return 'propozycja: kupujesz często';
+  return 'propozycja';
+}
+
 export function describeOp(op, linesByKey) {
   const line = linesByKey.get(op.lineKey);
   const name = line?.name || line?.term || 'pozycję';
+  const of = line?.term ? `${line.term}: ` : '';
   switch (op.op) {
     case 'add': return `Dodaj „${op.term}” × ${op.quantity}`;
-    case 'choose': return `Zamień „${name}” na „${line?.candidates?.find((c) => c.productId === op.productId)?.name || op.productId}”`;
-    case 'remove': return `Usuń „${name}”`;
-    case 'setQuantity': return `Ustaw „${name}” na ${op.quantity} szt.`;
-    case 'ask': return `Zapytaj o „${name}”: ${op.question}`;
+    case 'choose': return `${of}zamień „${name}” na „${line?.candidates?.find((c) => c.productId === op.productId)?.name || op.productId}”`;
+    case 'remove': return `${of}usuń „${name}”`;
+    case 'setQuantity': return `${of}ustaw „${name}” na ${op.quantity} szt.`;
+    case 'ask': return `${of}zapytaj o „${name}”: ${op.question}`;
     case 'unmatched': return `Dodaj ręcznie „${op.term}”`;
     case 'say': return op.text;
     default: return 'Nieznana zmiana';
@@ -173,6 +183,7 @@ export function start() {
 
   function lineRow(line, editable = false) {
     const row = element('div', 'line');
+    row.append(element('div', 'meta from-list', lineLabel(line)));
     const heading = element('div', 'row');
     append(heading, element('span', 'line-name', line.name), element('span', 'price', zl(line.lineCostGrosze)));
     append(row, heading, badge(line), element('div', 'meta', `${line.quantity} szt.${line.confidence !== 'high' ? ` · Dlaczego sprawdzić: ${REASONS[line.confidenceReason] || line.confidenceReason || 'dopasowanie niepewne'}` : ''}`));
@@ -235,6 +246,7 @@ export function start() {
     target.append(box);
     model.questions.forEach((l) => {
       const row = card(l.question.text);
+      row.prepend(element('div', 'meta from-list', l.label));
       const options = element('div', 'choices');
       l.question.options.forEach((id) => options.append(button(l.candidates.find((c) => c.productId === id)?.name || id, () => run('/api/answer', { lineKey: l.lineKey, productId: id }), 'small')));
       options.append(button('Pomiń produkt', () => run('/api/answer', { lineKey: l.lineKey, productId: null }), 'small danger'));
