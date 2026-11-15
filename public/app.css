@@ -3,3 +3,16 @@
 .hero-art{width:180px;height:123px;object-fit:contain;margin-left:auto}.intro .mode{align-self:flex-start}@media(max-width:740px){.hero-art{display:none}}
 .card>.button+.quiet{margin-left:8px}
 .message.blocked{border-color:#a43125;background:#fff1ee;color:#70281f}
+
+/* Proposal changes read as a list of actions, without the generic message stripe. */
+.card:has(> .button + .quiet) > .message{display:flex;align-items:flex-start;gap:10px;border:0;border-radius:8px;background:#edf4ee;color:#1f3029;padding:10px 12px}
+.card:has(> .button + .quiet) > .message::before{content:'↪';flex:none;color:#176a47;font-size:20px;line-height:1.1;font-weight:700}
+
+button:disabled{opacity:1;cursor:not-allowed;border-color:#68796c;background:#e8eee8;color:#425349}
+.step:disabled{border:1px solid #68796c;background:#eef1ee;color:#425349}
+:where(button,a,input,textarea):focus-visible{outline:3px solid #984b00;outline-offset:3px}
+
+@media(max-width:740px){
+  .steps{flex-wrap:wrap;overflow-x:visible;gap:6px;padding-bottom:14px}
+  .step{white-space:normal;min-width:0;border:1px solid #cad7cc}
+}
