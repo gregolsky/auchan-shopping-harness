@@ -61,7 +61,7 @@ test('server registers the read and planner tools', async () => {
   await withDb(null, (path) =>
     withClient(path, async (c) => {
       const names = (await c.listTools()).tools.map((t) => t.name).sort();
-      assert.deepEqual(names, ['current_promotions', 'delete_rule', 'draft_basket', 'list_rules', 'product_history', 'recent_orders', 'record_correction', 'set_brand']);
+      assert.deepEqual(names, ['approve_basket', 'current_promotions', 'delete_rule', 'draft_basket', 'list_rules', 'product_history', 'recent_orders', 'record_correction', 'set_brand']);
       assert.ok(names.every((n) => !/cart|checkout|order(?!s)|buy/i.test(n)));
     }),
   );
@@ -72,12 +72,13 @@ test('no MCP tool imports the worker, even transitively', () => {
   const visit = (file: string) => {
     if (seen.has(file)) return;
     seen.add(file);
-    const text = readFileSync(file, 'utf8');
+    // Type-only imports are erased when Node runs the file, so they cannot reach the worker.
+    const text = readFileSync(file, 'utf8').replace(/^import type [^;]*;/gm, '');
     for (const m of text.matchAll(/(?:from|import)\s*\(?\s*['"](\.[^'"]+)['"]/g)) visit(join(dirname(file), m[1]));
   };
   visit(join(SRC, 'mcp.ts'));
   const names = [...seen].map((f) => f.slice(SRC.length + 1));
-  assert.ok(names.includes('store.ts'));
+  assert.ok(names.includes('store.ts') && names.includes('store-baskets.ts'));
   for (const n of names) assert.doesNotMatch(n, /worker|cli|sync-/);
   assert.ok(!names.includes('worker.ts') && !names.includes('http-worker.ts'));
   for (const f of seen) assert.doesNotMatch(readFileSync(f, 'utf8'), /playwright/);
@@ -341,6 +342,29 @@ test('write tools do not create a missing database', async () => {
       assert.match(await call(c, 'delete_rule', { term: 'x' }), /run npm run sync first/);
       assert.match(await call(c, 'record_correction', { term: 'x', chosenProductId: 'a' }), /run npm run sync first/);
       assert.match(await call(c, 'draft_basket', { items: [], includeUsual: true }), /run npm run sync first/);
+      assert.equal(existsSync(path), false);
+    }),
+  );
+});
+
+test('approve_basket saves a basket and never imports the worker', async () => {
+  await withDb(seedPlanner, (path) =>
+    withClient(path, async (c) => {
+      const out = JSON.parse(await call(c, 'approve_basket', { lines: [{ term: 'mleko', productId: 'm2', quantity: 2 }, { term: null, productId: 'm1', quantity: 1 }] }));
+      assert.equal(out.totalGrosze, 700);
+      const s = openStore(path, { readOnly: true });
+      const b = s.latestApprovedBasket();
+      assert.equal(b?.basketId, out.basketId);
+      assert.deepEqual(b?.lines.map((l) => l.productId), ['m2', 'm1']);
+      s.close();
+      const r = (await c.callTool({ name: 'approve_basket', arguments: { lines: [{ term: null, productId: 'nope', quantity: 1 }] } })) as { isError?: boolean; content: { text: string }[] };
+      assert.equal(r.isError, true);
+      assert.match(r.content[0].text, /nope/);
+    }),
+  );
+  await withDb(null, (path) =>
+    withClient(path, async (c) => {
+      assert.match(await call(c, 'approve_basket', { lines: [{ term: null, productId: 'a', quantity: 1 }] }), /run npm run sync first/);
       assert.equal(existsSync(path), false);
     }),
   );

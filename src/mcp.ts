@@ -171,6 +171,22 @@ export function createServer(dbPath: string = DB_PATH): McpServer {
     ({ term }) => withWritable(dbPath, (s) => { s.deleteRule(term); return { ok: true }; }),
   );
 
+  server.registerTool(
+    'approve_basket',
+    {
+      description: 'Saves the approved basket (lines with term, productId, quantity) in the local database at the products\' latest prices; returns basketId and totalGrosze. Fails naming the product id if one is unknown or out of the catalogue, and then stores nothing. Writes the local database only and does not touch the Auchan cart; npm run fill does that.' + NEVER_AUCHAN,
+      inputSchema: {
+        lines: z.array(z.object({
+          term: z.string().min(1).max(100).nullable(),
+          productId: z.string().min(1).max(100),
+          quantity: z.number().min(0.01).max(100),
+        })).min(1).max(150),
+        unmatched: z.array(z.string().max(100)).max(100).default([]),
+      },
+    },
+    ({ lines, unmatched }) => withWritable(dbPath, (s) => s.approveBasket(lines, unmatched)),
+  );
+
   return server;
 }
 

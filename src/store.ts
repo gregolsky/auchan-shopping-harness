@@ -2,6 +2,8 @@ import { DatabaseSync } from 'node:sqlite';
 import type { Product, PriceObservation } from './types.ts';
 import type { parseDecoratedOrder } from './parse.ts';
 import { unitPriceGrosze } from './pricing.ts';
+import { basketMethods, BASKET_SCHEMA } from './store-baskets.ts';
+import type { BasketLine } from './cart.ts';
 
 type ParsedOrder = Pick<ReturnType<typeof parseDecoratedOrder>, 'order' | 'lines' | 'products' | 'prices'>;
 export type SyncKind = 'orders' | 'promotions';
@@ -129,6 +131,12 @@ export interface Store {
   /** Removes the learned rule for a term; the correction history stays. */
   deleteRule(term: string): void;
   corrections(term?: string): CorrectionRow[];
+  /** Saves an approved basket at the products' latest prices. Throws, storing nothing, for an unknown or out-of-catalogue product. */
+  approveBasket(lines: { term: string | null; productId: string; quantity: number }[], unmatched: string[], now?: Date): { basketId: number; totalGrosze: number };
+  /** The newest approved basket, or null when there is none or it is older than 24 h. */
+  latestApprovedBasket(now?: Date): { basketId: number; approvedAt: string; lines: BasketLine[]; unmatched: string[] } | null;
+  startFill(basketId: number): number;
+  finishFill(runId: number, r: { status: 'ok' | 'failed'; sent: number; missing: number; checkBeforePaying: number }): void;
   close(): void;
 }
 
@@ -203,7 +211,7 @@ CREATE TABLE IF NOT EXISTS corrections (
 export function openStore(path: string, opts: { readOnly?: boolean } = {}): Store {
   const db = new DatabaseSync(path, { readOnly: opts.readOnly === true, timeout: 5000 });
   db.exec('PRAGMA foreign_keys = ON');
-  if (!opts.readOnly) db.exec(SCHEMA);
+  if (!opts.readOnly) db.exec(SCHEMA + BASKET_SCHEMA);
 
   // A sparse source (an order line with no entity) must not wipe what a richer one stored.
   const upsertProduct = db.prepare(`
@@ -264,6 +272,7 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
   }
 
   return {
+    ...basketMethods(db),
     saveOrder({ order, lines, products, prices }) {
       transaction(() => {
         writeProducts(products);
