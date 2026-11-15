@@ -51,7 +51,9 @@ export function buildPrompt(task: 'parse' | 'choose' | 'adhoc', trip: Trip, inpu
     unmatched: trip.unmatched.map((u) => ({ term: cleanText(u.term), hint: cleanText(u.hint) })),
   };
   const json = JSON.stringify(data, null, 1).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
-  const user = cleanText(input.replace(/[\t\r\n]+/g, ' ')).replace(/</g, '\u2039').replace(/>/g, '\u203a');
+  // Keep one item per line: a flattened note lets a quantity attach to the wrong item ("cukier 2 ser \u017c\u00f3\u0142ty" \u2192 ser \u00d72).
+  const user = input.split(/\r?\n/).map((l) => cleanText(l.replace(/\t+/g, ' ')).trim()).filter(Boolean).join('\n')
+    .replace(/</g, '\u2039').replace(/>/g, '\u203a');
   return `<trip_data>\n${json}\n</trip_data>\n\n${INSTRUCTIONS[task]}\n\n<user_input>\n${user}\n</user_input>`;
 }
 
