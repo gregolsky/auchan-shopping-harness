@@ -5,7 +5,7 @@ import { openStore, type Store } from './store.ts';
 import { browserLogin, LoginRequired, Blocked, Refused, ProfileBusy, RateLimited, type Worker } from './worker.ts';
 import { createHttpWorker } from './http-worker.ts';
 import { cleanText, ShapeError } from './parse.ts';
-import { checkOrders, syncOrders } from './sync-orders.ts';
+import { checkOrders, syncOrderImages, syncOrders } from './sync-orders.ts';
 import { syncPromotions } from './sync-promotions.ts';
 import { DB_PATH, SESSION_PATH } from './dbpath.ts';
 
@@ -74,6 +74,11 @@ export async function runSync(
   which: string | undefined, worker: Worker, store: Store, paceMs: number,
   log: (line: string) => void = (l) => console.log(l), err: (line: string) => void = (l) => console.error(l),
 ): Promise<number> {
+  if (which === 'images') {
+    const r = await syncOrderImages(worker, store, { paceMs });
+    log(`images: ${r.fetched} orders re-read`);
+    return 0;
+  }
   if (which !== 'promotions') {
     const r = await syncOrders(worker, store, { paceMs });
     log(
@@ -129,8 +134,8 @@ export function syncAll(deps: Deps, log: (line: string) => void): Promise<number
 
 export async function main(args: string[], deps: Deps = liveDeps): Promise<number> {
   const which = args[0];
-  if (which !== undefined && which !== 'orders' && which !== 'promotions' && which !== 'check') {
-    console.error('usage: npm run sync [orders|promotions|check]');
+  if (which !== undefined && which !== 'orders' && which !== 'promotions' && which !== 'images' && which !== 'check') {
+    console.error('usage: npm run sync [orders|promotions|images|check]');
     return 2;
   }
   return runSyncJob(which, deps, { log: (l) => console.log(l), err: (l) => console.error(l) });

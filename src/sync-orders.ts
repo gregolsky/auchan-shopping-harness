@@ -116,3 +116,22 @@ export async function syncOrders(
   store.finishSync(runId, 'ok');
   return { imported, skipped, oldestSeen, skippedZero, substitutes, missings, returns };
 }
+
+/**
+ * Backfill: orders stored before images were read are fetched again, only those with a product that still has no image.
+ * Only image columns are written; no order, line or price is added. Same pacing, no retries; a Blocked propagates and stops it.
+ */
+export async function syncOrderImages(
+  worker: Pick<Worker, 'getJson'>,
+  store: Store,
+  opts: SyncOrdersOptions,
+): Promise<{ fetched: number }> {
+  const sleep = opts.sleep ?? defaultSleep;
+  let fetched = 0;
+  for (const id of store.ordersMissingImages()) {
+    if (fetched > 0) await sleep(opts.paceMs);
+    store.saveOrderImages(readOrder(await worker.getJson(orderPath(id)), id).products);
+    fetched++;
+  }
+  return { fetched };
+}

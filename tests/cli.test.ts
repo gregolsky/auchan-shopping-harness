@@ -337,3 +337,32 @@ test('runSync with four arguments prints through the console', async (t) => {
   assert.equal(await runSync('promotions', worker, store, 0), 1);
   assert.match(log.err.join('\n'), /Sync orders first/);
 });
+
+test('sync images re-reads only orders without images and prints a count', async (t) => {
+  const order = fx('order-decorated.json');
+  const id = order.entities.order[order.result].orderId;
+  const asked: string[] = [];
+  const { log, deps, store } = setup({
+    getJson: async (path) => (asked.push(path), order),
+  }, (s) => {
+    const parsed = parseDecoratedOrder(order);
+    s.saveOrder({ ...parsed, products: parsed.products.map((p) => ({ ...p, imageUrl: null, imageAlt: null })) });
+  });
+  quiet(t, log);
+  assert.equal(await main(['images'], deps), 0);
+  assert.deepEqual(asked, [`/api/order/v6/orders/${id}/decorated`]);
+  assert.equal(store.productFacts().filter((f) => f.imageUrl).length, 2);
+  assert.match(log.out.join('\n'), /images: 1 orders/);
+  assert.equal(log.storeClosed, 1);
+});
+
+test('sync images stops on Blocked with the fixed message', async (t) => {
+  const order = fx('order-decorated.json');
+  const { log, deps } = setup({ getJson: async () => { throw new Blocked('HTTP 403'); } }, (s) => {
+    const parsed = parseDecoratedOrder(order);
+    s.saveOrder({ ...parsed, products: parsed.products.map((p) => ({ ...p, imageUrl: null, imageAlt: null })) });
+  });
+  quiet(t, log);
+  assert.equal(await main(['images'], deps), 1);
+  assert.match(log.err.join('\n'), /Auchan refused the request/);
+});

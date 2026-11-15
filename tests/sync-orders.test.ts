@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { openStore } from '../src/store.ts';
 import { ShapeError } from '../src/parse.ts';
-import { checkOrders, syncOrders } from '../src/sync-orders.ts';
+import { parseDecoratedOrder } from '../src/parse.ts';
+import { checkOrders, syncOrderImages, syncOrders } from '../src/sync-orders.ts';
 import { GET_COMPLETED_ORDERS_QUERY, LoginRequired, Blocked } from '../src/worker.ts';
 
 const decorated = JSON.parse(readFileSync(new URL('./fixtures/order-decorated.json', import.meta.url), 'utf8'));
@@ -197,4 +198,61 @@ test('checkOrders refuses a response for another order', async () => {
   const f = fake([page(['1'], null, false)]);
   f.worker.getJson = async () => decoratedFor('2');
   await assert.rejects(checkOrders(f.worker, opts), ShapeError);
+});
+
+// Orders imported before images were read: same products, no image on any of them.
+function seedImageless(store: ReturnType<typeof openStore>, ids: string[]) {
+  for (const id of ids) {
+    const parsed = parseDecoratedOrder(decoratedFor(id));
+    store.saveOrder({ ...parsed, products: parsed.products.map((p) => ({ ...p, imageUrl: null, imageAlt: null })) });
+  }
+  store.saveOrder({
+    order: { orderId: 'done', deliveredAt: '2026-10-01T10:00:00Z', totalGrosze: 100, regionId: 'r' },
+    lines: [{ orderId: 'done', productId: 'z', quantity: 1, pricePerItemGrosze: 100 }],
+    products: [{ productId: 'z', retailerProductId: 'z', name: 'Z', brand: '', categoryPath: [], unitLabel: null, size: null, inCatalogue: true, imageUrl: 'https://zakupy.auchan.pl/images-v3/00000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000001/300x300.jpg', imageAlt: 'z' }],
+    prices: [],
+  });
+}
+
+test('the image backfill fetches only orders with an imageless product and writes only images', async () => {
+  const store = openStore(':memory:');
+  seedImageless(store, ['1', '2']);
+  const before = store.productFacts();
+  const pricePoints = (facts: typeof before) => facts.reduce((n, f) => n + f.pricePoints, 0);
+  assert.deepEqual(store.ordersMissingImages(), ['1', '2']);
+  const f = fake([]);
+  const slept: number[] = [];
+  const r = await syncOrderImages(f.worker, store, { paceMs: 1500, sleep: async (ms) => void slept.push(ms) });
+  assert.deepEqual(f.calls, ['1', '2']); // no listing, and the order with an image is not fetched
+  assert.deepEqual(slept, [1500]);
+  assert.equal(r.fetched, 2);
+  const after = store.productFacts();
+  assert.equal(after.filter((p) => p.imageUrl).length, before.filter((p) => p.imageUrl).length + 2);
+  assert.equal(after.length, before.length);
+  assert.equal(pricePoints(after), pricePoints(before));
+  assert.equal(store.recentOrders(10).length, 3);
+  assert.equal(store.lastSyncStatus('orders'), null);
+  for (const p of after) assert.equal(p.name, before.find((b) => b.productId === p.productId)!.name);
+});
+
+test('the image backfill does nothing, and asks for nothing, when every order has images', async () => {
+  const store = openStore(':memory:');
+  const f = fake([]);
+  assert.equal((await syncOrderImages(f.worker, store, opts)).fetched, 0);
+  assert.deepEqual(f.calls, []);
+});
+
+test('the image backfill stops at a Blocked without another request', async () => {
+  const store = openStore(':memory:');
+  seedImageless(store, ['1', '2']);
+  const f = fake([], { failOn: { '1': new Blocked('HTTP 403') } });
+  await assert.rejects(syncOrderImages(f.worker, store, opts), Blocked);
+  assert.deepEqual(f.calls, ['1']);
+});
+
+test('the image backfill refuses an order body of another shape without leaking it', async () => {
+  const store = openStore(':memory:');
+  seedImageless(store, ['1']);
+  const f = fake([], { bad: new Set(['1']) });
+  await assert.rejects(syncOrderImages(f.worker, store, opts), (e: Error) => e instanceof ShapeError && !/leaky/.test(e.message));
 });

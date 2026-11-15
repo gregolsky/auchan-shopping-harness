@@ -27,6 +27,7 @@ Invoke any skill by typing `/<name>` inside a Claude Code session started from t
 A local, read-only copy of order history and promotions, kept in `.state/harness.db`.
 
 - `npm run sync` (or `npm run sync orders` / `npm run sync promotions`) fetches the data over plain HTTP with the saved session in `.state/session.json`. A browser window opens only when a login is needed. Log in in that window and leave it open: the harness saves the session, closes the window and continues the sync on its own. The sync only reads; it never changes the cart.
+- `npm run sync images` fills in product images for orders imported before images were read: it re-fetches only orders with a product that has no image and updates only the image columns (same pacing; it stops on a refusal).
 - `npm run sync check` tests the request format before a full import: it reads one orders page and one order, stores nothing, and prints `ok` with the order count. If Auchan refuses it, do not rerun.
 - `npm run replay` replays the latest 5 orders against the draft's usual list, each using only the orders before it, and prints recall and precision per order plus the average. It reads the local database only and never prints product names.
 - The `auchan-data` MCP server (`.mcp.json`) reads that database only and never contacts Auchan. Tools: `recent_orders(limit)`, `product_history(query)` and `current_promotions(bought_before, limit)`. Orders and promotions report when they were last synced.
