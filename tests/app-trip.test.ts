@@ -257,3 +257,12 @@ test('loadTrip rejects out-of-range values and dangling references', () => {
   const p = mut((t) => { t.proposal = { id: 'p', source: 'claude', dropped: 0, ops: [{ op: 'remove', lineKey: CHEESE }, { op: 'remove', lineKey: 'nope' }] }; });
   assert.deepEqual(p!.proposal!.ops, [{ op: 'remove', lineKey: CHEESE }]);
 });
+
+test('a planner quantity above 20 is clamped to 20, with the cost scaled and the reason saying so', () => {
+  const d = { ...draft(), items: [dl({ term: 'woda', productId: 'W', name: 'Woda', quantity: 30, lineCostGrosze: 3000, reason: 'kupowano często' })], stockUps: [], promotions: [], addOns: [] };
+  const line = tripFromDraft(emptyTrip(NOW), d, {}).lines[0]!;
+  assert.equal(line.quantity, 20);
+  assert.equal(line.lineCostGrosze, 2000);
+  assert.match(line.reason, /kupowano często.*ilość ograniczona do 20/);
+  assert.doesNotThrow(() => approvedLines(tripFromDraft(emptyTrip(NOW), d, {})));
+});

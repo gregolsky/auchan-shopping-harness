@@ -22,6 +22,8 @@ export interface Trip {
 }
 export interface Correction { term: string; proposedProductId: string | null; chosenProductId: string | null; reason?: string }
 
+const MAX_QUANTITY = 20;
+
 export function emptyTrip(now: Date): Trip {
   return { note: '', step: 'dane', mode: 'claude', lines: [], unmatched: [], messages: [], proposal: null, updatedAt: now.toISOString(), reportText: null };
 }
@@ -35,13 +37,17 @@ function tripLine(d: DraftLine, kind: TripLine['kind'], notes: Record<string, st
     ({ ...c, baseCostGrosze: c.lineCostGrosze, baseQuantity: d.quantity });
   const own = cand(d);
   const others = d.alternatives.filter((a) => a.productId !== d.productId).map(cand);
-  return {
+  const line: TripLine = {
     lineKey: lineKeyFor(d.term, d.productId), term: d.term,
     note: d.term === null ? '' : (notes[d.term] ?? notes[normaliseTerm(d.term)] ?? ''),
     productId: d.productId, name: d.name, quantity: d.quantity, lineCostGrosze: d.lineCostGrosze, reason: d.reason,
     confidence: d.confidence, confidenceReason: d.confidenceReason, candidates: [own, ...others],
     proposedProductId: d.productId, question: null, included: kind === 'item', kind,
   };
+  // The planner can suggest more than the app allows; the line is cut to the limit and says so.
+  if (d.quantity > MAX_QUANTITY) return { ...withQuantity(line, MAX_QUANTITY), reason: `${d.reason}; ilość ograniczona do ${MAX_QUANTITY}` };
+  if (d.quantity < 1) return withQuantity(line, 1);
+  return line;
 }
 
 /** Adds lines for new keys only; an existing line (the user's choice, quantity, included flag) is kept untouched. */
