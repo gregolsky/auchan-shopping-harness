@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
 import { liveDeps as syncDeps } from '../cli.ts';
 import { liveDeps as fillDeps } from '../fill-cli.ts';
+import { openSearchPage } from '../search-browser.ts';
 import { realSpawn } from './claude.ts';
 import { createService } from './service.ts';
 import type { AppEvent } from './service.ts';
@@ -268,6 +269,7 @@ export async function main(): Promise<void> {
     tripFile: '.state/trip.json',
     now: () => new Date(),
     emit: broadcaster.emit,
+    openSearchPage,
   });
   const publicDir = fileURLToPath(new URL('../../public', import.meta.url));
   const server = createAppServer({ service, token, publicDir, broadcaster });

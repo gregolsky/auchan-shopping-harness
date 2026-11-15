@@ -10,7 +10,9 @@ import type { FillDeps } from '../fill-cli.ts';
 import { acquireLock, lockHeld, releaseLock } from '../lock.ts';
 import { LOCK_PATH } from '../dbpath.ts';
 import { zl } from '../money.ts';
-import { cleanText } from '../parse.ts';
+import { cleanText, parseSearchState } from '../parse.ts';
+import { createBrowserSearch, MAX_SEARCH_TERMS } from '../search-browser.ts';
+import type { BrowserSearchOptions, PageLike, SearchResult } from '../search-browser.ts';
 import { normaliseTerm } from '../store.ts';
 import type { IntentRule, Store } from '../store.ts';
 import { askClaude } from './claude.ts';
@@ -28,6 +30,7 @@ export type AppEvent =
   | { type: 'report'; report: unknown }
   | { type: 'state' }
   | { type: 'working'; stage: 'parse' | 'draft' | 'choose' | 'done'; text: string }
+  | { type: 'search'; status: 'login' | 'captcha' | 'searching' | 'done' | 'stopped'; term?: string; index?: number; total?: number; found?: number }
   | { type: 'done'; code: number };
 
 export interface ServiceDeps {
@@ -38,9 +41,14 @@ export interface ServiceDeps {
   tripFile: string;
   now(): Date;
   emit(e: AppEvent): void;
+  /** The visible browser window the Auchan search runs in. */
+  openSearchPage(): Promise<PageLike>;
+  /** Pace and waits of the search; tests shorten them. */
+  searchTuning?: Partial<Pick<BrowserSearchOptions, 'paceMs' | 'captchaWaitMs' | 'loginWaitMs' | 'pollMs' | 'sleep' | 'now'>>;
 }
 
-export type Busy = 'sync' | 'fill' | null;
+export type Busy = 'sync' | 'fill' | 'search' | null;
+type SearchEvent = Extract<AppEvent, { type: 'search' }>;
 type Start = { started: boolean; reason?: string };
 
 const FALLBACK_MESSAGE = 'Tryb bez Claude: pytam o każdą niepewną pozycję.';
@@ -52,6 +60,8 @@ const ALREADY_IN_CART = 'Te zakupy są już w koszyku. Zacznij nowe zakupy, żeb
 const FROZEN = 'Trwa dodawanie do koszyka — poczekaj na koniec.';
 const FROZEN_PAID = 'Te zakupy są już w koszyku. Kliknij „Nowe zakupy”, żeby zacząć od nowa.';
 export const BLOCKED_REASON = 'Auchan odrzucił zapytanie. Nie zatwierdzaj ponownie — sprawdź koszyk na Auchan i zacznij nowe zakupy.';
+const SEARCH_FROZEN = 'Trwa szukanie w Auchan — poczekaj na koniec.';
+const SEARCH_STOPPED = 'Szukanie w Auchan zatrzymano (weryfikacja nie została rozwiązana lub Auchan odmówił). Nie ponawiam.';
 const LOGIN_PROMPT = 'Zaloguj się w oknie przeglądarki i zostaw je otwarte — dodawanie ruszy samo.';
 
 /** The fill's failure in Polish for the kinds the user meets; anything else keeps the CLI's text. */
@@ -75,6 +85,8 @@ export function createService(d: ServiceDeps) {
   let generation = 0;
   let stopped = false;
   let active: { markFailed(): void; release(): void } | null = null;
+  let activeSearch: { close(): Promise<void>; release(): void } | null = null;
+  let lastSearch: SearchEvent | null = null;
 
   /** Emits from background work: a failing listener must never become an unhandled rejection. */
   const safeEmit = (e: AppEvent) => {
@@ -126,10 +138,10 @@ export function createService(d: ServiceDeps) {
     return { ...t, step: openQuestions(t).length > 0 || t.proposal !== null ? 'doprecyzowanie' : 'zatwierdzenie' };
   }
 
-  const frozen = () => busy === 'fill' || trip.step === 'koszyk' || trip.step === 'platnosc';
+  const frozen = () => busy === 'fill' || busy === 'search' || trip.step === 'koszyk' || trip.step === 'platnosc';
   /** While the cart is being filled the trip stays as it is; the page is told why. */
   function hold(): Trip {
-    const text = trip.step === 'platnosc' ? FROZEN_PAID : FROZEN;
+    const text = trip.step === 'platnosc' ? FROZEN_PAID : busy === 'search' ? SEARCH_FROZEN : FROZEN;
     if (trip.messages.at(-1) !== text) commit({ ...trip, messages: [...trip.messages, text] });
     return trip;
   }
@@ -198,12 +210,42 @@ export function createService(d: ServiceDeps) {
     return commit(settle(next));
   }
 
+
+  /** Terms the user could look up on Auchan: unmatched ones and list lines with no sure pick. Split by whether they were searched in the last 7 days. */
+  function searchPlan(): { terms: string[]; recent: string[] } {
+    const seen = new Set<string>();
+    const wanted: string[] = [];
+    const add = (term: string | null) => {
+      if (term === null || term.trim() === '' || seen.has(normaliseTerm(term))) return;
+      seen.add(normaliseTerm(term));
+      wanted.push(term);
+    };
+    trip.unmatched.forEach((u) => add(u.term));
+    trip.lines.forEach((l) => { if (l.kind === 'item' && (l.held || l.confidence === 'low' || l.candidates.length === 0)) add(l.term); });
+    const recent = withStore((s) => wanted.filter((t) => s.searchedRecently(t, d.now())));
+    return { terms: wanted.filter((t) => !recent.includes(t)).slice(0, MAX_SEARCH_TERMS), recent };
+  }
+
+  /** Drafts only the searched terms again: their old lines are replaced, every other line stays as the user left it. */
+  function redraft(t: Trip, terms: string[]): { trip: Trip; fresh: TripLine[] } {
+    const keys = new Set(terms.map(normaliseTerm));
+    const old = t.lines.filter((l) => l.kind === 'item' && l.term !== null && keys.has(normaliseTerm(l.term)));
+    const items = terms.map((term) => {
+      const was = old.find((l) => normaliseTerm(l.term!) === normaliseTerm(term));
+      return { term, quantity: was?.quantity ?? 1, note: was?.note ?? '' };
+    });
+    const draft = withStore((s) => draftTerms(s, items, false));
+    const base = { ...t, lines: t.lines.filter((l) => !old.includes(l)) };
+    const next = tripFromDraft(base, { ...draft, stockUps: [], promotions: [], addOns: [] }, noteMap(items));
+    return { trip: next, fresh: next.lines.filter((l) => !base.lines.includes(l)) };
+  }
+
   const view = {
     state() {
       const { ordersAt, promotionsAt } = withStore((s) => ({ ordersAt: s.lastSyncFinishedAt('orders'), promotionsAt: s.lastSyncFinishedAt('promotions') }));
       const oldest = ordersAt !== null && promotionsAt !== null ? (ordersAt < promotionsAt ? ordersAt : promotionsAt) : null;
       const ageHours = oldest === null ? null : Math.max(0, Math.round(((d.now().getTime() - new Date(oldest).getTime()) / 3600_000) * 10) / 10);
-      return { trip, freshness: { ordersAt, promotionsAt, ageHours }, busy };
+      return { trip, freshness: { ordersAt, promotionsAt, ageHours }, busy, search: { ...searchPlan(), last: lastSearch } };
     },
 
     async note(input: { note: string; includeUsual: boolean; budgetGrosze?: number }): Promise<Trip> {
@@ -362,6 +404,43 @@ export function createService(d: ServiceDeps) {
       return { started: true };
     },
 
+    /** Looks the terms up in the visible browser; found products are saved and only those terms are drafted again. */
+    async searchAuchan(terms?: string[], opts: { force?: boolean } = {}): Promise<Start> {
+      if (busy !== null) return refuse('Inna operacja trwa: poczekaj, aż się skończy.');
+      if (trip.step === 'koszyk' || trip.step === 'platnosc') return refuse(ALREADY_IN_CART);
+      const lockFile = d.fillDeps.lockFile ?? LOCK_PATH;
+      let region: string | null;
+      let wanted: string[];
+      try {
+        if (lockHeld(lockFile)) return refuse(BUSY);
+        region = withStore((s) => s.latestOrderRegion());
+        const given = terms === undefined ? searchPlan().terms : [...new Map(terms.map((x) => x.trim()).filter(Boolean).map((x) => [normaliseTerm(x), x])).values()];
+        wanted = opts.force || terms === undefined ? given : withStore((s) => given.filter((x) => !s.searchedRecently(x, d.now())));
+        if (terms !== undefined && !opts.force && wanted.length < given.length && wanted.length === 0) return refuse('Te hasła były szukane niedawno (w ostatnich 7 dniach). Kliknij ponownie, jeśli chcesz szukać jeszcze raz.');
+      } catch (e) {
+        return refuse(`Nie udało się przygotować szukania: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      if (region === null) return refuse('Najpierw zsynchronizuj zamówienia: wyszukiwanie potrzebuje Twojego regionu dostawy.');
+      wanted = wanted.slice(0, MAX_SEARCH_TERMS);
+      if (wanted.length === 0) return refuse('Nie ma czego szukać.');
+      const token = acquireLock(lockFile);
+      if (!token) return refuse(BUSY);
+      busy = 'search';
+      lastSearch = null;
+      try {
+        d.emit({ type: 'state' });
+      } catch (e) {
+        busy = null;
+        releaseLock(lockFile, token);
+        return refuse(`Nie udało się uruchomić szukania: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      void runSearch(wanted, region, lockFile, token).catch((e) => {
+        console.error(`Błąd szukania: ${e instanceof Error ? e.message : String(e)}`);
+        busy = null;
+      });
+      return { started: true };
+    },
+
     async sync(): Promise<Start> {
       if (busy !== null) return refuse('Inna operacja trwa: poczekaj, aż się skończy.');
       busy = 'sync';
@@ -412,6 +491,12 @@ export function createService(d: ServiceDeps) {
     },
 
     shutdown(): void {
+      if (busy === 'search') {
+        stopped = true;
+        const s = activeSearch;
+        if (s) { void s.close().catch(() => {}); try { s.release(); } catch { /* exiting matters more */ } }
+        return;
+      }
       if (busy !== 'fill') return;
       stopped = true;
       try {
@@ -423,7 +508,7 @@ export function createService(d: ServiceDeps) {
     },
 
     reset(): Trip {
-      if (busy === 'fill') return trip;
+      if (busy === 'fill' || busy === 'search') return trip;
       generation++;
       trip = emptyTrip(d.now());
       rmSync(d.tripFile, { force: true });
@@ -431,6 +516,84 @@ export function createService(d: ServiceDeps) {
       return trip;
     },
   };
+
+  async function runSearch(terms: string[], region: string, lockFile: string, token: string): Promise<void> {
+    const announce = (e: SearchEvent) => { lastSearch = e; safeEmit(e); };
+    let results: SearchResult[] = [];
+    let failed = false;
+    const search = createBrowserSearch({
+      ...d.searchTuning,
+      openPage: d.openSearchPage,
+      onStatus: (s) => {
+        if (s.kind === 'login') announce({ type: 'search', status: 'login' });
+        else if (s.kind === 'captcha') announce({ type: 'search', status: 'captcha', term: cleanText(s.term) });
+        else announce({ type: 'search', status: 'searching', term: cleanText(s.term), index: s.index, total: s.total });
+      },
+    });
+    let released = false;
+    const release = () => { if (!released) { released = true; releaseLock(lockFile, token); } };
+    activeSearch = { close: () => search.close(), release };
+    try {
+      try {
+        results = await search.search(terms);
+      } catch (e) {
+        failed = true;
+        safeEmit({ type: 'log', text: `Szukanie nie powiodło się: ${cleanText(e instanceof Error ? e.message : String(e))}` });
+      } finally {
+        await search.close().catch(() => {});
+        activeSearch = null;
+        release();
+      }
+      if (stopped) return;
+      const found: string[] = [];
+      withStore((s) => {
+        for (const r of results) {
+          if (r.status === 'stopped') { failed = true; continue; }
+          try {
+            if (r.status === 'none') {
+              s.saveSearchResults(r.term, { regionId: region, products: [], prices: [] }, d.now());
+              continue;
+            }
+            const parsed = parseSearchState(r.state, r.term, d.now().toISOString());
+            if (parsed.regionId !== region) throw new Error('strona wyników jest dla innego regionu niż Twoje zamówienia');
+            s.saveSearchResults(r.term, parsed, d.now());
+            found.push(r.term);
+          } catch (e) {
+            failed = true;
+            safeEmit({ type: 'log', text: `${cleanText(r.term)}: ${cleanText(e instanceof Error ? e.message : String(e))}` });
+          }
+        }
+      });
+      let next = trip;
+      if (found.length > 0) {
+        const r = redraft(trip, found);
+        next = r.trip;
+        if (r.fresh.length > 0) {
+          const chosen = next.mode === 'claude' ? await askClaude(d.spawn, 'choose', { ...next, lines: r.fresh }, next.note) : null;
+          if (stopped) return;
+          if (chosen === null) next = askEveryDoubtfulLine({ ...next, mode: 'fallback', messages: next.mode === 'claude' ? [...next.messages, FALLBACK_MESSAGE] : next.messages });
+          else {
+            const held = holdProposal(next, chosen.ops, chosen.dropped);
+            const before = next.proposal;
+            next = before !== null && held.proposal !== null && held.proposal !== before ? { ...held, proposal: { ...held.proposal, ops: [...before.ops, ...held.proposal.ops] } } : held;
+          }
+        }
+      }
+      const line = failed
+        ? `${SEARCH_STOPPED} Znaleziono produkty dla ${found.length} z ${terms.length} haseł.`
+        : `Szukanie w Auchan: znaleziono produkty dla ${found.length} z ${terms.length} haseł.`;
+      commit(settle({ ...next, messages: [...next.messages, line] }));
+      busy = null;
+      announce({ type: 'search', status: failed ? 'stopped' : 'done', found: found.length, total: terms.length });
+    } catch (e) {
+      lastSearch = null;
+      console.error(`Błąd zapisu po szukaniu: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      release();
+      busy = null;
+      safeEmit({ type: 'state' });
+    }
+  }
 
   async function runInBackground(startedGeneration: number): Promise<void> {
     const problems: string[] = [];

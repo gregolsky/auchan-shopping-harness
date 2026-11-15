@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createService } from '../src/app/service.ts';
@@ -12,6 +12,24 @@ import { Blocked, LoginRequired, RateLimited, Refused, type Worker } from '../sr
 import type { CartAccess } from '../src/http-worker.ts';
 import type { Product, PriceObservation } from '../src/types.ts';
 import { fakeCart, type FakeCart } from './helpers/fake-cart.ts';
+import type { PageLike } from '../src/search-browser.ts';
+
+const SEARCH_STATE = JSON.parse(readFileSync(new URL('./fixtures/search-state.json', import.meta.url), 'utf8'));
+const REGION = '00000000-0000-4000-8000-000000000010';
+const EMPTY_SEARCH = { session: { isLoggedIn: true }, data: { products: { productEntities: {} } } };
+
+/** A browser page that never touches a browser: logged in, and each search term answered from a table. */
+function fakeSearchPage(shows: Record<string, unknown> = { 'parówki': SEARCH_STATE }, o: { status?: number; log?: string[] } = {}): PageLike {
+  let url = 'about:blank';
+  const view = (): any => (url.includes('/search?q=') ? (shows[decodeURIComponent(url.split('q=')[1]!)] ?? EMPTY_SEARCH) : { session: { isLoggedIn: true } });
+  return {
+    async goto(u) { url = u; o.log?.push(u); return { status: () => o.status ?? 200 }; },
+    evaluate: (async (fn: any) => (String(fn).includes('isLoggedIn') ? view().session?.isLoggedIn === true : view())) as PageLike['evaluate'],
+    async title() { return 'Auchan'; },
+    url: () => url,
+    async close() { o.log?.push('closed'); },
+  };
+}
 
 const A = '00000000-0000-4000-8000-000000000001', B = '00000000-0000-4000-8000-000000000002', C = '00000000-0000-4000-8000-000000000003';
 const mk = (id: string, name: string, brand = 'M'): Product => ({
@@ -23,7 +41,7 @@ const price = (id: string, grosze: number): PriceObservation => ({
 });
 
 type Reply = object | null;
-function setup(opts: { claude?: { parse?: Reply; choose?: Reply; adhoc?: Reply }; cart?: CartAccess & Partial<FakeCart>; seedHigh?: boolean; emit?: (e: AppEvent) => void } = {}) {
+function setup(opts: { claude?: { parse?: Reply; choose?: Reply; adhoc?: Reply }; cart?: CartAccess & Partial<FakeCart>; seedHigh?: boolean; emit?: (e: AppEvent) => void; page?: () => PageLike; region?: boolean } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'svc-'));
   const lockFile = join(dir, 'fill.lock');
   const tripFile = join(dir, 'trip.json');
@@ -33,6 +51,7 @@ function setup(opts: { claude?: { parse?: Reply; choose?: Reply; adhoc?: Reply }
     products: [mk(A, 'Mleko 2%'), mk(B, 'Chleb'), mk(C, 'Mleko 3%')],
     prices: [price(A, 199), price(B, 250), price(C, 210)],
   });
+  if (opts.region !== false) store.saveOrder({ order: { orderId: 'o1', deliveredAt: '2026-11-01T10:00:00Z', totalGrosze: 100, regionId: REGION }, lines: [], products: [], prices: [] });
   const events: AppEvent[] = [];
   const finished: { status: string }[] = [];
   const spawned: string[] = [];
@@ -54,6 +73,8 @@ function setup(opts: { claude?: { parse?: Reply; choose?: Reply; adhoc?: Reply }
     openStore: shared, spawn, tripFile, now: () => new Date('2026-11-15T10:00:00Z'), emit: (e) => { opts.emit?.(e); events.push(e); },
     fillDeps: { lockFile, openWorker: async () => worker, openStore: () => ({ ...store, close() {}, finishFill: (id: number, r: any) => (finished.push(r), store.finishFill(id, r)) }) },
     syncDeps: { openStore: shared, openWorker: async () => worker, paceMs: 0 },
+    openSearchPage: async () => (opts.page ?? (() => fakeSearchPage()))(),
+    searchTuning: { paceMs: 0, sleep: async () => {} },
   });
   return { svc: make(), make, store, events, finished, spawned, lockFile, tripFile, cart };
 }
@@ -663,4 +684,173 @@ test('an unmatched op for a term that is already unmatched is dropped', async ()
   const { svc } = setup({ claude: { parse: { ops: [{ op: 'add', term: 'zzz', quantity: 1 }, { op: 'add', term: 'chleb', quantity: 1 }] }, choose: { ops: [{ op: 'unmatched', term: 'zzz', hint: 'x' }] } } });
   const t = await svc.note({ note: 'zzz, chleb', includeUsual: false });
   assert.equal(t.proposal, null);
+});
+
+const searchEnd = (events: AppEvent[]) => new Promise<void>((resolve) => {
+  const poll = () => (events.some((e) => e.type === 'search' && (e.status === 'done' || e.status === 'stopped')) ? resolve() : setImmediate(poll));
+  poll();
+});
+const searchEvents = (events: AppEvent[]) => events.flatMap((e) => (e.type === 'search' ? [e] : []));
+
+async function draftWithUnmatched(o: Parameters<typeof setup>[0] = {}) {
+  const t = setup(o);
+  await t.svc.note({ note: 'mleko\nparówki\nkawior', includeUsual: false });
+  return t;
+}
+
+test('state lists the terms worth searching: unmatched ones and lines with no pick', async () => {
+  const t = await draftWithUnmatched();
+  assert.deepEqual(t.svc.state().search.terms, ['parówki', 'kawior']);
+  assert.deepEqual(t.svc.state().search.recent, []);
+});
+
+test('searchAuchan runs in the background, saves what it finds and drafts only those terms', async () => {
+  const log: string[] = [];
+  const t = await draftWithUnmatched({ page: () => fakeSearchPage(undefined, { log }) });
+  t.svc.line('t:mleko', { quantity: 5 });
+  const before = t.svc.state().trip.lines.find((l) => l.lineKey === 't:mleko');
+  const started = await t.svc.searchAuchan();
+  assert.deepEqual(started, { started: true });
+  assert.equal(t.svc.state().busy, 'search');
+  await searchEnd(t.events);
+  assert.equal(t.svc.state().busy, null);
+  const trip = t.svc.state().trip;
+  assert.deepEqual(trip.lines.find((l) => l.lineKey === 't:mleko'), before, 'the user\'s other line is untouched');
+  assert.ok(trip.lines.some((l) => l.term === 'parówki'), 'found term drafted');
+  assert.deepEqual(trip.unmatched.map((u) => u.term), ['kawior']);
+  assert.equal(t.store.searchedRecently('parówki', new Date('2026-11-15T10:00:00Z')), true);
+  assert.equal(t.store.searchedRecently('kawior', new Date('2026-11-15T10:00:00Z')), true, 'a search with no result is remembered too');
+  assert.equal(t.store.searchedRecently('mleko', new Date('2026-11-15T10:00:00Z')), false);
+  assert.equal(log.at(-1), 'closed');
+  assert.match(trip.messages.at(-1)!, /1 z 2 haseł/);
+});
+
+test('search events report each status with the term, position and the result', async () => {
+  const t = await draftWithUnmatched();
+  await t.svc.searchAuchan();
+  await searchEnd(t.events);
+  const ev = searchEvents(t.events);
+  assert.deepEqual(ev.filter((e) => e.status === 'searching').map((e) => [e.term, e.index, e.total]), [['parówki', 1, 2], ['kawior', 2, 2]]);
+  assert.deepEqual(ev.at(-1), { type: 'search', status: 'done', found: 1, total: 2 });
+  assert.deepEqual(t.svc.state().search.last, ev.at(-1));
+});
+
+test('login and captcha waits are announced', async () => {
+  let logged = false, checks = 0;
+  const page = fakeSearchPage();
+  const slow: PageLike = {
+    ...page,
+    evaluate: (async (fn: any) => { if (String(fn).includes('isLoggedIn')) { checks++; return checks > 1; } return page.evaluate(fn); }) as PageLike['evaluate'],
+  };
+  const t = await draftWithUnmatched({ page: () => slow });
+  await t.svc.searchAuchan(['parówki']);
+  await searchEnd(t.events);
+  assert.equal(searchEvents(t.events).some((e) => e.status === 'login'), true);
+  logged = true; assert.ok(logged);
+  let title = "Let's confirm you are human";
+  const captcha: PageLike = { ...page, async title() { const x = title; title = 'Auchan'; return x; } };
+  const t2 = await draftWithUnmatched({ page: () => captcha });
+  await t2.svc.searchAuchan(['parówki']);
+  await searchEnd(t2.events);
+  assert.deepEqual(searchEvents(t2.events).find((e) => e.status === 'captcha'), { type: 'search', status: 'captcha', term: 'parówki' });
+});
+
+test('a 403 stops the search at once, with no retry, and says so', async () => {
+  const log: string[] = [];
+  const t = await draftWithUnmatched({ page: () => fakeSearchPage(undefined, { status: 403, log }) });
+  await t.svc.searchAuchan();
+  await searchEnd(t.events);
+  assert.equal(searchEvents(t.events).at(-1)!.status, 'stopped');
+  assert.equal(log.filter((u) => u.includes('/search')).length, 1, 'one request, never repeated');
+  assert.equal(t.svc.state().busy, null);
+  assert.deepEqual(t.svc.state().trip.unmatched.map((u) => u.term), ['parówki', 'kawior']);
+  assert.match(t.svc.state().trip.messages.at(-1)!, /zatrzymano/i);
+});
+
+test('terms searched in the last 7 days are skipped unless forced', async () => {
+  const t = await draftWithUnmatched();
+  await t.svc.searchAuchan();
+  await searchEnd(t.events);
+  t.events.length = 0;
+  assert.deepEqual(t.svc.state().search.terms, []);
+  assert.deepEqual(t.svc.state().search.recent, ['kawior']);
+  const refused = await t.svc.searchAuchan(['kawior']);
+  assert.equal(refused.started, false);
+  assert.match(refused.reason!, /niedawno/);
+  assert.deepEqual(await t.svc.searchAuchan(['kawior'], { force: true }), { started: true });
+  await searchEnd(t.events);
+  assert.equal(searchEvents(t.events).filter((e) => e.status === 'searching').length, 1);
+});
+
+test('at most 10 terms are searched', async () => {
+  const log: string[] = [];
+  const t = await draftWithUnmatched({ page: () => fakeSearchPage({}, { log }) });
+  await t.svc.searchAuchan(Array.from({ length: 14 }, (_, i) => `rzecz${i}`));
+  await searchEnd(t.events);
+  assert.equal(log.filter((u) => u.includes('/search?q=')).length, 10);
+});
+
+test('search is refused while another operation runs, while the fill lock is held and with no synced orders', async () => {
+  const t = await draftWithUnmatched();
+  writeFileSync(t.lockFile, JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
+  assert.equal((await t.svc.searchAuchan()).started, false);
+  rmSync(t.lockFile);
+  const first = await t.svc.searchAuchan();
+  assert.equal(first.started, true);
+  assert.match((await t.svc.searchAuchan()).reason!, /trwa/i);
+  assert.equal((await t.svc.sync()).started, false, 'sync waits too');
+  assert.equal((await t.svc.approve()).started, false);
+  await searchEnd(t.events);
+  assert.equal(existsSync(t.lockFile), false, 'the lock is released afterwards');
+  const none = await draftWithUnmatched({ region: false });
+  const r = await none.svc.searchAuchan();
+  assert.equal(r.started, false);
+  assert.match(r.reason!, /zsynchronizuj/i);
+});
+
+test('the trip is frozen while searching', async () => {
+  const t = await draftWithUnmatched();
+  const before = t.svc.state().trip.lines.length;
+  await t.svc.searchAuchan();
+  const held = t.svc.line('t:mleko', { quantity: 9 });
+  assert.equal(held.lines.find((l) => l.lineKey === 't:mleko')!.quantity, 1);
+  assert.match(held.messages.at(-1)!, /szukanie/i);
+  assert.equal(t.svc.reset().lines.length, before);
+  await searchEnd(t.events);
+});
+
+test('after a search Claude is asked to choose for the re-drafted lines and the answer waits as a proposal', async () => {
+  const parse = { ops: [{ op: 'add', term: 'mleko', quantity: 1 }, { op: 'add', term: 'parówki', quantity: 1 }] };
+  const t = setup({ claude: { parse, choose: { ops: [] } } });
+  await t.svc.note({ note: 'mleko\nparówki', includeUsual: false });
+  t.spawned.length = 0;
+  const t2 = t.svc;
+  assert.deepEqual(t2.state().search.terms, ['parówki']);
+  await t2.searchAuchan();
+  await searchEnd(t.events);
+  assert.deepEqual(t.spawned, ['choose']);
+  assert.equal(t2.state().trip.mode, 'claude');
+});
+
+test('without Claude the re-drafted doubtful lines are asked about', async () => {
+  const t = await draftWithUnmatched();
+  await t.svc.searchAuchan(['parówki']);
+  await searchEnd(t.events);
+  const line = t.svc.state().trip.lines.find((l) => l.term === 'parówki')!;
+  assert.ok(line.question !== null || line.confidence === 'high');
+});
+
+test('shutdown closes the browser and frees the lock', async () => {
+  const log: string[] = [];
+  let release!: () => void;
+  const page = fakeSearchPage(undefined, { log });
+  const gate = new Promise<void>((r) => { release = r; });
+  const blocking: PageLike = { ...page, async goto(u) { await gate; return page.goto(u); }, async close() { log.push('closed'); release(); } };
+  const t = await draftWithUnmatched({ page: () => blocking });
+  await t.svc.searchAuchan();
+  await new Promise((r) => setImmediate(r));
+  t.svc.shutdown();
+  await new Promise((r) => setTimeout(r, 20));
+  assert.ok(log.includes('closed'));
+  assert.equal(existsSync(t.lockFile), false);
 });
