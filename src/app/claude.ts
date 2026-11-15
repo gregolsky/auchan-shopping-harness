@@ -42,7 +42,8 @@ const INSTRUCTIONS = {
 export function buildPrompt(task: 'parse' | 'choose' | 'adhoc', trip: Trip, input: string): string {
   const data = {
     note: cleanText(trip.note),
-    lines: trip.lines.map((l) => ({
+    // Suggestions are only added by the user's click, so the draft-time choose call leaves them out (faster).
+    lines: trip.lines.filter((l) => task !== 'choose' || l.kind === 'item').map((l) => ({
       lineKey: l.lineKey, term: l.term === null ? null : cleanText(l.term), note: cleanText(l.note),
       quantity: l.quantity, chosenProductId: l.productId, kind: l.kind, confidence: l.confidence,
       candidates: l.candidates.map((c) => ({ id: c.productId, name: cleanText(c.name), price: zl(c.lineCostGrosze), confidence: c.confidence })),

@@ -128,3 +128,14 @@ test('realSpawn stops on oversized stdout', async () => {
   assert.notEqual(r.code, 0);
   assert.ok(r.stdout.length <= 1_100_000);
 });
+
+test('buildPrompt choose sends only item lines, while validateOps still knows every line key', async () => {
+  const suggestion = { ...trip.lines[0], lineKey: 's:stock', term: 'Zapas', kind: 'suggestion' as const, included: false,
+    candidates: [{ productId: 'S1', name: 'Zapasowy', lineCostGrosze: 100, confidence: 'high' as const }] };
+  const both: Trip = { ...trip, lines: [...trip.lines, suggestion] };
+  const choose = buildPrompt('choose', both, 'x');
+  assert.ok(choose.includes('t:ser zolty') && !choose.includes('s:stock') && !choose.includes('S1'));
+  assert.ok(buildPrompt('adhoc', both, 'x').includes('s:stock'));
+  const { spawn } = fake({ stdout: envelope({ structured_output: { ops: [{ op: 'choose', lineKey: 's:stock', productId: 'S1' }] } }) });
+  assert.deepEqual(await askClaude(spawn, 'adhoc', both, 'x'), { ops: [{ op: 'choose', lineKey: 's:stock', productId: 'S1' }], dropped: 0 });
+});
