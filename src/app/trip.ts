@@ -180,7 +180,11 @@ export function approvedLines(trip: Trip): { term: string | null; productId: str
 
 export const totalGrosze = (trip: Trip): number => trip.lines.filter((l) => l.included).reduce((sum, l) => sum + l.lineCostGrosze, 0);
 
+const MAX_REPORT = 30_000;
+
 export function saveTrip(file: string, trip: Trip): void {
+  // A long report is cut rather than making the saved trip unloadable.
+  if (typeof trip.reportText === 'string' && trip.reportText.length > MAX_REPORT) trip = { ...trip, reportText: trip.reportText.slice(0, MAX_REPORT) };
   const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
   try {
     mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
@@ -228,7 +232,7 @@ function validTrip(v: unknown): v is Trip {
     && isArr(v.unmatched, (u): u is { term: string; hint: string } => isRec(u) && isStr(u.term) && isStr(u.hint))
     && isArr(v.messages, isStr) && v.messages.length <= 200 && v.messages.every((m) => m.length <= 2000)
     && validProposal(v.proposal) && isStr(v.updatedAt)
-    && (v.reportText === undefined || v.reportText === null || (isStr(v.reportText) && v.reportText.length <= 30_000));
+    && (v.reportText === undefined || v.reportText === null || (isStr(v.reportText) && v.reportText.length <= MAX_REPORT));
 }
 
 export function loadTrip(file: string): Trip | null {

@@ -41,6 +41,15 @@ test('the payment report survives a trip save and reload', () => {
   saveTrip(file, { ...base(), step: 'platnosc', reportText: 'Sprawdź przed zapłatą:\n  - Mąka 1 kg' });
   assert.match(loadTrip(file)?.reportText ?? '', /Sprawdź przed zapłatą/);
 });
+test('a report longer than the limit is cut when saving, so the trip is never lost', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'trip-long-')), 'trip.json');
+  saveTrip(file, { ...base(), step: 'platnosc', reportText: 'x'.repeat(50_000) });
+  const loaded = loadTrip(file);
+  assert.ok(loaded);
+  assert.equal(loaded.reportText?.length, 30_000);
+  assert.equal(loaded.step, 'platnosc');
+});
+
 const CHEESE = 't:ser zolty';
 
 test('tripFromDraft maps items and suggestions', () => {
