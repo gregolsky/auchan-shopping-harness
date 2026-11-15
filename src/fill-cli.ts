@@ -20,7 +20,7 @@ export interface FillDeps {
 const CHECKOUT = 'https://zakupy.auchan.pl/checkout';
 const NO_BASKET = 'Brak zatwierdzonego koszyka z ostatnich 24 godzin: zatwierdź koszyk (approve_basket) i uruchom ponownie';
 const LOG_IN = 'Log in in the browser window and leave it open; the fill continues on its own';
-const BUSY = 'Inny fill już trwa: poczekaj, aż się skończy. Jeśli żaden nie działa, usuń plik .state/fill.lock i uruchom ponownie';
+export const BUSY = 'Inny fill już trwa: poczekaj, aż się skończy. Jeśli żaden nie działa, usuń plik .state/fill.lock i uruchom ponownie';
 const RERUN_SAFE = 'Ponowne uruchomienie jest bezpieczne: wczyta koszyk od nowa i doda tylko to, czego jeszcze brakuje.';
 
 const liveDeps: FillDeps = {
