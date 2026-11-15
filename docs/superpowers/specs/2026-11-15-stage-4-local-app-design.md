@@ -45,7 +45,12 @@ API (all JSON, all need the token):
 - `POST /api/line { lineKey, quantity | remove }` — manual edits
 - `POST /api/approve` — approve and start the fill (SSE progress)
 - `GET /api/rules`, `POST /api/rules/delete { term }`, `POST /api/rules/brand { term, brand: null }`
+- `GET /api/blocked` — the blocked products, `[{ productId, name }]`
+- `POST /api/blocked/search { query }` (2–100 characters) — catalogue products to block, `[{ productId, name }]`
+- `POST /api/blocked/add { productId }` / `POST /api/blocked/remove { productId }` — answer `{ changed: true }`; 409 while a fill or sync runs or the cart lock is held; a change invalidates the current draft
 - `POST /api/trip/reset`
+
+The Szymanowska flour rule is a brand rule tied to its seeded blacklist row ("Wszystkie mąki Szymanowskie"): it blocks every flour of that brand, and "Odblokuj" on that row lifts the whole rule.
 
 ## Safety
 
