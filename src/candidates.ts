@@ -26,12 +26,18 @@ export function matchesTerm(term: string, f: Pick<ProductFacts, 'name' | 'brand'
   return words.length > 0 && words.every((w) => hayWords.some(wordMatcher(w)));
 }
 
+const SHORT_STEM_ENDING = /^(?:[aeiouy]|ka|ki|ek|ce)?$/;
+
 /** Whether a normalised name word meets a normalised term word under the stem rule above. */
 function wordMatcher(w: string): (h: string) => boolean {
   const stem = w.length >= 4 ? w.replace(/[aeiouy]$/, '') : w;
-  // A stem under 4 letters ("mak" from "maka") would otherwise meet brand words such as "Makar", so it allows one extra letter only.
-  const extra = w.length >= 4 && stem.length < 4 ? 1 : 2;
-  return (h) => h.startsWith(stem) && h.length >= Math.min(w.length, 4) && h.length <= stem.length + extra;
+  // A stem under 4 letters ("mak" from "maka") would otherwise meet brand words such as "Makar", so after it only a
+  // plain Polish ending is allowed: one vowel, or a diminutive/plural ending ("ryb" + "ka", "ki", "ek").
+  const short = w.length >= 4 && stem.length < 4;
+  return (h) => {
+    if (!h.startsWith(stem) || h.length < Math.min(w.length, 4)) return false;
+    return short ? SHORT_STEM_ENDING.test(h.slice(stem.length)) : h.length <= stem.length + 2;
+  };
 }
 
 const FLAVOUR_WORDS = new Set(['smaku', 'smak', 'aromat', 'aromatem', 'aromacie', 'smakowy', 'smakowe', 'smakowa', 'aromatyzowany', 'aromatyzowana', 'aromatyzowane']);

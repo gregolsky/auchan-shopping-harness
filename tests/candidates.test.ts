@@ -405,3 +405,14 @@ test('the first search hit leads other never-bought candidates, bought ones and 
   const facts = [fact('cheap', { name: 'Mleko tanie', latestPriceGrosze: 100 }), fact('hit', { name: 'Mleko hit', latestPriceGrosze: 900 }), fact('bought', { name: 'Mleko kupione', timesBought: 2, latestPriceGrosze: 800 })];
   assert.deepEqual(ids(rankCandidates('mleko', 1, facts, null, ['hit'])), ['bought', 'hit', 'cheap']);
 });
+
+test('a short stem meets common Polish endings but not other letters', () => {
+  const m = (term: string, name: string) => matchesTerm(term, { name, brand: '' });
+  assert.equal(m('ryba', 'Rybka w sosie'), true);
+  assert.equal(m('ryba', 'Ryby wędzone'), true);
+  assert.equal(m('ryba', 'Rybki morskie'), true);
+  assert.equal(m('mleko', 'Mleka zsiadłe'), true);
+  assert.equal(m('mąka', 'Makar'), false);
+  assert.equal(m('maka', 'Makaron'), false);
+  assert.equal(m('ser', 'Serwetki'), false);
+});
