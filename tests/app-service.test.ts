@@ -8,7 +8,7 @@ import type { AppEvent } from '../src/app/service.ts';
 import type { Spawn } from '../src/app/claude.ts';
 import { saveTrip } from '../src/app/trip.ts';
 import { openStore, type Store } from '../src/store.ts';
-import { Blocked, LoginRequired, RateLimited, Refused, type Worker } from '../src/worker.ts';
+import { Blocked, LoginRequired, ProfileBusy, RateLimited, Refused, type Worker } from '../src/worker.ts';
 import type { CartAccess } from '../src/http-worker.ts';
 import type { Product, PriceObservation } from '../src/types.ts';
 import { fakeCart, type FakeCart } from './helpers/fake-cart.ts';
@@ -895,4 +895,16 @@ test('an unmatched term found by the search comes back with its quantity and not
   assert.ok(line, 'drafted after the search');
   assert.equal(line.quantity, 2);
   assert.equal(line.note, 'bez kości');
+});
+
+test('a busy browser profile ends the search with the Polish explanation and frees the lock', async () => {
+  const t = await draftWithUnmatched({ page: () => { throw new ProfileBusy(); } });
+  await t.svc.searchAuchan();
+  await searchEnd(t.events);
+  const last = searchEvents(t.events).at(-1)!;
+  assert.equal(last.status, 'stopped');
+  assert.equal(last.reason, 'Zamknij inne okno przeglądarki z profilem zakupów i spróbuj ponownie.');
+  assert.equal(t.svc.state().busy, null);
+  assert.equal(existsSync(t.lockFile), false);
+  assert.match(t.svc.state().trip.messages.at(-1)!, /Zamknij inne okno przeglądarki/);
 });

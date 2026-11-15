@@ -2,15 +2,21 @@ import { fileURLToPath } from 'node:url';
 import { cleanText, parseSearchState } from './parse.ts';
 import { buildDraft } from './draft.ts';
 import { zl } from './money.ts';
-import { createBrowserSearch, MAX_SEARCH_TERMS, openSearchPage, type SearchResult, type SearchStatus } from './search-browser.ts';
+import { createBrowserSearch, MAX_SEARCH_TERMS, openSearchPage, PROFILE_BUSY_TEXT, type SearchResult, type SearchStatus } from './search-browser.ts';
 import { liveDeps as syncDeps } from './cli.ts';
 import { normaliseTerm, type Store } from './store.ts';
+import { acquireLock, releaseLock } from './lock.ts';
+import { LOCK_PATH } from './dbpath.ts';
+import { BUSY } from './fill-cli.ts';
+import { ProfileBusy } from './worker.ts';
 
 export interface SearchDeps {
   openStore(): Store;
   createSearch(onStatus: (s: SearchStatus) => void): { search(terms: string[]): Promise<SearchResult[]>; close(): Promise<void> };
   log(line: string): void;
   error(line: string): void;
+  /** The fill lock the search shares with the cart fill; tests point it at a temp file. */
+  lockFile?: string;
 }
 
 export const liveDeps: SearchDeps = {
@@ -22,7 +28,31 @@ export const liveDeps: SearchDeps = {
 
 const plural = (n: number) => (n === 1 ? 'produkt' : n >= 2 && n <= 4 ? 'produkty' : 'produktów');
 
+/** Takes the shared fill lock for the whole run, so the search never opens the shopping profile while a fill or another search has it. */
 export async function main(args: string[], deps: SearchDeps = liveDeps): Promise<number> {
+  const lockFile = deps.lockFile ?? LOCK_PATH;
+  let token: string | false;
+  try {
+    token = acquireLock(lockFile);
+  } catch (e) {
+    deps.error(`Nie udało się sprawdzić blokady: ${cleanText(e instanceof Error ? e.message : String(e))}`);
+    return 1;
+  }
+  if (!token) {
+    deps.error(BUSY);
+    return 1;
+  }
+  try {
+    return await run(args, deps);
+  } catch (e) {
+    deps.error(e instanceof ProfileBusy ? PROFILE_BUSY_TEXT : `Wyszukiwanie nie powiodło się: ${cleanText(e instanceof Error ? e.message : String(e))}`);
+    return 1;
+  } finally {
+    releaseLock(lockFile, token);
+  }
+}
+
+async function run(args: string[], deps: SearchDeps): Promise<number> {
   const force = args.includes('--force');
   const given = args.filter((a) => !a.startsWith('--')).map((a) => a.trim()).filter(Boolean);
   if (given.length === 0) {

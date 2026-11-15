@@ -1,11 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { main, type SearchDeps } from '../src/search-cli.ts';
 import { openStore, type Store } from '../src/store.ts';
 import type { SearchResult, SearchStatus } from '../src/search-browser.ts';
+import { ProfileBusy } from '../src/worker.ts';
+import { BUSY } from '../src/fill-cli.ts';
 
 const state = JSON.parse(readFileSync(new URL('./fixtures/search-state.json', import.meta.url), 'utf8'));
 const REGION = '00000000-0000-4000-8000-000000000010';
@@ -31,8 +33,9 @@ function setup(opts: { region?: string | null; results: (terms: string[], say: (
     }),
     log: (l) => out.push(l),
     error: (l) => err.push(l),
+    lockFile: join(dir, 'fill.lock'),
   };
-  return { deps, store, out, err, searched, closed: () => closed, done: () => { store.close(); rmSync(dir, { recursive: true, force: true }); } };
+  return { deps, dir, store, out, err, searched, closed: () => closed, done: () => { store.close(); rmSync(dir, { recursive: true, force: true }); } };
 }
 
 test('searches, saves, and prints Polish status and the planner top match', async () => {
@@ -105,5 +108,44 @@ test('usage without terms; more than 10 terms are cut', async () => {
     assert.equal(await main(Array.from({ length: 12 }, (_, i) => `t${i}`), t.deps), 0);
     assert.equal(t.searched[0].length, 10);
     assert.match(t.err.join('\n'), /10/);
+  } finally { t.done(); }
+});
+
+test('takes the fill lock for the run and releases it afterwards', async () => {
+  let during = false;
+  const t = setup({ results: (terms) => { during = existsSync(t.deps.lockFile!); return terms.map((term) => ({ term, status: 'none' as const })); } });
+  try {
+    assert.equal(await main(['xyz'], t.deps), 0);
+    assert.equal(during, true);
+    assert.equal(existsSync(t.deps.lockFile!), false);
+  } finally { t.done(); }
+});
+
+test('refuses with the BUSY text when the fill lock is held, and leaves the lock alone', async () => {
+  const t = setup({ results: () => assert.fail('no browser') });
+  try {
+    writeFileSync(t.deps.lockFile!, JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
+    assert.equal(await main(['a'], t.deps), 1);
+    assert.deepEqual(t.err, [BUSY]);
+    assert.equal(existsSync(t.deps.lockFile!), true);
+  } finally { t.done(); }
+});
+
+test('a busy profile is explained in Polish, exits 1, closes the search and frees the lock', async () => {
+  const t = setup({ results: () => { throw new ProfileBusy(); } });
+  try {
+    assert.equal(await main(['a'], t.deps), 1);
+    assert.deepEqual(t.err, ['Zamknij inne okno przeglądarki z profilem zakupów i spróbuj ponownie.']);
+    assert.equal(t.closed(), 1);
+    assert.equal(existsSync(t.deps.lockFile!), false);
+  } finally { t.done(); }
+});
+
+test('any other failure is a Polish message with exit 1, not a stack trace', async () => {
+  const t = setup({ results: () => { throw new Error('boom'); } });
+  try {
+    assert.equal(await main(['a'], t.deps), 1);
+    assert.match(t.err.join('\n'), /Wyszukiwanie nie powiodło się: boom/);
+    assert.equal(existsSync(t.deps.lockFile!), false);
   } finally { t.done(); }
 });

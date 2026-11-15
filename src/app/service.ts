@@ -5,13 +5,13 @@ import type { Draft } from '../draft.ts';
 import { syncAll } from '../cli.ts';
 import type { Deps } from '../cli.ts';
 import { BUSY, formatReport, runFill } from '../fill-cli.ts';
-import { Blocked, LoginRequired, RateLimited, Refused } from '../worker.ts';
+import { Blocked, LoginRequired, ProfileBusy, RateLimited, Refused } from '../worker.ts';
 import type { FillDeps } from '../fill-cli.ts';
 import { acquireLock, lockHeld, releaseLock } from '../lock.ts';
 import { LOCK_PATH } from '../dbpath.ts';
 import { zl } from '../money.ts';
 import { cleanText, parseSearchState } from '../parse.ts';
-import { createBrowserSearch, MAX_SEARCH_TERMS } from '../search-browser.ts';
+import { createBrowserSearch, MAX_SEARCH_TERMS, PROFILE_BUSY_TEXT } from '../search-browser.ts';
 import type { BrowserSearchOptions, PageLike, SearchResult } from '../search-browser.ts';
 import { normaliseTerm } from '../store.ts';
 import type { IntentRule, Store } from '../store.ts';
@@ -30,7 +30,7 @@ export type AppEvent =
   | { type: 'report'; report: unknown }
   | { type: 'state' }
   | { type: 'working'; stage: 'parse' | 'draft' | 'choose' | 'done'; text: string }
-  | { type: 'search'; status: 'login' | 'captcha' | 'searching' | 'done' | 'stopped'; term?: string; index?: number; total?: number; found?: number }
+  | { type: 'search'; status: 'login' | 'captcha' | 'searching' | 'done' | 'stopped'; term?: string; index?: number; total?: number; found?: number; reason?: string }
   | { type: 'done'; code: number };
 
 export interface ServiceDeps {
@@ -524,6 +524,7 @@ export function createService(d: ServiceDeps) {
     const announce = (e: SearchEvent) => { lastSearch = e; safeEmit(e); };
     let results: SearchResult[] = [];
     let failed = false;
+    let failedReason: string | undefined;
     const search = createBrowserSearch({
       ...d.searchTuning,
       openPage: d.openSearchPage,
@@ -542,7 +543,8 @@ export function createService(d: ServiceDeps) {
         results = await search.search(terms);
       } catch (e) {
         failed = true;
-        safeEmit({ type: 'log', text: `Szukanie nie powiodło się: ${cleanText(e instanceof Error ? e.message : String(e))}` });
+        if (e instanceof ProfileBusy) failedReason = PROFILE_BUSY_TEXT;
+        safeEmit({ type: 'log', text: failedReason ?? `Szukanie nie powiodło się: ${cleanText(e instanceof Error ? e.message : String(e))}` });
       } finally {
         await search.close().catch(() => {});
         activeSearch = null;
@@ -583,12 +585,12 @@ export function createService(d: ServiceDeps) {
           }
         }
       }
-      const line = failed
+      const line = failedReason !== undefined ? failedReason : failed
         ? `${SEARCH_STOPPED} Znaleziono produkty dla ${found.length} z ${terms.length} haseł.`
         : `Szukanie w Auchan: znaleziono produkty dla ${found.length} z ${terms.length} haseł.`;
       commit(settle({ ...next, messages: [...next.messages, line] }));
       busy = null;
-      announce({ type: 'search', status: failed ? 'stopped' : 'done', found: found.length, total: terms.length });
+      announce({ type: 'search', status: failed ? 'stopped' : 'done', found: found.length, total: terms.length, ...(failedReason !== undefined ? { reason: failedReason } : {}) });
     } catch (e) {
       lastSearch = null;
       console.error(`Błąd zapisu po szukaniu: ${e instanceof Error ? e.message : String(e)}`);

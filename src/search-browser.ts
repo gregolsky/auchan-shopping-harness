@@ -7,6 +7,8 @@ export interface PageLike {
   title(): Promise<string>;
   url(): string;
   close(): Promise<void>;
+  /** True once the user has closed the window. Optional: a page that cannot tell is treated as open. */
+  isClosed?(): boolean;
 }
 
 export type SearchStatus =
@@ -35,6 +37,7 @@ export interface BrowserSearchOptions {
 }
 
 export const MAX_SEARCH_TERMS = 10;
+export const PROFILE_BUSY_TEXT = 'Zamknij inne okno przeglądarki z profilem zakupów i spróbuj ponownie.';
 const CAPTCHA_TITLE = /confirm you are human/i;
 
 const stopReason = (status: number): string =>
@@ -159,15 +162,29 @@ export function createBrowserSearch(o: BrowserSearchOptions): { search(terms: st
   };
 }
 
-/** The live page: the dedicated profile in a visible, sandboxed Chromium. Closing the page closes the window. */
-export async function openSearchPage(): Promise<PageLike> {
-  const context = await launchProfile();
-  const page = context.pages()[0] ?? (await context.newPage());
+interface PwPage { goto(url: string): Promise<{ status(): number } | null>; evaluate<R>(fn: () => R | Promise<R>): Promise<R>; title(): Promise<string>; url(): string; isClosed(): boolean }
+interface PwContext { pages(): PwPage[]; newPage(): Promise<PwPage>; close(): Promise<void> }
+
+/** Wraps an open browser context as a page; if no page can be had the context is closed again, so no window is left behind. Exported for tests. */
+export async function pageFromContext(context: PwContext): Promise<PageLike> {
+  let page: PwPage;
+  try {
+    page = context.pages()[0] ?? (await context.newPage());
+  } catch (e) {
+    await context.close().catch(() => {});
+    throw e;
+  }
   return {
     goto: (url) => page.goto(url),
     evaluate: (fn) => page.evaluate(fn),
     title: () => page.title(),
     url: () => page.url(),
+    isClosed: () => page.isClosed(),
     close: () => context.close(),
   };
+}
+
+/** The live page: the dedicated profile in a visible, sandboxed Chromium. Closing the page closes the window. */
+export async function openSearchPage(): Promise<PageLike> {
+  return pageFromContext((await launchProfile()) as unknown as PwContext);
 }

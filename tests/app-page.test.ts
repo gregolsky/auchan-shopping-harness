@@ -342,6 +342,10 @@ test('the search panel reports the result, a stop, and hides when nothing happen
   assert.equal(searchPanel({ type: 'search', status: 'searching', term: 'ser', index: 1, total: 2 }, null), null, 'a stale running status is not shown once the search is over');
 });
 
+test('a stop with a reason shows that reason', () => {
+  assert.deepEqual(searchPanel({ type: 'search', status: 'stopped', found: 0, total: 2, reason: 'Zamknij inne okno.' }, null), { text: 'Zamknij inne okno.', active: false });
+});
+
 test('the search button counts the terms, and offers a forced rerun when all were searched lately', () => {
   const state = (search: object, busy: string | null = null, step = 'szkic') => ({ trip: { step }, busy, search });
   assert.deepEqual(searchButton(state({ terms: ['a', 'b'], recent: [] })), { label: 'Szukaj w Auchan (2)', force: false, disabled: false });

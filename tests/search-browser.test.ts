@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createBrowserSearch, type PageLike, type SearchStatus } from '../src/search-browser.ts';
+import { createBrowserSearch, pageFromContext, type PageLike, type SearchStatus } from '../src/search-browser.ts';
 
 const CAPTCHA = "Let's confirm you are human";
 const stateOf = (n: number) => ({ session: { isLoggedIn: true }, data: { products: { productEntities: Object.fromEntries(Array.from({ length: n }, (_, i) => [`p${i}`, { productId: `p${i}` }])) } } });
@@ -147,4 +147,19 @@ test('403 on a search page stops the remaining terms with the reason', async () 
   assert.equal(results[2].status, 'stopped');
   assert.equal(results[0].status, 'found');
   assert.ok(statuses.some((x) => x.kind === 'stopped' && x.reason === REASON_403));
+});
+
+test('if the window cannot get a page, the opened context is closed again', async () => {
+  let closed = 0;
+  const ctx: any = { pages: () => [], newPage: async () => { throw new Error('no page'); }, close: async () => { closed++; } };
+  await assert.rejects(pageFromContext(ctx), /no page/);
+  assert.equal(closed, 1);
+});
+
+test('closing the page closes the whole context', async () => {
+  let closed = 0;
+  const pw: any = { goto: async () => null, evaluate: async () => null, title: async () => '', url: () => '', isClosed: () => false };
+  const page = await pageFromContext({ pages: () => [pw], newPage: async () => pw, close: async () => { closed++; } } as any);
+  await page.close();
+  assert.equal(closed, 1);
 });

@@ -222,6 +222,7 @@ export function searchPanel(event, busy) {
     return { text: `Szukam: ${event.term} (${event.index}/${event.total})…`, active: true };
   }
   if (event?.status === 'done') return { text: `Znaleziono produkty dla ${event.found} z ${event.total} haseł.`, active: false };
+  if (event?.status === 'stopped' && event.reason) return { text: event.reason, active: false };
   if (event?.status === 'stopped') return { text: `Szukanie zatrzymano: weryfikacja nie została rozwiązana albo Auchan odmówił. Nie ponawiam. Znaleziono produkty dla ${event.found} z ${event.total} haseł.`, active: false };
   return null;
 }
