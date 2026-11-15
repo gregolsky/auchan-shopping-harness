@@ -63,6 +63,37 @@ const done = (events: AppEvent[]) => new Promise<void>((resolve) => {
   poll();
 });
 
+test('blacklist edits in the app invalidate the draft and affect the next plan', async () => {
+  const { svc, store, make } = setup();
+  const first = await svc.note({ note: 'chleb', includeUsual: false });
+  assert.equal(first.lines[0].productId, B);
+  assert.deepEqual(svc.searchProducts('chle').map((p) => p.productId), [B]);
+  assert.equal(svc.blockProduct(B), true);
+  assert.equal(svc.state().trip.lines.length, 0, 'old choices must not remain approvable');
+  assert.deepEqual(make().blockedProducts().some((p) => p.productId === B), true);
+  const blocked = await svc.note({ note: 'chleb', includeUsual: false });
+  assert.deepEqual(blocked.unmatched, []);
+  assert.match(blocked.messages.join(' '), /zablokowan.*chleb/i);
+  assert.equal(svc.unblockProduct(B), true);
+  assert.equal((await svc.note({ note: 'chleb', includeUsual: false })).lines[0].productId, B);
+  store.close();
+});
+
+test('blacklist edits wait when another fill holds the cart lock', () => {
+  const { svc, lockFile } = setup();
+  writeFileSync(lockFile, JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
+  assert.equal(svc.blockProduct(B), false);
+  assert.equal(svc.blockedProducts().some((p) => p.productId === B), false);
+});
+
+test('Claude cannot relabel a blocked product as something to add by hand', async () => {
+  const { svc } = setup({ claude: { parse: { ops: [{ op: 'add', term: 'chleb', quantity: 1 }, { op: 'unmatched', term: 'chleb', hint: 'Dodaj ręcznie' }] } } });
+  svc.blockProduct(B);
+  const trip = await svc.note({ note: 'chleb', includeUsual: false });
+  assert.deepEqual(trip.unmatched, []);
+  assert.match(trip.messages.join(' '), /zablokowane produkty: chleb/i);
+});
+
 const parseMilk = { ops: [{ op: 'add', term: 'mleko', quantity: 2, note: 'tłuste' }, { op: 'add', term: 'chleb', quantity: 1 }] };
 
 test('note in claude mode drafts the parsed terms and holds Claude\'s choose proposal', async () => {
@@ -315,6 +346,7 @@ test('while a fill runs the trip is frozen and nothing is recorded', async () =>
   svc.apply('x'); svc.reject('x'); svc.line(key, { remove: true });
   assert.equal(svc.answer(key, C).lines[0].productId, B);
   assert.equal(svc.state().trip.lines.length, 1);
+  assert.equal(svc.blockProduct(A), false);
   assert.deepEqual(store.corrections().filter((c) => c.chosenProductId === C), []);
   release();
   await done(events);

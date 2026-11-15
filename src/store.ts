@@ -3,6 +3,7 @@ import type { Product, PriceObservation, BasketLine } from './types.ts';
 import type { parseDecoratedOrder } from './parse.ts';
 import { unitPriceGrosze } from './pricing.ts';
 import { basketMethods, BASKET_SCHEMA } from './store-baskets.ts';
+import { BLOCKED_PRODUCTS, type BlockedProduct } from './blacklist.ts';
 
 type ParsedOrder = Pick<ReturnType<typeof parseDecoratedOrder>, 'order' | 'lines' | 'products' | 'prices'>;
 export type SyncKind = 'orders' | 'promotions';
@@ -112,6 +113,10 @@ export interface Store {
   recentOrders(limit: number): RecentOrder[];
   productHistory(query: string): ProductHistoryRow[];
   currentPromotions(opts: { boughtBefore?: boolean; limit: number }): PromotionRow[];
+  searchProducts(query: string): BlockedProduct[];
+  blockedProducts(): BlockedProduct[];
+  blockProduct(productId: string): void;
+  unblockProduct(productId: string): void;
   /** One row per product, for ranking. Reads each table once. */
   productFacts(opts?: { asOf?: string }): ProductFacts[];
   /** Product ids on one order, in line order. */
@@ -205,12 +210,36 @@ CREATE TABLE IF NOT EXISTS corrections (
   reason TEXT,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS product_blacklist (
+  product_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL
+);
 `;
 
 export function openStore(path: string, opts: { readOnly?: boolean } = {}): Store {
   const db = new DatabaseSync(path, { readOnly: opts.readOnly === true, timeout: 5000 });
   db.exec('PRAGMA foreign_keys = ON');
-  if (!opts.readOnly) db.exec(SCHEMA + BASKET_SCHEMA);
+  const hasBlacklist = () => db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'product_blacklist'").get() !== undefined;
+  if (!opts.readOnly) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const needsSeed = !hasBlacklist();
+      db.exec(SCHEMA + BASKET_SCHEMA);
+      if (needsSeed) {
+        const seed = db.prepare('INSERT INTO product_blacklist (product_id, name) VALUES (?, ?)');
+        for (const p of BLOCKED_PRODUCTS) seed.run(p.productId, p.name);
+      }
+      db.exec('COMMIT');
+    } catch (e) {
+      db.exec('ROLLBACK');
+      db.close();
+      throw e;
+    }
+  }
+  const blockedProducts = (): BlockedProduct[] => hasBlacklist()
+    ? (db.prepare('SELECT product_id, name FROM product_blacklist ORDER BY name').all() as { product_id: string; name: string }[])
+      .map((r) => ({ productId: r.product_id, name: r.name }))
+    : [...BLOCKED_PRODUCTS];
 
   // A sparse source (an order line with no entity) must not wipe what a richer one stored.
   const upsertProduct = db.prepare(`
@@ -271,7 +300,27 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
   }
 
   return {
-    ...basketMethods(db),
+    ...basketMethods(db, blockedProducts),
+    blockedProducts,
+    searchProducts(query) {
+      const needle = normaliseTerm(query);
+      if (needle.length < 2) return [];
+      const terms = needle.split(' ').filter(Boolean);
+      const rows = db.prepare('SELECT product_id, name FROM products WHERE in_catalogue = 1 ORDER BY name').all() as { product_id: string; name: string }[];
+      return rows.filter((r) => {
+        const words = normaliseTerm(r.name).split(/[\s\-/]+/);
+        return terms.every((term) => words.some((w) => w === term || (!term.endsWith('a') && w.startsWith(term) && w.length <= term.length + 2)));
+      }).slice(0, 20)
+        .map((r) => ({ productId: r.product_id, name: r.name }));
+    },
+    blockProduct(productId) {
+      const p = db.prepare('SELECT name FROM products WHERE product_id = ? AND in_catalogue = 1').get(productId) as { name: string } | undefined;
+      if (!p) throw new Error('Nie znaleziono produktu w katalogu.');
+      db.prepare('INSERT INTO product_blacklist (product_id, name) VALUES (?, ?) ON CONFLICT(product_id) DO UPDATE SET name = excluded.name').run(productId, p.name);
+    },
+    unblockProduct(productId) {
+      db.prepare('DELETE FROM product_blacklist WHERE product_id = ?').run(productId);
+    },
     saveOrder({ order, lines, products, prices }) {
       transaction(() => {
         writeProducts(products);

@@ -1,10 +1,12 @@
 import { MAX_BATCH, MAX_QUANTITY, Rejected, UUID, type CartAccess, type CartChange, type LimitedItem } from './http-worker.ts';
 import { Refused } from './worker.ts';
 import { compareCart, parseCart, planFill, type BasketLine, type FillReport, type LimitNote } from './cart.ts';
+import { isBlockedProduct, type BlockedProduct } from './blacklist.ts';
 
 type ParsedCart = ReturnType<typeof parseCart>;
 
 export interface FillOptions {
+  blockedProducts?: readonly BlockedProduct[];
   onProgress?(sent: number, total: number): void;
   /** Called once with what is about to be sent, before the first POST. */
   onPlan?(plan: { count: number; totalGrosze: number }): void;
@@ -22,10 +24,11 @@ const MAX_REJECTIONS = 3;
 const isOutOfStock = (l: LimitedItem) => l.reason === 'OUT_OF_STOCK' && l.addedAmount === 0;
 
 export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOptions = {}): Promise<FillReport & { sent: number }> {
+  basket = basket.filter((b) => !isBlockedProduct(b, o.blockedProducts));
   const start = o.start ?? parseCart(await cart.readCart());
   const before = o.baseline ?? start;
   const tally = o.tally ?? { sent: 0 };
-  const plan = planFill(basket, start.lines);
+  const plan = planFill(basket, start.lines, o.blockedProducts);
   // Changes applyQuantities would refuse are skipped up front, so they cannot stop the fill partway; they end in `missing`.
   plan.send = plan.send.filter(sendable);
   const total = plan.send.length;
@@ -68,7 +71,7 @@ export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOp
       const settled = processed + chunk.length;
       const ids = new Set(chunk.map((c) => c.productId));
       const fresh = parseCart(await cart.readCart());
-      for (const change of planFill(basket.filter((b) => ids.has(b.productId)), fresh.lines).send.filter(sendable)) {
+      for (const change of planFill(basket.filter((b) => ids.has(b.productId)), fresh.lines, o.blockedProducts).send.filter(sendable)) {
         try {
           await send([change]);
         } catch (e2) {
@@ -81,5 +84,5 @@ export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOp
   }
 
   const after = parseCart(await cart.readCart());
-  return { ...compareCart(basket, before.lines, after, [...outOfStock], limits), sent: tally.sent };
+  return { ...compareCart(basket, before.lines, after, [...outOfStock], limits, o.blockedProducts), sent: tally.sent };
 }

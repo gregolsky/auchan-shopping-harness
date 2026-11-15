@@ -27,6 +27,10 @@ function fakeService(calls: Call[], fail = false) {
     approve: async (...a: unknown[]) => rec('approve', { started: true })(...a),
     sync: async (...a: unknown[]) => rec('sync', { started: true })(...a),
     rules: rec('rules', [{ term: 'mleko' }]),
+    blockedProducts: rec('blockedProducts', [{ productId: 'p1', name: 'Mąka' }]),
+    searchProducts: rec('searchProducts', [{ productId: 'p2', name: 'Chleb' }]),
+    blockProduct: rec('blockProduct', true),
+    unblockProduct: rec('unblockProduct', true),
     deleteRule: rec('deleteRule', undefined),
     clearBrand: rec('clearBrand', undefined),
     reset: rec('reset', { step: 'dane' }),
@@ -38,6 +42,8 @@ async function start(fail = false) {
   writeFileSync(join(publicDir, 'index.html'), '<html>hi</html>');
   writeFileSync(join(publicDir, 'app.js'), 'x');
   writeFileSync(join(publicDir, 'app.css'), 'y');
+  writeFileSync(join(publicDir, 'icon.svg'), '<svg/>');
+  writeFileSync(join(publicDir, 'shopping.svg'), '<svg/>');
   writeFileSync(join(publicDir, 'secret.txt'), 'nope');
   const calls: Call[] = [];
   const broadcaster = createBroadcaster();
@@ -159,6 +165,8 @@ test('GET / serves index.html with the CSP, and the two other files are served',
     assert.match(js.headers.get('content-type') ?? '', /javascript/);
     const css = await fetch(s.base + `/app.css?t=${TOKEN}`);
     assert.match(css.headers.get('content-type') ?? '', /text\/css/);
+    const image = await fetch(s.base + `/shopping.svg?t=${TOKEN}`);
+    assert.match(image.headers.get('content-type') ?? '', /image\/svg\+xml/);
   } finally { s.close(); }
 });
 
@@ -197,6 +205,10 @@ test('each API route calls the service and returns its JSON', async () => {
       ['/api/line', { lineKey: 'k', included: false }, 'line', ['k', { included: false }]],
       ['/api/approve', {}, 'approve', []],
       ['/api/rules', undefined, 'rules', []],
+      ['/api/blocked', undefined, 'blockedProducts', []],
+      ['/api/blocked/search', { query: 'mąka' }, 'searchProducts', ['mąka']],
+      ['/api/blocked/add', { productId: 'p2' }, 'blockProduct', ['p2']],
+      ['/api/blocked/remove', { productId: 'p1' }, 'unblockProduct', ['p1']],
       ['/api/rules/delete', { term: 'mleko' }, 'deleteRule', ['mleko']],
       ['/api/rules/brand', { term: 'mleko', brand: null }, 'clearBrand', ['mleko']],
       ['/api/trip/reset', {}, 'reset', []],
@@ -234,6 +246,9 @@ test('invalid bodies get 400 with a fixed message and no service call', async ()
       ['/api/line', { quantity: 2 }],
       ['/api/rules/delete', { term: 3 }],
       ['/api/rules/brand', { term: 'x', brand: 'Y' }],
+      ['/api/blocked/search', { query: 'a' }],
+      ['/api/blocked/add', {}],
+      ['/api/blocked/remove', { productId: 4 }],
       ['/api/ask', [1]],
     ];
     for (const [path, body] of bad) {

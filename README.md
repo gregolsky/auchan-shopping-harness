@@ -9,7 +9,7 @@ Run `npm run app` and open the printed `http://127.0.0.1` URL, including its acc
 
 Claude helps interpret the list and propose changes. It runs without tools or access to the logged-in browser. If Claude is unavailable, the app still builds a draft and asks about uncertain matches. Use `/zakupy` as the chat fallback. `npm run fill` remains available for a basket approved through the planner.
 
-The product blacklist currently blocks **Mąka Szymanowska pszenna typ 480 Polskie Młyny 1 kg** (`00104664`): it is excluded from plans and suggestions, rejected during approval, and never sent to the cart by an older basket. The blocked list is visible under **Moje reguły**; its entries are maintained in `src/blacklist.ts`.
+The product blacklist initially blocks **Mąka Szymanowska pszenna typ 480 Polskie Młyny 1 kg** (`00104664`). In **Moje reguły → Produkty zablokowane**, search the local catalog to block another product or remove a block. Changes are saved in `.state/harness.db` and take effect in drafts, approval and cart filling. After changing the list, arrange the draft again.
 
 ## Skills
 

@@ -34,6 +34,7 @@ test('page loads same-origin assets and never injects untrusted HTML', () => {
   assert.match(html, /src="\/app.js/);
   assert.match(html, /href="\/app.css/);
   assert.match(html, /href="\/icon.svg\?t=__APP_TOKEN__/);
+  assert.match(html, /src="\/shopping.svg\?t=__APP_TOKEN__/);
   assert.match(html, /__APP_TOKEN__/);
   assert.doesNotMatch(html, /<script(?![^>]*src=)|<style|\son\w+=/i);
   assert.doesNotMatch(js, /innerHTML|outerHTML|insertAdjacentHTML|document\.write/);

@@ -6,7 +6,7 @@ import { syncAll } from '../cli.ts';
 import type { Deps } from '../cli.ts';
 import { BUSY, formatReport, runFill } from '../fill-cli.ts';
 import type { FillDeps } from '../fill-cli.ts';
-import { lockHeld, releaseLock } from '../lock.ts';
+import { acquireLock, lockHeld, releaseLock } from '../lock.ts';
 import { LOCK_PATH } from '../dbpath.ts';
 import { zl } from '../money.ts';
 import { normaliseTerm } from '../store.ts';
@@ -76,6 +76,20 @@ export function createService(d: ServiceDeps) {
     }
   };
 
+  function editBlacklist(change: (store: Store) => void): boolean {
+    if (busy !== null) return false;
+    const lockFile = d.fillDeps.lockFile ?? LOCK_PATH;
+    const token = acquireLock(lockFile);
+    if (!token) return false;
+    try {
+      withStore(change);
+      invalidateDraft();
+      return true;
+    } finally {
+      releaseLock(lockFile, token);
+    }
+  }
+
   /** Stores a new trip: trims messages, stamps, saves and announces it. */
   function commit(next: Trip): Trip {
     trip = {
@@ -104,7 +118,7 @@ export function createService(d: ServiceDeps) {
   if (trip.step === 'koszyk') commit({ ...trip, step: 'zatwierdzenie', messages: [...trip.messages, INTERRUPTED] });
 
   const draftTerms = (store: Store, items: { term: string; quantity: number }[], includeUsual: boolean, budgetGrosze?: number): Draft =>
-    buildDraft({ items, includeUsual, budgetGrosze }, store.productFacts(), store.intentRules(), d.now());
+    buildDraft({ items, includeUsual, budgetGrosze }, store.productFacts(), store.intentRules(), d.now(), store.blockedProducts());
 
   const noteMap = (items: { term: string; note: string }[]): Record<string, string> =>
     Object.fromEntries(items.flatMap((i) => (i.note === '' ? [] : [[i.term, i.note], [normaliseTerm(i.term), i.note]])));
@@ -137,6 +151,13 @@ export function createService(d: ServiceDeps) {
     if (corrections.length) withStore((s) => corrections.forEach((c) => s.recordCorrection(c)));
   };
 
+  function invalidateDraft(): void {
+    generation++;
+    if (['szkic', 'doprecyzowanie', 'zatwierdzenie'].includes(trip.step)) {
+      commit({ ...emptyTrip(d.now()), note: trip.note, step: 'szkic', messages: ['Lista blokowanych produktów zmieniła się. Ułóż szkic ponownie.'] });
+    } else safeEmit({ type: 'state' });
+  }
+
   const view = {
     state() {
       const { ordersAt, promotionsAt } = withStore((s) => ({ ordersAt: s.lastSyncFinishedAt('orders'), promotionsAt: s.lastSyncFinishedAt('promotions') }));
@@ -159,15 +180,17 @@ export function createService(d: ServiceDeps) {
       t = { ...t, mode, messages: mode === 'fallback' ? [FALLBACK_MESSAGE] : [] };
       const draft = withStore((s) => draftTerms(s, items, input.includeUsual, input.budgetGrosze));
       t = tripFromDraft(t, draft, noteMap(items));
+      if (draft.blocked?.length) t = { ...t, messages: [...t.messages, `Pominięto zablokowane produkty: ${draft.blocked.join(', ')}.`] };
       let drop = 0;
       if (parsed !== null) {
         drop += parsed.dropped;
         const matched = new Set(t.lines.flatMap((l) => (l.term === null ? [] : [normaliseTerm(l.term)])));
-        const extra = parsed.ops.filter((o) => o.op === 'say' || (o.op === 'unmatched' && !matched.has(normaliseTerm(o.term))));
+        const blocked = new Set((draft.blocked ?? []).map(normaliseTerm));
+        const extra = parsed.ops.filter((o) => o.op === 'say' || (o.op === 'unmatched' && !matched.has(normaliseTerm(o.term)) && !blocked.has(normaliseTerm(o.term))));
         t = applyOps(t, extra).trip;
       }
       if (draft.overBudgetGrosze !== null) t = { ...t, messages: [...t.messages, `Przekroczono budżet o ${zl(draft.overBudgetGrosze)}.`] };
-      if (t.lines.length === 0 && t.unmatched.length === 0) t = { ...t, messages: [...t.messages, 'Nie rozpoznano żadnych pozycji.'] };
+      if (t.lines.length === 0 && t.unmatched.length === 0 && !draft.blocked?.length) t = { ...t, messages: [...t.messages, 'Nie rozpoznano żadnych pozycji.'] };
 
       if (mode === 'claude' && t.lines.length > 0) {
         const chosen = await askClaude(d.spawn, 'choose', t, input.note);
@@ -204,6 +227,7 @@ export function createService(d: ServiceDeps) {
       if (r.addTerms.length > 0) {
         const draft = withStore((s) => draftTerms(s, r.addTerms, false));
         next = tripFromDraft(next, draft, noteMap(r.addTerms));
+        if (draft.blocked?.length) next = { ...next, messages: [...next.messages, `Pominięto zablokowane produkty: ${draft.blocked.join(', ')}.`] };
       }
       return commit(settle(next));
     },
@@ -297,6 +321,18 @@ export function createService(d: ServiceDeps) {
 
     rules(): IntentRule[] {
       return withStore((s) => s.intentRules());
+    },
+    blockedProducts() {
+      return withStore((s) => s.blockedProducts());
+    },
+    searchProducts(query: string) {
+      return withStore((s) => s.searchProducts(query));
+    },
+    blockProduct(productId: string): boolean {
+      return editBlacklist((s) => s.blockProduct(productId));
+    },
+    unblockProduct(productId: string): boolean {
+      return editBlacklist((s) => s.unblockProduct(productId));
     },
     deleteRule(term: string): void {
       withStore((s) => s.deleteRule(term));

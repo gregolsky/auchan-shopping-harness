@@ -8,6 +8,7 @@ import { cleanText } from './parse.ts';
 import { zl } from './money.ts';
 import { buildDraft } from './draft.ts';
 import { parseCart, type FillReport, type PriceNote } from './cart.ts';
+import { isBlockedProduct } from './blacklist.ts';
 import { acquireLock, releaseLock } from './lock.ts';
 import { LOCK_PATH, SESSION_PATH } from './dbpath.ts';
 
@@ -98,10 +99,11 @@ function extraNames(store: Store, ids: string[]): Record<string, string> {
 function substitutesFor(store: Store, lines: { term: string | null; productId: string; quantity: number }[]): Record<string, string[]> {
   const facts = store.productFacts();
   const rules = store.intentRules();
+  const blocked = store.blockedProducts();
   const result: Record<string, string[]> = {};
   for (const l of lines) {
     if (l.term === null) continue;
-    const draft = buildDraft({ items: [{ term: l.term, quantity: l.quantity }], includeUsual: false }, facts, rules, new Date());
+    const draft = buildDraft({ items: [{ term: l.term, quantity: l.quantity }], includeUsual: false }, facts, rules, new Date(), blocked);
     result[l.productId] = (draft.items[0]?.alternatives ?? []).filter((a) => a.productId !== l.productId).slice(0, 2).map((a) => a.name);
   }
   return result;
@@ -154,6 +156,8 @@ export async function runFill(deps: FillDeps, hooks: FillHooks): Promise<FillRes
       error(NO_BASKET);
       return fail(1);
     }
+    const blockedProducts = store.blockedProducts();
+    const skippedBlocked = basket.lines.filter((l) => isBlockedProduct(l, blockedProducts));
     runId = store.startFill(basket.basketId);
     worker = await deps.openWorker();
     const cart = worker;
@@ -167,6 +171,7 @@ export async function runFill(deps: FillDeps, hooks: FillHooks): Promise<FillRes
         const start = parseCart(await cart.readCart());
         baseline ??= start;
         return fillCart(cart, basket.lines, {
+          blockedProducts,
           start, baseline, tally,
           onPlan: (p) => {
             if (planShown) return;
@@ -197,7 +202,8 @@ export async function runFill(deps: FillDeps, hooks: FillHooks): Promise<FillRes
     } catch {
       // The report is worth more than its extras.
     }
-    const text = formatReport(report, basket.unmatched, subs, names);
+    const skippedText = skippedBlocked.length ? `Pominięto zablokowane produkty:\n${skippedBlocked.map((l) => `  - ${cleanText(l.name)}`).join('\n')}\n\n` : '';
+    const text = skippedText + formatReport(report, basket.unmatched, subs, names);
     (hooks.report ?? hooks.log)(text);
     return { code: 0, report, substitutes: subs, text };
   } catch (err) {

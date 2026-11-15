@@ -69,6 +69,7 @@ export function start() {
   const steps = document.querySelector('#steps');
   const alert = document.querySelector('#alert');
   let state = null, selected = 0, rulesOpen = false, report = null, progress = { sent: 0, total: 0 }, logs = [];
+  let productSearch = '', searchResults = [], searchDone = false, renderVersion = 0;
   const draftForm = { note: null, usual: false, budget: '' };
 
   const tell = (message) => { alert.textContent = message || ''; alert.hidden = !message; };
@@ -149,13 +150,19 @@ export function start() {
       button('Ułóż szkic →', async () => { const value = budget.value.trim(); const body = { note: note.value, includeUsual: usual.checked }; if (value) body.budgetGrosze = Math.round(Number(value.replace(',', '.')) * 100); await run('/api/note', body); selected = 1; render(); }, 'button', state.busy === 'fill'));
     const results = card('Wybrane produkty', 'Sprawdź nazwę, ilość i ocenę dopasowania.');
     const model = viewModel(state);
+    const blockedNotice = state.trip.messages?.find((m) => m.startsWith('Pominięto zablokowane produkty:'));
+    if (blockedNotice) results.append(element('p', 'message blocked', `⛔ ${blockedNotice}`));
     if (!model.lines.length) results.append(element('p', 'empty', 'Produkty pojawią się tu po ułożeniu szkicu.'));
     model.lines.forEach((l) => results.append(lineRow(l, true)));
     if (model.suggestions.length) {
       results.append(element('h3', '', 'Propozycje · dodawane tylko po Twoim kliknięciu'));
       model.suggestions.forEach((l) => results.append(lineRow(l, true)));
     }
-    if (model.lines.length) results.append(element('div', 'total row', `Razem w szkicu: ${zl(model.total)}`));
+    if (model.unmatched.length) {
+      results.append(element('h3', '', 'Nie znaleziono w katalogu'));
+      model.unmatched.forEach((item) => results.append(element('p', 'meta', `${item.term} · dodaj ręcznie w Auchan`)));
+    }
+    if (model.lines.length) results.append(element('div', 'total row', `Szacowana kwota: ${zl(model.total)}`));
     append(grid, form, results); target.append(grid);
     if (state.trip.lines.length) target.append(button('Dalej: doprecyzowanie →', () => { selected = 2; render(); }, 'quiet'));
   }
@@ -180,7 +187,7 @@ export function start() {
     included.forEach((l) => box.append(lineRow(l)));
     if (!included.length) box.append(element('p', 'empty', 'Lista jest pusta. Wróć do szkicu.'));
     if (model.unmatched.length) append(box, element('h3', '', 'Do dodania ręcznie w Auchan'), ...model.unmatched.map((u) => element('p', 'meta', u.term)));
-    append(box, element('div', 'total', `Razem: ${zl(model.total)}`), button('✓ Zatwierdź i dodaj do koszyka', async () => { const result = await run('/api/approve', {}); if (result?.started) { selected = 4; render(); } }, 'button', !model.canApprove));
+    append(box, element('div', 'total', `Szacowana kwota: ${zl(model.total)}`), button('✓ Zatwierdź i dodaj do koszyka', async () => { const result = await run('/api/approve', {}); if (result?.started) { selected = 4; render(); } }, 'button', !model.canApprove));
     if (!model.canApprove) box.append(element('p', 'meta', 'Odpowiedz na pytania i zastosuj lub odrzuć propozycję zmian, aby zatwierdzić.'));
     target.append(box);
   }
@@ -205,10 +212,11 @@ export function start() {
     const link = element('a', 'button', '↗ Zapłać na Auchan'); link.href = 'https://zakupy.auchan.pl/checkout'; link.target = '_blank'; link.rel = 'noopener noreferrer';
     box.append(link); target.append(box);
   }
-  async function renderRules() {
+  async function renderRules(version) {
     const box = card('Moje reguły', 'Tu widać wybory, których nauczył się planer.'); target.append(box);
     try {
       const rules = await api('/api/rules');
+      if (!rulesOpen || version !== renderVersion) return;
       if (!rules.length) box.append(element('p', 'empty', 'Nie ma jeszcze zapisanych reguł.'));
       rules.forEach((rule) => {
         const row = element('div', 'line row');
@@ -218,9 +226,38 @@ export function start() {
         box.append(row);
       });
       const blocked = await api('/api/blocked');
-      const blockedBox = card('Produkty zablokowane', 'Tych produktów planer nie proponuje i nie dodaje do koszyka.');
-      blocked.forEach((item) => blockedBox.append(element('p', 'message', item.name)));
+      if (!rulesOpen || version !== renderVersion) return;
+      const blockedBox = card('Produkty zablokowane', 'Zablokowanych produktów planer nie proponuje i nie dodaje do koszyka. Zmiana listy wymaga ponownego ułożenia szkicu.');
+      if (!blocked.length) blockedBox.append(element('p', 'empty', 'Brak zablokowanych produktów.'));
+      blocked.forEach((item) => {
+        const row = element('div', 'line row');
+        append(row, element('span', 'line-name', `⛔ ${item.name}`), button('Odblokuj', async () => {
+          const changed = await run('/api/blocked/remove', { productId: item.productId });
+          if (changed?.changed) render();
+        }, 'small danger', state.busy !== null));
+        blockedBox.append(row);
+      });
       target.append(blockedBox);
+      const searchBox = card('Zablokuj produkt', 'Wyszukaj dokładny produkt z katalogu Auchan, potem wybierz „Zablokuj”.');
+      const label = element('label', '', 'Nazwa produktu'); label.htmlFor = 'product-search';
+      const input = element('input'); input.type = 'search'; input.id = 'product-search'; input.value = productSearch;
+      input.placeholder = 'np. mąka pszenna'; input.addEventListener('input', () => { productSearch = input.value; });
+      const find = button('Szukaj produktów', async () => {
+        try { tell(''); searchResults = await api('/api/blocked/search', { query: input.value.trim() }); productSearch = input.value; searchDone = true; render(); }
+        catch (error) { tell(error.message); }
+      }, 'quiet');
+      append(searchBox, label, input, find);
+      if (searchDone && searchResults.length === 0) searchBox.append(element('p', 'empty', 'Brak wyników. Spróbuj krótszej nazwy.'));
+      const blockedIds = new Set(blocked.map((p) => p.productId));
+      searchResults.forEach((item) => {
+        const row = element('div', 'line row');
+        append(row, element('span', 'line-name', item.name), button(blockedIds.has(item.productId) ? 'Zablokowany' : 'Zablokuj', async () => {
+          const changed = await run('/api/blocked/add', { productId: item.productId });
+          if (changed?.changed) render();
+        }, 'small', blockedIds.has(item.productId) || state.busy !== null));
+        searchBox.append(row);
+      });
+      target.append(searchBox);
     } catch (error) { tell(error.message); }
   }
   function renderProposal() {
@@ -241,15 +278,17 @@ export function start() {
   }
   function render() {
     if (!state) return;
+    const version = ++renderVersion;
     const model = viewModel(state);
     document.querySelector('#mode').textContent = state.trip.mode === 'fallback' ? 'Tryb bez Claude' : 'Z pomocą Claude';
     document.querySelector('#new-trip').disabled = state.busy === 'fill' || state.trip.step === 'koszyk';
     renderSteps(model); target.replaceChildren();
-    if (rulesOpen) { void renderRules(); return; }
+    if (rulesOpen) { void renderRules(version); return; }
     [renderData, renderDraft, renderQuestions, renderReview, renderCart, renderPayment][selected]();
     renderProposal(); renderAsk();
-    if (state.trip.messages?.length) {
-      const box = card('Wskazówki'); state.trip.messages.slice(-4).forEach((m) => box.append(element('p', 'message', m))); target.append(box);
+    const messages = (state.trip.messages || []).filter((m) => selected !== 1 || !m.startsWith('Pominięto zablokowane produkty:')).slice(-4);
+    if (messages.length) {
+      const box = card('Wskazówki'); messages.forEach((m) => box.append(element('p', 'message', m))); target.append(box);
     }
   }
   document.querySelector('#new-trip').addEventListener('click', async () => { if (state.busy === 'fill') return; const result = await run('/api/trip/reset', {}); if (result?.step === 'dane') { selected = 0; rulesOpen = false; report = null; logs = []; draftForm.note = null; draftForm.usual = false; draftForm.budget = ''; render(); } });

@@ -9,7 +9,6 @@ import { liveDeps as fillDeps } from '../fill-cli.ts';
 import { realSpawn } from './claude.ts';
 import { createService } from './service.ts';
 import type { AppEvent } from './service.ts';
-import { BLOCKED_PRODUCTS } from '../blacklist.ts';
 
 const MAX_BODY = 64 * 1024;
 const PING_MS = 25_000;
@@ -24,6 +23,7 @@ const STATIC: Record<string, { file: string; type: string }> = {
   '/app.js': { file: 'app.js', type: 'text/javascript; charset=utf-8' },
   '/app.css': { file: 'app.css', type: 'text/css; charset=utf-8' },
   '/icon.svg': { file: 'icon.svg', type: 'image/svg+xml' },
+  '/shopping.svg': { file: 'shopping.svg', type: 'image/svg+xml' },
 };
 
 export type AppService = ReturnType<typeof createService>;
@@ -79,7 +79,16 @@ const post = (run: Route['run']): Route => ({ run });
 const ROUTES: Record<string, Route> = {
   '/api/state': { get: true, run: (s) => s.state() },
   '/api/rules': { get: true, run: (s) => s.rules() },
-  '/api/blocked': { get: true, run: () => BLOCKED_PRODUCTS },
+  '/api/blocked': { get: true, run: (s) => s.blockedProducts() },
+  '/api/blocked/search': post((s, b) => s.searchProducts(str(b.query, 100, 2))),
+  '/api/blocked/add': post((s, b) => {
+    if (!s.blockProduct(key(b.productId))) throw new HttpError(409, 'Poczekaj na zakończenie trwającej operacji.');
+    return { changed: true };
+  }),
+  '/api/blocked/remove': post((s, b) => {
+    if (!s.unblockProduct(key(b.productId))) throw new HttpError(409, 'Poczekaj na zakończenie trwającej operacji.');
+    return { changed: true };
+  }),
   '/api/sync': post((s) => s.sync()),
   '/api/note': post((s, b) => {
     const note = str(b.note, 10_000, 0);

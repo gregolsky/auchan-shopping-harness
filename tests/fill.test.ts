@@ -18,6 +18,13 @@ test('fills only what is missing', async () => {
   assert.equal(r.missing.length, 0);
 });
 
+test('the fill honors the editable blocklist, including removal of the initial block', async () => {
+  const id = '2cb9b09d-205d-48eb-9441-ea0f59e06aae';
+  const cart = fakeCart({});
+  await fillCart(cart, [bl(id, 1), bl(uid(2), 1)], { blockedProducts: [{ productId: uid(2), name: 'Inny produkt' }] });
+  assert.deepEqual(cart.quantities, { [id]: 1 });
+});
+
 test('sends batches of at most MAX_BATCH', async () => {
   const cart = fakeCart({});
   const progress: number[][] = [];

@@ -1,7 +1,7 @@
 import type { CartChange } from './http-worker.ts';
 import { ShapeError } from './parse.ts';
 import type { BasketLine } from './types.ts';
-import { isBlockedProduct } from './blacklist.ts';
+import { isBlockedProduct, type BlockedProduct } from './blacklist.ts';
 
 export interface CartLine {
   productId: string;
@@ -81,8 +81,8 @@ function sumBy<T extends { productId: string }>(rows: T[], qty: (r: T) => number
 }
 
 /** Delta only: sends what is missing, never lowers or removes anything. */
-export function planFill(basket: BasketLine[], cart: CartLine[]): FillPlan {
-  basket = basket.filter((b) => !isBlockedProduct(b));
+export function planFill(basket: BasketLine[], cart: CartLine[], blocked?: readonly BlockedProduct[]): FillPlan {
+  basket = basket.filter((b) => !isBlockedProduct(b, blocked));
   const targets = sumBy(basket, (b) => b.quantity);
   const inCart = sumBy(cart, (c) => c.quantity);
   const send: CartChange[] = [];
@@ -104,8 +104,9 @@ export function compareCart(
   after: { lines: CartLine[]; totalGrosze: number | null },
   outOfStock: string[] = [],
   limits: Record<string, LimitNote> = {},
+  blocked?: readonly BlockedProduct[],
 ): FillReport {
-  const plan = planFill(basket, before);
+  const plan = planFill(basket, before, blocked);
   const targets = sumBy(basket, (b) => b.quantity);
   const now = sumBy(after.lines, (c) => c.quantity);
   const short = (b: BasketLine) => missingPieces(targets.get(b.productId) ?? 0, now.get(b.productId) ?? 0) >= 1;

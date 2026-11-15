@@ -8,12 +8,12 @@ The first browser review covered the six-step local app at desktop and 375 px wi
 - Show a Polish explanation for medium and low confidence matches.
 - Keep unsubmitted list, budget and “usual” choices while the page rerenders.
 - Disable “Nowe zakupy” during a cart fill.
-- Show the blocked product under “Moje reguły”.
+- Show and edit blocked products under “Moje reguły”.
 - Label the budget and progress controls, reduce live-region noise, and use numbered step markers with one-sentence descriptions.
 - Give each clarification question its own card and provide an explicit next action on the Data step.
 
 ## Next UX review with the shopper
 
 1. Try a real list in `npm run app` without approving the cart. Check the chosen products, confidence explanations and question wording.
-2. Decide whether blocked products should be editable in the app and whether the Szymanowska block covers only type 480 or the entire brand.
+2. Decide whether the Szymanowska block covers only type 480 or the entire brand.
 3. After an approved run, check that the report groups and payment hand-off are easy to scan. The app still requires the shopper to pay on Auchan.

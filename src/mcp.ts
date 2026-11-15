@@ -114,7 +114,7 @@ export function createServer(dbPath: string = DB_PATH): McpServer {
       return withData(dbPath, 'orders', (s, fresh) => ({
         ...fresh,
         promotionsLastSyncAt: s.lastSyncFinishedAt('promotions'),
-        ...buildDraft({ items, includeUsual, budgetGrosze }, s.productFacts(), s.intentRules(), new Date()),
+        ...buildDraft({ items, includeUsual, budgetGrosze }, s.productFacts(), s.intentRules(), new Date(), s.blockedProducts()),
       }));
     },
   );

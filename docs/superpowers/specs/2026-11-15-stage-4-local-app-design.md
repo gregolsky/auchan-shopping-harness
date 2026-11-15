@@ -28,7 +28,7 @@ Success: the user pastes a list like the 2026-11-15 one, answers one round of qu
 9. **Sync from the app:** "Odśwież dane" runs the orders+promotions sync in-process; if a login is needed the browser window opens as today and the page says "Zaloguj się w oknie przeglądarki i zostaw je otwarte".
 10. **Fill from the app:** "Zatwierdź i dodaj do koszyka" calls `approveBasket`, then runs the fill in-process under the fill lock. Progress streams to the page over Server-Sent Events (`sent/total`, then the report). Only one fill at a time (the lock); a second click is refused.
 11. **Payment hand-off:** the last step shows the report groups (check before paying, out of stock / partially added with substitutes, add by hand, already in the cart, small rises, total) and a link `https://zakupy.auchan.pl/checkout` that opens in the user's browser. The server never requests it.
-12. **Rules tab:** lists learned rules (`intentRules`) with a delete button each (`deleteRule`), and fixed brands with a clear button (`setBrandFixed(term, null)`).
+12. **Rules tab:** lists learned rules (`intentRules`) with a delete button each (`deleteRule`), and fixed brands with a clear button (`setBrandFixed(term, null)`). It also searches the local catalog to add or remove product blocks. Blocks are saved in the local database and applied during drafting, approval and cart filling.
 13. **Trip state** lives in server memory (one trip at a time) and is mirrored to `.state/trip.json` (mode 600) after every change so a restart resumes it. "Nowe zakupy" clears it.
 
 ## Pages and API

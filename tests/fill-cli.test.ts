@@ -99,6 +99,16 @@ test('fill adds what is missing and counts it from the final cart', async (t) =>
   assert.match(log.out.join('\n'), /Dodano produktów: 2\nRazem w koszyku: 3,00 zł/);
 });
 
+test('fill reports products blocked after an older basket was approved', async (t) => {
+  const cart = fakeCart({});
+  const { log, deps, store } = setup(cart);
+  store.blockProduct(B);
+  quiet(t, log);
+  assert.equal(await main([], deps), 0);
+  assert.deepEqual(cart.quantities, { [A]: 2 });
+  assert.match(log.out.join('\n'), /Pominięto zablokowane produkty:[\s\S]*Chleb/);
+});
+
 test('fill resumes after login', async (t) => {
   const cart = fakeCart({});
   let first = true;

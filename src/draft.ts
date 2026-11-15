@@ -3,7 +3,7 @@ import type { Candidate, Confidence } from './candidates.ts';
 import { lineCost, parseOffer } from './pricing.ts';
 import { capQuantity, isUsual, lastBoughtText, stockUp } from './rules.ts';
 import { normaliseTerm } from './store.ts';
-import { isBlockedProduct } from './blacklist.ts';
+import { isBlockedProduct, type BlockedProduct } from './blacklist.ts';
 import type { IntentRule, ProductFacts } from './store.ts';
 
 export interface DraftInput {
@@ -34,6 +34,7 @@ export interface Draft {
   promotions: DraftLine[];
   addOns: DraftLine[];
   unmatched: string[];
+  blocked?: string[];
   totalGrosze: number;
   overBudgetGrosze: number | null;
 }
@@ -89,19 +90,24 @@ function learnedSwap(f: ProductFacts, rules: IntentRule[], byId: Map<string, Pro
 const wrongBrand = (f: ProductFacts, rules: IntentRule[]) =>
   rules.some((r) => !brandAllowed(r, f) && (r.replacedProductIds.includes(f.productId) || matchesTerm(r.term, f)));
 
-export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: IntentRule[], now: Date): Draft {
-  facts = facts.filter((f) => !isBlockedProduct(f));
+export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: IntentRule[], now: Date, blocked?: readonly BlockedProduct[]): Draft {
+  const allFacts = facts;
+  facts = facts.filter((f) => !isBlockedProduct(f, blocked));
   const ruleByTerm = new Map(rules.map((r) => [normaliseTerm(r.term), r]));
   const byId = new Map(facts.map((f) => [f.productId, f]));
   const used = new Set<string>();
   const items: DraftLine[] = [];
   const unmatched: string[] = [];
+  const blockedTerms: string[] = [];
 
   for (const { term, quantity } of input.items) {
     const capped = (f: ProductFacts) => capQuantity(f, quantity).quantity;
     const ranked = rankCandidates(term, capped, facts, ruleByTerm.get(normaliseTerm(term)) ?? null).filter((c) => !used.has(c.productId));
     const top = ranked[0];
-    if (!top || !buyable(top)) { unmatched.push(term); continue; }
+    if (!top || !buyable(top)) {
+      (allFacts.some((f) => isBlockedProduct(f, blocked) && matchesTerm(term, f)) ? blockedTerms : unmatched).push(term);
+      continue;
+    }
     const cap = capQuantity(top, quantity);
     let reason = basisReason(top, term) + savingNote(top);
     if (cap.capped) reason += `; capped at ${cap.quantity} because it is perishable`;
@@ -175,5 +181,5 @@ export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: Inte
 
   const totalGrosze = items.reduce((s, l) => s + l.lineCostGrosze, 0);
   const over = input.budgetGrosze !== undefined && totalGrosze > input.budgetGrosze ? totalGrosze - input.budgetGrosze : null;
-  return { items, stockUps, promotions, addOns, unmatched, totalGrosze, overBudgetGrosze: over };
+  return { items, stockUps, promotions, addOns, unmatched, blocked: blockedTerms, totalGrosze, overBudgetGrosze: over };
 }
