@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionNote, categoryFor, groupByCategory, iconPaths } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionNote, categoryFor, groupByCategory, iconPaths, reportView } from '../public/app.js';
 
 test('catalog category paths map to stable shopping sections and unknown paths stay in Inne', () => {
   assert.equal(categoryFor(['Artykuły spożywcze', 'Sery']).key, 'dairy');
@@ -21,13 +21,26 @@ test('grouping keeps a stable category order and original order within each cate
 });
 
 test('every shopping category and the empty thumbnail has a vector icon', () => {
-  for (const key of ['produce', 'dairy', 'meat', 'bread', 'drink', 'snack', 'frozen', 'pantry', 'care', 'pet', 'other', 'cart']) {
+  for (const key of ['produce', 'dairy', 'meat', 'bread', 'drink', 'snack', 'frozen', 'pantry', 'care', 'pet', 'other', 'cart', 'warning', 'missing', 'action', 'info', 'increase']) {
     assert.ok(iconPaths(key).length > 0, key);
     assert.ok(iconPaths(key).every((path) => /^[MmLlHhVvCcSsQqTtAaZz0-9 .,\-]+$/.test(path)), key);
   }
   assert.deepEqual(iconPaths('unknown'), iconPaths('other'));
   const js = readFileSync('public/app.js', 'utf8');
   assert.doesNotMatch(js, /🛒/);
+});
+
+test('payment report separates status sections, counts rows and keeps product categories when known', () => {
+  const text = 'Sprawdź przed zapłatą:\n  - Mąka Szymanowska — zablokowany produkt w koszyku, usuń go na Auchan\n\nBrak w sklepie:\n  - Mąka pszenna x 2 (zamiast tego: Mąka inna)\n\nByło już w koszyku:\n  - Ryż x 1\n\nDodano produktów: 3\nRazem w koszyku: 20,00 zł';
+  const lines = [{ name: 'Mąka pszenna', categoryPath: ['Artykuły spożywcze', 'Sypkie i produkty zbożowe'] }, { name: 'Ryż', categoryPath: ['Artykuły spożywcze', 'Sypkie i produkty zbożowe'] }];
+  const view = reportView(text, lines);
+  assert.deepEqual(view.sections.map((s) => [s.key, s.items.length]), [['warning', 1], ['missing', 1], ['info', 1]]);
+  assert.equal(view.sections[0].items[0].title, 'Mąka Szymanowska');
+  assert.equal(view.sections[0].items[0].category.key, 'other');
+  assert.equal(view.sections[1].items[0].category.key, 'pantry');
+  assert.match(view.sections[1].items[0].detail, /zamiast tego/);
+  assert.equal(view.summary[0], 'Dodano produktów: 3');
+  assert.ok(view.sections.every((s) => s.items.every((item) => !item.title.startsWith('-'))));
 });
 
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,

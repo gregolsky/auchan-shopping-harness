@@ -44,8 +44,45 @@ const ICON_PATHS = {
   pet: ['M8 13C6 15 5 17 6 19C7 21 10 20 12 19C14 20 17 21 18 19C19 17 18 15 16 13C14 11 10 11 8 13Z', 'M6 8C5 8 4 9 4 10C4 11 5 12 6 12C7 12 8 11 8 10C8 9 7 8 6 8Z', 'M18 8C17 8 16 9 16 10C16 11 17 12 18 12C19 12 20 11 20 10C20 9 19 8 18 8Z', 'M10 5C9 5 8 6 8 7C8 8 9 9 10 9C11 9 12 8 12 7C12 6 11 5 10 5Z', 'M14 5C13 5 12 6 12 7C12 8 13 9 14 9C15 9 16 8 16 7C16 6 15 5 14 5Z'],
   other: ['M3 7L12 3L21 7V18L12 22L3 18Z', 'M3 7L12 11L21 7', 'M12 11V22'],
   cart: ['M2 4H5L8 17H19L22 8H6', 'M9 21H10', 'M18 21H19'],
+  warning: ['M12 3L22 21H2Z', 'M12 9V14', 'M12 18H12'],
+  missing: ['M12 3C7 3 3 7 3 12C3 17 7 21 12 21C17 21 21 17 21 12C21 7 17 3 12 3Z', 'M7 17L17 7'],
+  action: ['M12 3V21', 'M3 12H21'],
+  info: ['M12 3C7 3 3 7 3 12C3 17 7 21 12 21C17 21 21 17 21 12C21 7 17 3 12 3Z', 'M12 10V17', 'M12 7H12'],
+  increase: ['M4 18L10 12L14 15L21 7', 'M16 7H21V12'],
 };
 export const iconPaths = (key) => ICON_PATHS[key] || ICON_PATHS.other;
+const REPORT_STATUS = {
+  'Sprawdź przed zapłatą': 'warning', 'Pominięto zablokowane produkty': 'warning',
+  'Nie dodano': 'missing', 'Brak w sklepie': 'missing',
+  'Dodaj sam na Auchan': 'action', 'Było już w koszyku': 'info', 'Niewielkie podwyżki': 'increase',
+};
+const REPORT_ORDER = ['warning', 'missing', 'action', 'info', 'increase'];
+
+/** Turns the saved CLI report into readable status groups; category comes only from an exact trip-product match. */
+export function reportView(reportText, tripLines = []) {
+  const sections = [];
+  const summary = [];
+  let current = null;
+  const known = [...tripLines].filter((line) => line.name).sort((a, b) => b.name.length - a.name.length);
+  String(reportText || '').split('\n').forEach((raw) => {
+    const line = raw.trim();
+    if (!line) return;
+    if (line.endsWith(':')) {
+      const title = line.slice(0, -1);
+      current = { key: REPORT_STATUS[title] || 'info', title, items: [] };
+      sections.push(current);
+      return;
+    }
+    if (/^(Dodano produktów:|Razem w koszyku:|Zapłać na )/.test(line)) { summary.push(line); return; }
+    const text = line.replace(/^-\s*/, '');
+    if (!current) { summary.push(text); return; }
+    const product = known.find((candidate) => text.startsWith(candidate.name) && (text.length === candidate.name.length || /[\s:—]/.test(text[candidate.name.length])));
+    const categoryPath = product?.categoryPath;
+    const split = text.match(/^(.*?) (— .+|\(zamiast tego:.+\))$/) || text.match(/^(.*?): (\d[\d,]* zł.+)$/);
+    current.items.push({ title: split ? split[1] : text, detail: split ? split[2].replace(/^— /, '') : '', categoryPath, category: categoryFor(categoryPath) });
+  });
+  return { sections: sections.filter((section) => section.items.length).sort((a, b) => REPORT_ORDER.indexOf(a.key) - REPORT_ORDER.indexOf(b.key)), summary };
+}
 // The server keeps six steps; its 'szkic' is Lista without lines and Przegląd with lines (see stepIndexOf).
 const KEYS = ['dane', 'szkic', 'doprecyzowanie', 'zatwierdzenie', 'koszyk', 'platnosc'];
 const FIRST_CART = 5;
@@ -665,11 +702,33 @@ export function start() {
     const box = card('7. Płatność', 'Sprawdź raport, potem przejdź do Auchan. Aplikacja nie składa zamówienia ani nie płaci.');
     const reportText = report?.text || state.trip.reportText;
     if (reportText) {
-      let group = null;
-      reportText.split('\n').filter(Boolean).forEach((line) => {
-        if (line.endsWith(':')) { group = element('div', 'report-group'); group.append(element('h3', '', line.slice(0, -1))); box.append(group); }
-        else (group || box).append(element('p', 'meta', line.trim()));
+      const view = reportView(reportText, state.trip.lines);
+      view.sections.forEach((section) => {
+        const group = element('section', `report-group report-${section.key}`);
+        const heading = append(element('h3', 'report-heading'), iconNode(section.key), element('span', '', section.title), element('span', 'report-count', String(section.items.length)));
+        group.append(heading);
+        const renderItems = (parent, items) => {
+          const list = element('ul', 'report-list');
+          items.forEach((item) => {
+            const row = element('li', 'report-item');
+            append(row, categoryTag(item.categoryPath), element('span', 'report-name', item.title));
+            if (item.detail) row.append(element('span', 'report-detail', item.detail));
+            list.append(row);
+          });
+          parent.append(list);
+        };
+        if (section.key === 'info' && section.items.length > 6) {
+          groupByCategory(section.items).forEach(({ category, items }) => {
+            const sub = element('div', 'report-category');
+            sub.append(append(element('h4', 'report-category-heading'), iconNode(category.icon), element('span', '', category.label), element('span', 'category-count', String(items.length))));
+            renderItems(sub, items);
+            group.append(sub);
+          });
+        } else renderItems(group, section.items);
+        box.append(group);
       });
+      const summary = view.summary.filter((line) => !line.startsWith('Zapłać na '));
+      if (summary.length) box.append(append(element('div', 'report-summary'), ...summary.map((line) => element('p', '', line))));
     }
     else box.append(element('p', 'empty', 'Raport jest dostępny po zakończeniu dodawania produktów. Po odświeżeniu strony sprawdź koszyk bezpośrednio w Auchan.'));
     if (state.trip.unmatched.length) append(box, element('h3', '', 'Do dodania ręcznie w Auchan'), ...state.trip.unmatched.flatMap((u) => [element('p', 'meta', unmatchedText(u)), searchLink(u.term)]), element('p', 'meta', MANUAL_HINT));
