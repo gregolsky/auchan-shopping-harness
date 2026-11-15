@@ -1,0 +1,178 @@
+{
+  "cartId": "00000000-0000-4000-8000-000000000000",
+  "cartStatus": "NEVER_CHECKED_OUT",
+  "checkoutCorrelationId": "00000000-0000-4000-8000-000000000001",
+  "defaultCheckoutGroup": {
+    "basketAboveThreshold": false,
+    "canCheckout": false,
+    "checkoutRestrictions": [
+      "NOT_REACHED_THRESHOLD",
+      "MISSING_SLOT"
+    ],
+    "minimumCheckoutThreshold": {
+      "currency": "PLN",
+      "amount": "100.00"
+    },
+    "orderId": "1000000000000",
+    "shippingGroupType": "Auchan Vans",
+    "shippingGroupTypeDisplayName": "Dostawa do domu"
+  },
+  "deliveryDestinationId": "00000000-0000-4000-8000-000000000002",
+  "itemGroups": [
+    {
+      "groupName": "Auchan Polska Sp. z o.o.",
+      "items": [
+        "4d99971b-6c8f-4f61-8082-b4feb76ef9d0",
+        "7866c30c-0b4e-402b-a90c-f292bca0ef6b",
+        "95bba835-bad9-40df-a7ec-7766ac0d3354"
+      ]
+    }
+  ],
+  "items": [
+    {
+      "basketLines": [],
+      "finalPrice": {
+        "currency": "PLN",
+        "amount": "1.98"
+      },
+      "lastModified": "2026-01-01T10:00:00Z",
+      "maxQuantityReached": false,
+      "price": {
+        "currency": "PLN",
+        "amount": "1.98"
+      },
+      "productId": "4d99971b-6c8f-4f61-8082-b4feb76ef9d0",
+      "promoVersionId": "1",
+      "quantity": 2,
+      "productPrices": {
+        "regularPrice": {
+          "currency": "PLN",
+          "amount": "1.98"
+        },
+        "finalPrice": {
+          "currency": "PLN",
+          "amount": "1.98"
+        }
+      },
+      "totalPrices": {
+        "regularPrice": {
+          "currency": "PLN",
+          "amount": "3.96"
+        },
+        "finalPrice": {
+          "currency": "PLN",
+          "amount": "3.96"
+        },
+        "finalUnitPrice": {
+          "currency": "PLN",
+          "amount": "1.98"
+        }
+      }
+    },
+    {
+      "basketLines": [],
+      "finalPrice": {
+        "currency": "PLN",
+        "amount": "3.18"
+      },
+      "lastModified": "2026-01-01T10:00:00Z",
+      "maxQuantityReached": false,
+      "price": {
+        "currency": "PLN",
+        "amount": "3.18"
+      },
+      "productId": "7866c30c-0b4e-402b-a90c-f292bca0ef6b",
+      "promoVersionId": "1",
+      "quantity": 1,
+      "productPrices": {
+        "regularPrice": {
+          "currency": "PLN",
+          "amount": "3.18"
+        },
+        "finalPrice": {
+          "currency": "PLN",
+          "amount": "3.18"
+        }
+      },
+      "totalPrices": {
+        "regularPrice": {
+          "currency": "PLN",
+          "amount": "3.18"
+        },
+        "finalPrice": {
+          "currency": "PLN",
+          "amount": "3.18"
+        },
+        "finalUnitPrice": {
+          "currency": "PLN",
+          "amount": "3.18"
+        }
+      }
+    },
+    {
+      "basketLines": [],
+      "finalPrice": {
+        "currency": "PLN",
+        "amount": "3.74"
+      },
+      "lastModified": "2026-01-01T10:00:00Z",
+      "maxQuantityReached": false,
+      "price": {
+        "currency": "PLN",
+        "amount": "3.74"
+      },
+      "productId": "95bba835-bad9-40df-a7ec-7766ac0d3354",
+      "promoVersionId": "1",
+      "quantity": 3,
+      "productPrices": {
+        "regularPrice": {
+          "currency": "PLN",
+          "amount": "3.74"
+        },
+        "finalPrice": {
+          "currency": "PLN",
+          "amount": "3.74"
+        }
+      },
+      "totalPrices": {
+        "regularPrice": {
+          "currency": "PLN",
+          "amount": "11.22"
+        },
+        "finalPrice": {
+          "currency": "PLN",
+          "amount": "11.22"
+        },
+        "finalUnitPrice": {
+          "currency": "PLN",
+          "amount": "3.74"
+        }
+      }
+    }
+  ],
+  "lastModified": "2026-01-01T10:00:00Z",
+  "regionId": "00000000-0000-4000-8000-000000000003",
+  "totals": {
+    "display": {
+      "itemPriceAfterPromos": {
+        "currency": "PLN",
+        "amount": "18.36"
+      },
+      "taxation": "TAX_INCLUDED"
+    },
+    "itemPriceAfterPromos": {
+      "currency": "PLN",
+      "amount": "18.36"
+    },
+    "itemsRetailPrice": {
+      "currency": "PLN",
+      "amount": "18.36"
+    },
+    "savingsPrice": {
+      "currency": "PLN",
+      "amount": "0.00"
+    },
+    "taxation": "TAX_INCLUDED"
+  },
+  "unavailableData": []
+}

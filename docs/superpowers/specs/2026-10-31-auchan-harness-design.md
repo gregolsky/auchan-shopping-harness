@@ -71,11 +71,18 @@ Confirmed in the first live sync (2026-11-01):
 - Region: order and promotion prices both use the user's region.
 - The login did not survive a browser restart under default profile settings. The worker therefore waits for login in the open window, and turns on session restore in the profile.
 
+Cart over HTTP (2026-11-03 and 2026-11-15):
+
+- `/search?q=` returns 403 even with the saved session. The harness does not work around it, so the cart fill does not search. Every product the planner can propose already carries the id the cart needs.
+- Read the cart: `GET /api/cart/v1/carts/active`, found in the site's public script. Lines carry `productId`, `quantity` and prices as złoty strings (`"1.98"`).
+- `POST /api/cart/v1/carts/active/apply-quantity` is additive (re-tested 2026-11-15: quantity 1 sent twice gave 2; -1 removes one). A product out of stock still returns HTTP 200; it is listed in `limitedItems` with `reason: "OUT_OF_STOCK"` and `addedAmount`.
+- A saved session from 2026-11-01 had expired by 2026-11-15.
+
 ## Architecture
 
 All components run on the user's machine.
 
-- **Worker:** sends Auchan requests from Node with the saved session, one at a time, at most one every 1.5 s. The dedicated Chromium profile is opened only when a login is needed. It exposes only these operations: sync orders, list promotions, search, read cart, set cart. It has no checkout operation. Search and cart over HTTP are not yet tested.
+- **Worker:** sends Auchan requests from Node with the saved session, one at a time, at most one every 1.5 s. The dedicated Chromium profile is opened only when a login is needed. It exposes only these operations: sync orders, list promotions, read cart, add to cart. It has no checkout operation and cannot clear the cart.
 - **Local database:** a SQLite file holding orders, products, prices and corrections, excluded from git. The app reads from it, so it does not wait on Auchan's site.
 - **Planner:** Claude turns the note into a draft basket using the database. Its only route to Auchan is the same operations, exposed as an MCP server.
 - **Local app:** a page on `localhost`, bound to the local machine only, showing the draft, promotions and suggestions. Approval in the app triggers the cart fill.
@@ -126,9 +133,10 @@ A pick with no intent or history behind it is marked as a guess in the draft.
 
 ## Cart safety
 
-- `apply-quantity` was additive when tested in June 2026. This is re-tested first.
+- `apply-quantity` is additive (re-tested 2026-11-15).
 - The worker reads the cart, calculates the difference from the approved basket, and sends only that difference. Retries and crash recovery therefore cannot add items twice.
-- Items already in the cart appear at review, and the user chooses to keep or remove them. The harness never removes anything silently.
+- The fill only adds. Basket products already in the cart at or above the approved quantity, and products not in the basket, are left alone and listed in the report. The harness never lowers or removes anything during a fill; choosing to remove them at review comes with the stage 4 app.
+- There are no automatic retries. Any error stops the fill; a rerun reads the cart again and sends only what is still missing.
 - After filling, the worker compares quantities, prices and the total with the approved basket and reports any difference.
 
 ## Error handling
@@ -136,8 +144,8 @@ A pick with no intent or history behind it is marked as a guess in the draft.
 | Problem | Behaviour |
 |---|---|
 | Login expired | Pause, ask the user to log in, resume where it left off |
-| Item out of stock | List it in the report with substitutes, and continue |
-| Price rose since the draft | Note small rises; leave any item that rose by more than 10% for the user to confirm |
+| Item out of stock | Auchan reports it in `limitedItems`; list it in the report with substitutes, and continue |
+| Price rose since the draft | Checked after adding, since there is no search: note small rises; list any item that rose by more than 10% first, under "check before paying" |
 | Budget exceeded | Warn at review, do not block |
 | Auchan's response changes shape | Stop with a clear error and leave the cart as it is |
 | 403 | Stop, with no retries |

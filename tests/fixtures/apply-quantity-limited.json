@@ -1,0 +1,42 @@
+{
+  "basketUpdateResult": {
+    "checkout": {
+      "basketAboveThreshold": false
+    },
+    "itemGroups": [],
+    "lastModified": "2026-01-01T10:00:00Z",
+    "totals": {
+      "display": {
+        "itemPriceAfterPromos": {
+          "currency": "PLN",
+          "amount": "18.36"
+        },
+        "taxation": "TAX_INCLUDED"
+      },
+      "itemPriceAfterPromos": {
+        "currency": "PLN",
+        "amount": "18.36"
+      },
+      "itemsRetailPrice": {
+        "currency": "PLN",
+        "amount": "18.36"
+      },
+      "savingsPrice": {
+        "currency": "PLN",
+        "amount": "0.00"
+      },
+      "taxation": "TAX_INCLUDED"
+    }
+  },
+  "limitedItems": [
+    {
+      "addedAmount": 0,
+      "productId": "7866c30c-0b4e-402b-a90c-f292bca0ef6b",
+      "reason": "OUT_OF_STOCK",
+      "requestedAmount": 1
+    }
+  ],
+  "limitedPromotionIds": [],
+  "pricingNotifications": [],
+  "unavailableData": []
+}
