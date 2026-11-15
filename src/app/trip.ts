@@ -18,12 +18,12 @@ export interface TripLine {
 export interface Proposal { id: string; ops: Op[]; dropped: number; source: 'claude' | 'fallback' }
 export interface Trip {
   note: string; step: Step; mode: 'claude' | 'fallback'; lines: TripLine[]; unmatched: { term: string; hint: string }[];
-  messages: string[]; proposal: Proposal | null; updatedAt: string;
+  messages: string[]; proposal: Proposal | null; updatedAt: string; reportText?: string | null;
 }
 export interface Correction { term: string; proposedProductId: string | null; chosenProductId: string | null; reason?: string }
 
 export function emptyTrip(now: Date): Trip {
-  return { note: '', step: 'dane', mode: 'claude', lines: [], unmatched: [], messages: [], proposal: null, updatedAt: now.toISOString() };
+  return { note: '', step: 'dane', mode: 'claude', lines: [], unmatched: [], messages: [], proposal: null, updatedAt: now.toISOString(), reportText: null };
 }
 
 export function lineKeyFor(term: string | null, productId: string): string {
@@ -227,7 +227,8 @@ function validTrip(v: unknown): v is Trip {
     && isArr(v.lines, validLine) && v.lines.length <= 200 && new Set(v.lines.map((l) => l.lineKey)).size === v.lines.length
     && isArr(v.unmatched, (u): u is { term: string; hint: string } => isRec(u) && isStr(u.term) && isStr(u.hint))
     && isArr(v.messages, isStr) && v.messages.length <= 200 && v.messages.every((m) => m.length <= 2000)
-    && validProposal(v.proposal) && isStr(v.updatedAt);
+    && validProposal(v.proposal) && isStr(v.updatedAt)
+    && (v.reportText === undefined || v.reportText === null || (isStr(v.reportText) && v.reportText.length <= 30_000));
 }
 
 export function loadTrip(file: string): Trip | null {

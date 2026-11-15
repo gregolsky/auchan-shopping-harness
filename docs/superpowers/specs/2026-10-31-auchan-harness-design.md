@@ -186,4 +186,4 @@ Each stage gets its own plan and is usable on its own.
 3. Fast cart fill.
 4. Local app.
 
-`/zakupy` stays unchanged until stage 3 replaces it.
+Stage 4 adds the local shopping page; `/zakupy` remains the chat fallback.

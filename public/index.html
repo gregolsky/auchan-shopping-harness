@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="icon" href="/icon.svg?t=__APP_TOKEN__" type="image/svg+xml">
+  <title>Zakupy · Auchan</title>
+  <link rel="stylesheet" href="/app.css?t=__APP_TOKEN__">
+  <script type="module" src="/app.js?t=__APP_TOKEN__"></script>
+</head>
+<body>
+  <header class="topbar"><div class="brand"><span class="brand-mark" aria-hidden="true">▦</span><div><strong>Zakupy</strong><small>Twój lokalny asystent</small></div></div><button id="new-trip" class="quiet">＋ Nowe zakupy</button></header>
+  <main class="shell">
+    <div class="intro"><div><p class="eyebrow">AUCHAN · PLANOWANIE</p><h1>Zakupy krok po kroku</h1><p class="subtle">Sprawdź wybór produktów przed dodaniem ich do koszyka.</p></div><span id="mode" class="mode"></span></div>
+    <nav id="steps" class="steps" aria-label="Etapy zakupów"></nav>
+    <p id="step-help" class="step-help"></p>
+    <p id="progress-line" class="sr-only"></p>
+    <div id="alert" class="alert" role="status" hidden></div>
+    <section id="content"></section>
+  </main>
+</body>
+</html>

@@ -185,7 +185,7 @@ test('approve refuses with open questions, nothing included, and while the lock 
 
 test('approve fills the fake cart and emits progress then report then done; a second approve is refused', async () => {
   const cart = fakeCart({});
-  const { svc, events, cart: c, store } = setup({ cart });
+  const { svc, make, events, cart: c, store } = setup({ cart });
   const t = await svc.note({ note: 'mleko x2\nchleb', includeUsual: false });
   for (const l of t.lines) svc.answer(l.lineKey, l.productId);
   const first = await svc.approve();
@@ -206,6 +206,7 @@ test('approve fills the fake cart and emits progress then report then done; a se
   assert.deepEqual(rep.report.substitutes, {});
   assert.equal((events.find((e) => e.type === 'done') as any).code, 0);
   assert.equal(svc.state().trip.step, 'platnosc');
+  assert.equal(make().state().trip.reportText, rep.report.text, 'the report survives a service restart');
   assert.equal(svc.state().busy, null);
   assert.ok(store.latestApprovedBasket());
 });

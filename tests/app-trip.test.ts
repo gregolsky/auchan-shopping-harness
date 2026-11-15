@@ -35,6 +35,12 @@ function draft(): Draft {
 }
 
 const base = () => tripFromDraft(emptyTrip(NOW), draft(), { 'Ser żółty': 'bez laktozy' });
+
+test('the payment report survives a trip save and reload', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'trip-report-')), 'trip.json');
+  saveTrip(file, { ...base(), step: 'platnosc', reportText: 'Sprawdź przed zapłatą:\n  - Mąka 1 kg' });
+  assert.match(loadTrip(file)?.reportText ?? '', /Sprawdź przed zapłatą/);
+});
 const CHEESE = 't:ser zolty';
 
 test('tripFromDraft maps items and suggestions', () => {

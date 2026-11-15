@@ -348,9 +348,10 @@ export function createService(d: ServiceDeps) {
       const mine = !stopped && startedGeneration === generation;
       if (result !== null && result.report !== null) {
         const { report, substitutes } = result;
-        safeEmit({ type: 'report', report: { ...report, substitutes, text: result.text ?? formatReport(report, trip.unmatched.map((u) => u.term), substitutes) } });
+        const text = result.text ?? formatReport(report, trip.unmatched.map((u) => u.term), substitutes);
+        safeEmit({ type: 'report', report: { ...report, substitutes, text } });
         busy = null;
-        if (mine) commit({ ...trip, step: 'platnosc' });
+        if (mine) commit({ ...trip, step: 'platnosc', reportText: text });
       } else {
         busy = null;
         if (mine) commit({ ...trip, step: 'zatwierdzenie', messages: [...trip.messages, `Wypełnianie nie powiodło się: ${problems.join(' ') || 'nieznany błąd'}`] });

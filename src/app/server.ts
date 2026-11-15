@@ -9,6 +9,7 @@ import { liveDeps as fillDeps } from '../fill-cli.ts';
 import { realSpawn } from './claude.ts';
 import { createService } from './service.ts';
 import type { AppEvent } from './service.ts';
+import { BLOCKED_PRODUCTS } from '../blacklist.ts';
 
 const MAX_BODY = 64 * 1024;
 const PING_MS = 25_000;
@@ -22,6 +23,7 @@ const STATIC: Record<string, { file: string; type: string }> = {
   '/': { file: 'index.html', type: 'text/html; charset=utf-8' },
   '/app.js': { file: 'app.js', type: 'text/javascript; charset=utf-8' },
   '/app.css': { file: 'app.css', type: 'text/css; charset=utf-8' },
+  '/icon.svg': { file: 'icon.svg', type: 'image/svg+xml' },
 };
 
 export type AppService = ReturnType<typeof createService>;
@@ -77,6 +79,7 @@ const post = (run: Route['run']): Route => ({ run });
 const ROUTES: Record<string, Route> = {
   '/api/state': { get: true, run: (s) => s.state() },
   '/api/rules': { get: true, run: (s) => s.rules() },
+  '/api/blocked': { get: true, run: () => BLOCKED_PRODUCTS },
   '/api/sync': post((s) => s.sync()),
   '/api/note': post((s, b) => {
     const note = str(b.note, 10_000, 0);
@@ -192,8 +195,9 @@ export function createAppServer(o: { service: AppService; token: string; publicD
       } catch {
         return json(404, { error: 'Nie znaleziono' });
       }
-      res.writeHead(200, { 'Content-Type': stat.type, 'Content-Length': data.length });
-      return void res.end(data);
+      const content = url.pathname === '/' ? Buffer.from(data.toString('utf8').replaceAll('__APP_TOKEN__', o.token)) : data;
+      res.writeHead(200, { 'Content-Type': stat.type, 'Content-Length': content.length });
+      return void res.end(content);
     }
     if (!route) return json(404, { error: 'Nie znaleziono' });
     if ((req.method === 'GET') !== (route.get === true)) return json(405, { error: 'Niedozwolona metoda' });
@@ -246,6 +250,7 @@ export async function main(): Promise<void> {
   });
   console.log(`Zakupy: http://127.0.0.1:${(server.address() as AddressInfo).port}/?t=${token}`);
   const stop = () => {
+    service.shutdown();
     server.close(() => process.exit(0));
     server.closeAllConnections();
   };

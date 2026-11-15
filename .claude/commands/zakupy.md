@@ -4,6 +4,8 @@ description: Plan an Auchan basket from a pasted shopping note, then fill the ca
 
 # Zakupy
 
+The local `npm run app` page is the main shopping flow; use this chat wizard as the fallback.
+
 Follow the `auchan-plan` skill (`.claude/skills/auchan-plan/SKILL.md`) for the note below: draft the basket, take the user's changes, and after one approval save it with `approve_basket` and run `npm run fill`.
 
 - It runs as a six-step chat wizard: Dane, Szkic, Doprecyzowanie, Zatwierdzenie, Koszyk, Płatność. The chat wizard is the fallback once the local app exists.

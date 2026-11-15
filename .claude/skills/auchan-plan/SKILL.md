@@ -5,6 +5,8 @@ description: Plan a grocery basket from a free-text shopping note as a six-step 
 
 # Plan a basket
 
+The local `npm run app` page is the main shopping flow; this chat wizard is the fallback.
+
 Planning uses only the `auchan-data` MCP tools. They read and write the local database and never contact Auchan. Never call browser tools. The cart is filled only by `npm run fill`, after the user approves.
 
 Every reply during shopping starts with one progress line, ✓ for a finished step and • for the current one, for example:

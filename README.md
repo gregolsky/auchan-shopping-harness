@@ -3,11 +3,19 @@
 Local Claude Code commands for household automation, scoped to this working directory.
 Invoke any skill by typing `/<name>` inside a Claude Code session started from this directory.
 
+## Shopping app
+
+Run `npm run app` and open the printed `http://127.0.0.1` URL, including its access token. The local page guides you through **Dane → Szkic → Doprecyzowanie → Zatwierdzenie → Koszyk → Płatność**. Paste a list, review matches and suggestions, answer uncertain choices, then approve once to add products to the Auchan cart. You check the final report and pay on Auchan; this app never places an order or pays.
+
+Claude helps interpret the list and propose changes. It runs without tools or access to the logged-in browser. If Claude is unavailable, the app still builds a draft and asks about uncertain matches. Use `/zakupy` as the chat fallback. `npm run fill` remains available for a basket approved through the planner.
+
+The product blacklist currently blocks **Mąka Szymanowska pszenna typ 480 Polskie Młyny 1 kg** (`00104664`): it is excluded from plans and suggestions, rejected during approval, and never sent to the cart by an older basket. The blocked list is visible under **Moje reguły**; its entries are maintained in `src/blacklist.ts`.
+
 ## Skills
 
 | Command | Description |
 |---------|-------------|
-| `/zakupy` | Auchan grocery shopping assistant — searches products, picks the cheapest match, adds to cart, and stops before checkout |
+| `/zakupy` | Chat fallback for planning a basket and filling the Auchan cart; stops before checkout |
 
 ## Auchan data layer
 
