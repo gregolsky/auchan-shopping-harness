@@ -5,6 +5,7 @@ import { createHttpWorker, type CartAccess } from './http-worker.ts';
 import { describeFailure, ensureStateDir, liveDeps as syncDeps, withLogin } from './cli.ts';
 import { fillCart } from './fill.ts';
 import { cleanText } from './parse.ts';
+import { zl } from './money.ts';
 import { buildDraft } from './draft.ts';
 import { parseCart, type FillReport, type PriceNote } from './cart.ts';
 import { acquireLock, releaseLock } from './lock.ts';
@@ -30,7 +31,7 @@ const liveDeps: FillDeps = {
   },
 };
 
-export const zl = (grosze: number): string => `${(grosze / 100).toFixed(2).replace('.', ',')} zł`.replace(/\B(?=(\d{3})+(?=,))/g, ' ');
+export { zl };
 const qty = (n: number): string => String(Math.round(n * 1000) / 1000).replace('.', ',');
 
 function note(n: PriceNote): string {
