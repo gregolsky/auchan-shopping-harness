@@ -25,7 +25,9 @@ export interface DraftLine {
   confidence: Confidence;
   /** Why a medium or low line is doubtful; "" for high. */
   confidenceReason: string;
-  alternatives: { productId: string; name: string; lineCostGrosze: number; confidence: Confidence }[];
+  imageUrl?: string | null;
+  imageAlt?: string | null;
+  alternatives: { productId: string; name: string; lineCostGrosze: number; confidence: Confidence; imageUrl?: string | null; imageAlt?: string | null }[];
 }
 
 export interface Draft {
@@ -71,6 +73,7 @@ function line(f: Buyable, p: { term: string | null; quantity: number; reason: st
     term: p.term, productId: f.productId, name: f.name, quantity: p.quantity, lineCostGrosze: costAt(f, p.quantity),
     reason: p.reason, guess: p.guess ?? false, capped: p.capped ?? false, lastBought: lastBoughtText(f, now),
     confidence: p.confidence ?? 'high', confidenceReason: p.confidenceReason ?? '', alternatives: p.alternatives ?? [],
+    imageUrl: f.imageUrl, imageAlt: f.imageAlt,
   };
 }
 
@@ -111,7 +114,7 @@ export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: Inte
     const cap = capQuantity(top, quantity);
     let reason = basisReason(top, term) + savingNote(top);
     if (cap.capped) reason += `; capped at ${cap.quantity} because it is perishable`;
-    const alternatives = ranked.slice(1, 4).filter(buyable).sort((a, b) => CONF_RANK[a.confidence] - CONF_RANK[b.confidence]).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, capped(c)), confidence: c.confidence }));
+    const alternatives = ranked.slice(1, 4).filter(buyable).sort((a, b) => CONF_RANK[a.confidence] - CONF_RANK[b.confidence]).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, capped(c)), confidence: c.confidence, imageUrl: c.imageUrl, imageAlt: c.imageAlt }));
     used.add(top.productId);
     items.push(line(top, { term, quantity: cap.quantity, reason, guess: top.guess, capped: cap.capped, alternatives, confidence: top.confidence, confidenceReason: top.confidenceReason }, now));
   }

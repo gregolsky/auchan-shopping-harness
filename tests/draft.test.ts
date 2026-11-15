@@ -285,3 +285,15 @@ test('alternatives list confident matches before doubtful ones', () => {
   const d = buildDraft(input([{ term: 'kawa', quantity: 1 }]), facts, [{ term: 'kawa', brand: null, preferredProductId: null, acceptedProductIds: ['ok'], learnedProductIds: [], replacedProductIds: [] }], now);
   assert.deepEqual(d.items[0].alternatives.map((a) => a.productId), ['ok', 'mix', 'flavour']);
 });
+
+test('draft lines and alternatives carry the product image', () => {
+  const img = (id: string) => ({ imageUrl: `https://zakupy.auchan.pl/images-v3/00000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-00000000000${id}/300x300.jpg`, imageAlt: `alt ${id}` });
+  const facts = [fact('a', { name: 'Kawa a', timesBought: 5, ...img('1') }), fact('b', { name: 'Kawa b', timesBought: 3, ...img('2') }), fact('c', { name: 'Kawa c', timesBought: 1 })];
+  const d = buildDraft(input([{ term: 'kawa', quantity: 1 }]), facts, [], now);
+  assert.equal(d.items[0].imageUrl, img('1').imageUrl);
+  assert.equal(d.items[0].imageAlt, 'alt 1');
+  const alt = (id: string) => d.items[0].alternatives.find((a) => a.productId === id)!;
+  assert.equal(alt('b').imageUrl, img('2').imageUrl);
+  assert.equal(alt('c').imageUrl, null);
+  assert.equal(alt('c').imageAlt, null);
+});

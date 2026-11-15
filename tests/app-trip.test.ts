@@ -14,7 +14,7 @@ const NOW = new Date('2026-11-15T10:00:00Z');
 function dl(over: Partial<DraftLine>): DraftLine {
   return {
     term: null, productId: 'P', name: 'Produkt', quantity: 1, lineCostGrosze: 100, reason: 'r', guess: false,
-    capped: false, lastBought: null, confidence: 'high', confidenceReason: '', alternatives: [], ...over,
+    capped: false, lastBought: null, confidence: 'high', confidenceReason: '', alternatives: [], imageUrl: null, imageAlt: null, ...over,
   };
 }
 
@@ -307,4 +307,58 @@ test('a held-back line stays out of approval and does not count in the total', (
   d.items[0] = dl({ term: 'kurczak', productId: 'K', name: 'Pasztet', confidence: 'low' });
   const t = tripFromDraft(emptyTrip(NOW), d, {});
   assert.equal(approvedLines(t).some((l) => l.productId === 'K'), false);
+});
+
+const IMG = 'https://zakupy.auchan.pl/images-v3/00000000-0000-4000-8000-000000000001/10000000-0000-4000-8000-000000000001/300x300.jpg';
+
+test('images travel from the draft line and its alternatives to the trip line and candidates', () => {
+  const d = draft();
+  d.items[0] = { ...d.items[0], imageUrl: IMG, imageAlt: 'Ser A',
+    alternatives: [{ productId: 'B', name: 'Ser B', lineCostGrosze: 800, confidence: 'low', imageUrl: IMG.replace('0001/300', '0002/300'), imageAlt: null }] };
+  const t = tripFromDraft(emptyTrip(NOW), d, {});
+  const line = t.lines.find((l) => l.productId === 'A')!;
+  assert.equal(line.imageUrl, IMG);
+  assert.equal(line.imageAlt, 'Ser A');
+  assert.equal(line.candidates[0].imageUrl, IMG);
+  assert.match(line.candidates[1].imageUrl!, /0002\/300x300/);
+  assert.equal(line.candidates[1].imageAlt, null);
+  const file = join(mkdtempSync(join(tmpdir(), 'trip-')), 'trip.json');
+  saveTrip(file, t);
+  assert.deepEqual(loadTrip(file), t);
+});
+
+test('a choice moves the picked candidate image onto the line', () => {
+  const d = draft();
+  d.items[0] = { ...d.items[0], imageUrl: IMG, imageAlt: 'Ser A',
+    alternatives: [{ productId: 'B', name: 'Ser B', lineCostGrosze: 800, confidence: 'low', imageUrl: IMG.replace('0001/300', '0002/300'), imageAlt: 'Ser B alt' }] };
+  const t = tripFromDraft(emptyTrip(NOW), d, {});
+  const { trip } = applyOps(t, [{ op: 'choose', lineKey: CHEESE, productId: 'B' }]);
+  assert.match(trip.lines.find((l) => l.lineKey === CHEESE)!.imageUrl!, /0002\/300x300/);
+  assert.equal(trip.lines.find((l) => l.lineKey === CHEESE)!.imageAlt, 'Ser B alt');
+});
+
+test('loadTrip treats an invalid image as none instead of rejecting the trip', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'trip-')), 'trip.json');
+  const t = JSON.parse(JSON.stringify(base()));
+  t.lines[0].imageUrl = 'javascript:alert(1)';
+  t.lines[0].imageAlt = 'x'.repeat(301);
+  t.lines[0].candidates[0].imageUrl = 'https://evil.example/a.jpg';
+  t.lines[1].imageUrl = IMG;
+  t.lines[1].imageAlt = 42;
+  writeFileSync(file, JSON.stringify(t));
+  const loaded = loadTrip(file)!;
+  assert.ok(loaded);
+  assert.equal(loaded.lines[0].imageUrl, null);
+  assert.equal(loaded.lines[0].imageAlt, null);
+  assert.equal(loaded.lines[0].candidates[0].imageUrl, null);
+  assert.equal(loaded.lines[1].imageUrl, IMG);
+  assert.equal(loaded.lines[1].imageAlt, null);
+});
+
+test('a trip saved before images existed still loads', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'trip-')), 'trip.json');
+  const t = JSON.parse(JSON.stringify(base()));
+  for (const l of t.lines) { delete l.imageUrl; delete l.imageAlt; for (const c of l.candidates) { delete c.imageUrl; delete c.imageAlt; } }
+  writeFileSync(file, JSON.stringify(t));
+  assert.equal(loadTrip(file)!.lines[0].imageUrl ?? null, null);
 });

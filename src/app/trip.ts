@@ -2,13 +2,14 @@ import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } 
 import { dirname } from 'node:path';
 import type { Confidence } from '../candidates.ts';
 import type { Draft, DraftLine } from '../draft.ts';
+import { validImageUrl } from '../parse.ts';
 import { normaliseTerm } from '../store.ts';
 import { validateOps } from './ops.ts';
 import type { LineView, Op } from './ops.ts';
 
 export type Step = 'dane' | 'szkic' | 'doprecyzowanie' | 'zatwierdzenie' | 'koszyk' | 'platnosc';
 /** baseCostGrosze is the cost at baseQuantity; lineCostGrosze is derived from it so quantity changes never drift. */
-export interface TripCandidate { productId: string; name: string; lineCostGrosze: number; confidence: Confidence; baseCostGrosze?: number; baseQuantity?: number }
+export interface TripCandidate { productId: string; name: string; lineCostGrosze: number; confidence: Confidence; baseCostGrosze?: number; baseQuantity?: number; imageUrl?: string | null; imageAlt?: string | null }
 export interface TripLine {
   lineKey: string; term: string | null; note: string; productId: string; name: string; quantity: number;
   lineCostGrosze: number; reason: string; confidence: Confidence; confidenceReason: string;
@@ -16,6 +17,7 @@ export interface TripLine {
   included: boolean; kind: 'item' | 'suggestion';
   /** A low match kept out of the basket until the user picks a product or skips it; it still blocks approval. */
   held?: boolean;
+  imageUrl?: string | null; imageAlt?: string | null;
 }
 export interface Proposal { id: string; ops: Op[]; dropped: number; source: 'claude' | 'fallback' }
 export interface Trip {
@@ -37,7 +39,7 @@ export function lineKeyFor(term: string | null, productId: string): string {
 }
 
 function tripLine(d: DraftLine, kind: TripLine['kind'], notes: Record<string, string>): TripLine {
-  const cand = (c: { productId: string; name: string; lineCostGrosze: number; confidence: Confidence }): TripCandidate =>
+  const cand = (c: { productId: string; name: string; lineCostGrosze: number; confidence: Confidence; imageUrl?: string | null; imageAlt?: string | null }): TripCandidate =>
     ({ ...c, baseCostGrosze: c.lineCostGrosze, baseQuantity: d.quantity });
   const own = cand(d);
   const others = d.alternatives.filter((a) => a.productId !== d.productId).map(cand);
@@ -46,7 +48,7 @@ function tripLine(d: DraftLine, kind: TripLine['kind'], notes: Record<string, st
     note: d.term === null ? '' : (notes[d.term] ?? notes[normaliseTerm(d.term)] ?? ''),
     productId: d.productId, name: d.name, quantity: d.quantity, lineCostGrosze: d.lineCostGrosze, reason: d.reason,
     confidence: d.confidence, confidenceReason: d.confidenceReason, candidates: [own, ...others],
-    proposedProductId: d.productId, question: null, included: kind === 'item', kind,
+    proposedProductId: d.productId, question: null, included: kind === 'item', kind, imageUrl: d.imageUrl ?? null, imageAlt: d.imageAlt ?? null,
   };
   // The planner can suggest more than the app allows; the line is cut to the limit and says so.
   if (d.quantity > MAX_QUANTITY) return { ...withQuantity(line, MAX_QUANTITY), reason: `${d.reason}; ilość ograniczona do ${MAX_QUANTITY}` };
@@ -104,7 +106,7 @@ function withQuantity(l: TripLine, quantity: number): TripLine {
 function withProduct(l: TripLine, productId: string): TripLine {
   const c = l.candidates.find((x) => x.productId === productId);
   if (!c) return l;
-  return { ...l, productId, name: c.name, lineCostGrosze: c.lineCostGrosze, confidence: 'high', confidenceReason: '', question: null, included: l.held ? true : l.included, held: false };
+  return { ...l, productId, name: c.name, imageUrl: c.imageUrl ?? null, imageAlt: c.imageAlt ?? null, lineCostGrosze: c.lineCostGrosze, confidence: 'high', confidenceReason: '', question: null, included: l.held ? true : l.included, held: false };
 }
 
 function pick(l: TripLine, productId: string): TripLine | null {
@@ -257,11 +259,19 @@ function validTrip(v: unknown): v is Trip {
     && (v.reportText === undefined || v.reportText === null || (isStr(v.reportText) && v.reportText.length <= MAX_REPORT));
 }
 
+/** An image that is not an Auchan image URL (or has an odd description) is dropped; the trip stays usable. */
+function cleanImages<T extends { imageUrl?: string | null; imageAlt?: string | null }>(x: T): T {
+  if (x.imageUrl === undefined && x.imageAlt === undefined) return x;
+  const imageUrl = validImageUrl(x.imageUrl);
+  return { ...x, imageUrl, imageAlt: imageUrl !== null && isStr(x.imageAlt) && x.imageAlt.length <= 300 ? x.imageAlt : null };
+}
+
 export function loadTrip(file: string): Trip | null {
   try {
     if (statSync(file).size > MAX_BYTES) return null;
     const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
     if (!validTrip(parsed)) return null;
+    parsed.lines = parsed.lines.map((l) => ({ ...cleanImages(l), candidates: l.candidates.map(cleanImages) }));
     if (parsed.proposal !== null) {
       const { ops } = validateOps({ ops: parsed.proposal.ops }, lineViews(parsed));
       parsed.proposal = { ...parsed.proposal, ops };
