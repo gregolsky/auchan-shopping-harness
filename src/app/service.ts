@@ -525,13 +525,14 @@ export function createService(d: ServiceDeps) {
     let results: SearchResult[] = [];
     let failed = false;
     let failedReason: string | undefined;
+    let stoppedReason: string | undefined;
     const search = createBrowserSearch({
       ...d.searchTuning,
       openPage: d.openSearchPage,
       onStatus: (s) => {
         if (s.kind === 'login') announce({ type: 'search', status: 'login' });
         else if (s.kind === 'captcha') announce({ type: 'search', status: 'captcha', term: cleanText(s.term) });
-        else if (s.kind === 'stopped') safeEmit({ type: 'log', text: s.reason });
+        else if (s.kind === 'stopped') { stoppedReason ??= cleanText(s.reason); safeEmit({ type: 'log', text: s.reason }); }
         else announce({ type: 'search', status: 'searching', term: cleanText(s.term), index: s.index, total: s.total });
       },
     });
@@ -585,7 +586,8 @@ export function createService(d: ServiceDeps) {
           }
         }
       }
-      const line = failedReason !== undefined ? failedReason : failed
+      failedReason ??= stoppedReason;
+      const line = failedReason !== undefined ? `${failedReason} Znaleziono produkty dla ${found.length} z ${terms.length} haseł.` : failed
         ? `${SEARCH_STOPPED} Znaleziono produkty dla ${found.length} z ${terms.length} haseł.`
         : `Szukanie w Auchan: znaleziono produkty dla ${found.length} z ${terms.length} haseł.`;
       commit(settle({ ...next, messages: [...next.messages, line] }));

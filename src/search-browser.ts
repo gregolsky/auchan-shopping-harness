@@ -50,6 +50,7 @@ function hasCaptchaMarker(): boolean {
   return !!doc?.querySelector('iframe[src*="captcha" i], [id*="captcha" i], [class*="captcha" i], #challenge-container, [id*="awswafcaptcha" i]');
 }
 
+export const WINDOW_CLOSED = 'Okno przeglądarki zostało zamknięte.';
 const WRONG_PAGE = 'Okno przeglądarki pokazuje inną stronę — przerwano wyszukiwanie.';
 
 /** Whether the window shows the search page for exactly this term; anything else (the user navigated, a redirect) is not read. */
@@ -89,6 +90,7 @@ export function createBrowserSearch(o: BrowserSearchOptions): { search(terms: st
       const res = await p.goto(url);
       return res ? res.status() : 0;
     } catch {
+      windowClosed(p);
       return null; // window closed or navigation failed: no retry
     }
   };
@@ -114,16 +116,33 @@ export function createBrowserSearch(o: BrowserSearchOptions): { search(terms: st
     } catch {
       // keep going: the state poll below decides
     }
-    await waitUntil(ready, stateWaitMs);
+    await waitUntil(p, ready, stateWaitMs);
   };
 
-  const waitUntil = async (cond: () => Promise<boolean>, limitMs: number): Promise<boolean> => {
+  /** True once the user has closed the window; reported once. A page that cannot tell is treated as open. */
+  let closedReported = false;
+  const windowClosed = (p: PageLike): boolean => {
+    let closed = false;
+    try {
+      closed = p.isClosed?.() === true;
+    } catch {
+      closed = true;
+    }
+    if (closed && !closedReported) {
+      closedReported = true;
+      o.onStatus({ kind: 'stopped', reason: WINDOW_CLOSED });
+    }
+    return closed;
+  };
+
+  /** Polls until cond holds; gives up at the deadline, or at once when the user closes the window. */
+  const waitUntil = async (p: PageLike, cond: () => Promise<boolean>, limitMs: number): Promise<boolean> => {
     const deadline = now() + limitMs;
-    while (!(await cond())) {
-      if (now() >= deadline) return false;
+    while (!windowClosed(p) && !(await cond())) {
+      if (windowClosed(p) || now() >= deadline) return false;
       await sleep(pollMs);
     }
-    return true;
+    return !windowClosed(p);
   };
 
   const loggedIn = async (p: PageLike): Promise<boolean> => {
@@ -173,12 +192,13 @@ export function createBrowserSearch(o: BrowserSearchOptions): { search(terms: st
       if (await refused(home)) return stopRest();
       if (await isCaptcha(p)) {
         o.onStatus({ kind: 'captcha', term: terms[0] });
-        if (!(await waitUntil(async () => !(await isCaptcha(p)), captchaWaitMs))) return stopRest();
+        if (!(await waitUntil(p, async () => !(await isCaptcha(p)), captchaWaitMs))) return stopRest();
         await settleAfterCaptcha(p, async () => (await readState(p)) != null);
+        if (windowClosed(p)) return stopRest();
       }
       if (!(await loggedIn(p))) {
         o.onStatus({ kind: 'login' });
-        if (!(await waitUntil(() => loggedIn(p), loginWaitMs))) return stopRest();
+        if (!(await waitUntil(p, () => loggedIn(p), loginWaitMs))) return stopRest();
       }
 
       for (let i = 0; i < terms.length; i++) {
@@ -189,8 +209,9 @@ export function createBrowserSearch(o: BrowserSearchOptions): { search(terms: st
         if (await refused(status)) return stopRest();
         if (await isCaptcha(p)) {
           o.onStatus({ kind: 'captcha', term });
-          if (!(await waitUntil(async () => !(await isCaptcha(p)), captchaWaitMs))) return stopRest();
+          if (!(await waitUntil(p, async () => !(await isCaptcha(p)), captchaWaitMs))) return stopRest();
           await settleAfterCaptcha(p, async () => entityCount(await readState(p)) !== null);
+          if (windowClosed(p)) return stopRest();
         }
         if (!onSearchPage(p, term)) {
           o.onStatus({ kind: 'stopped', reason: WRONG_PAGE });

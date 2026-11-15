@@ -228,3 +228,34 @@ test('the term is compared as decoded text: spaces and Polish letters match', as
   const r = await run({ show: () => ({ status: 200, title: 't', state: stateOf(1) }) }, ['mleko 2% łaciate']);
   assert.equal(r.results[0].status, 'found');
 });
+
+const WINDOW_CLOSED = 'Okno przeglądarki zostało zamknięte.';
+async function runClosing(script: Script, closeAt: number, terms: string[]) {
+  const clock = new Clock();
+  const fp = fakePage(script, clock);
+  const page: PageLike = { ...fp.page, isClosed: () => clock.t >= closeAt };
+  const statuses: SearchStatus[] = [];
+  const s = createBrowserSearch({ openPage: async () => page, onStatus: (x) => statuses.push(x), sleep: clock.sleep, now: clock.now, pollMs: 100 });
+  const results = await s.search(terms);
+  return { results, statuses, clock, fp };
+}
+
+test('closing the window during a captcha wait stops at once, saying so', async () => {
+  const r = await runClosing({ show: () => ({ status: 405, title: CAPTCHA, state: undefined }) }, 5300, ['a', 'b']);
+  assert.deepEqual(r.results.map((x) => x.status), ['stopped', 'stopped']);
+  assert.deepEqual(r.statuses.filter((x) => x.kind === 'stopped'), [{ kind: 'stopped', reason: WINDOW_CLOSED }]);
+  assert.ok(r.clock.t < 5700, `stopped at once, not after the 5 minute wait (${r.clock.t})`);
+});
+
+test('closing the window during the login wait stops at once, saying so', async () => {
+  const r = await runClosing({ loggedIn: () => false, show: () => assert.fail('must not search') }, 600, ['a']);
+  assert.deepEqual(r.results.map((x) => x.status), ['stopped']);
+  assert.deepEqual(r.statuses.filter((x) => x.kind === 'stopped'), [{ kind: 'stopped', reason: WINDOW_CLOSED }]);
+  assert.ok(r.clock.t < 1000, `(${r.clock.t})`);
+});
+
+test('a window closed during a captcha on the home page stops before the login prompt', async () => {
+  const r = await runClosing({ home: () => ({ status: 405, title: CAPTCHA, state: undefined }), show: () => assert.fail('must not search') }, 500, ['a']);
+  assert.ok(!r.statuses.some((x) => x.kind === 'login'));
+  assert.deepEqual(r.statuses.filter((x) => x.kind === 'stopped'), [{ kind: 'stopped', reason: WINDOW_CLOSED }]);
+});

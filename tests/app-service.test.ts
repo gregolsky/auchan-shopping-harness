@@ -765,7 +765,7 @@ test('a 403 stops the search at once, with no retry, and says so', async () => {
   assert.equal(log.filter((u) => u.includes('/search')).length, 0);
   assert.equal(t.svc.state().busy, null);
   assert.deepEqual(t.svc.state().trip.unmatched.map((u) => u.term), ['parówki', 'kawior']);
-  assert.match(t.svc.state().trip.messages.at(-1)!, /zatrzymano/i);
+  assert.match(t.svc.state().trip.messages.at(-1)!, /403.*bez ponawiania/);
 });
 
 test('terms searched in the last 7 days are skipped unless forced', async () => {
@@ -907,4 +907,18 @@ test('a busy browser profile ends the search with the Polish explanation and fre
   assert.equal(t.svc.state().busy, null);
   assert.equal(existsSync(t.lockFile), false);
   assert.match(t.svc.state().trip.messages.at(-1)!, /Zamknij inne okno przeglądarki/);
+});
+
+test('closing the browser window mid-search stops at once with a clear message and frees the lock', async () => {
+  const page = fakeSearchPage();
+  let closed = false;
+  const gone: PageLike = { ...page, isClosed: () => closed, async goto(u) { closed = true; return page.goto(u); }, async title() { return "Let's confirm you are human"; } };
+  const t = await draftWithUnmatched({ page: () => gone });
+  await t.svc.searchAuchan();
+  await searchEnd(t.events);
+  const last = searchEvents(t.events).at(-1)!;
+  assert.equal(last.status, 'stopped');
+  assert.equal(last.reason, 'Okno przeglądarki zostało zamknięte.');
+  assert.equal(existsSync(t.lockFile), false);
+  assert.match(t.svc.state().trip.messages.at(-1)!, /Okno przeglądarki zostało zamknięte/);
 });
