@@ -339,3 +339,11 @@ test('saveCookies replaces a symlink at the session path instead of following it
   assert.deepEqual(readdirSync(dir).sort(), ['session.json', 'victim.txt']); // no temp file left
   rmSync(dir, { recursive: true });
 });
+
+test('the HTTP worker refuses the search page without sending a request', async () => {
+  const { worker, calls, cleanup } = setup(() => new Response('{}'));
+  await assert.rejects(() => worker.getJson('/search?q=mleko'));
+  await assert.rejects(() => worker.pageState('/search?q=mleko'));
+  assert.equal(calls.length, 0);
+  cleanup();
+});

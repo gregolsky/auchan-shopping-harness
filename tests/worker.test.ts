@@ -164,6 +164,12 @@ test('createLoginWatcher.waitForLogin does not look inside other sites and survi
   assert.equal(looks, 2);
 });
 
+test('the search page is not on the HTTP allowlist: it happens only in the visible browser', () => {
+  for (const p of ['/search', '/search?q=mleko', '/search?q=%C5%BCurek', '/search/', '/api/search', '/api/catalog/v1/search?q=mleko']) {
+    assert.throws(() => assertAllowed(p), p);
+  }
+});
+
 test('no checkout or order path is allowed', () => {
   assertAllowed('/api/cart/v1/carts/active');
   for (const p of ['/checkout', '/checkout/summary', '/api/checkout/v1/orders', '/api/order/v6/orders', '/api/cart/v1/carts/active/apply-quantity', '/api/cart/v1/carts/active/items', '/api/cart/v1/carts/active/checkout-start']) {
