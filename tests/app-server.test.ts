@@ -146,7 +146,7 @@ test('every response carries the security headers', async () => {
       await fetch(s.base + `/?t=${TOKEN}`), await api(s.base, '/api/sync', { x: 1 }, { origin: 'http://evil.example' }),
     ];
     for (const r of rs) {
-      assert.equal(r.headers.get('content-security-policy'), "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'");
+      assert.equal(r.headers.get('content-security-policy'), "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' https://zakupy.auchan.pl; frame-ancestors 'none'");
       assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
       assert.equal(r.headers.get('referrer-policy'), 'no-referrer');
       assert.equal(r.headers.get('cache-control'), 'no-store');
