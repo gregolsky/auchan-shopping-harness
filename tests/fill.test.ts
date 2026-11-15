@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fillCart } from '../src/fill.ts';
 import { ShapeError } from '../src/parse.ts';
+import { Rejected } from '../src/http-worker.ts';
+import { Blocked } from '../src/worker.ts';
 import type { BasketLine } from '../src/types.ts';
 import { fakeCart } from './helpers/fake-cart.ts';
 
@@ -32,16 +34,28 @@ test('a rerun after a lost response adds nothing twice', async () => {
   assert.deepEqual(cart.quantities, { '00000000-0000-4000-8000-000000000001': 2, '00000000-0000-4000-8000-000000000002': 1 });
 });
 
-test('a rejected batch is retried line by line after a fresh read', async () => {
+test('a rejected batch is retried line by line, and a rejected single line stops the fill', async () => {
   const cart = fakeCart({}, { reject: ['00000000-0000-4000-8000-000000000002'] });
-  const progress: number[][] = [];
-  const r = await fillCart(cart, [bl('00000000-0000-4000-8000-000000000001', 1), bl('00000000-0000-4000-8000-000000000002', 1), bl('00000000-0000-4000-8000-000000000003', 1)], { onProgress: (s, t) => progress.push([s, t]) });
-  assert.deepEqual(progress.at(-1), [3, 3]);
-  assert.deepEqual(cart.quantities, { '00000000-0000-4000-8000-000000000001': 1, '00000000-0000-4000-8000-000000000003': 1 });
-  assert.deepEqual(r.missing.map((m) => m.productId), ['00000000-0000-4000-8000-000000000002']);
-  assert.deepEqual(cart.applyCalls.map((c) => c.map((x) => x.productId)), [['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003'], ['00000000-0000-4000-8000-000000000001'], ['00000000-0000-4000-8000-000000000002'], ['00000000-0000-4000-8000-000000000003']]);
-  assert.equal(cart.readCalls, 3); // initial, after the rejection, final
-  assert.equal(r.sent, 2);
+  await assert.rejects(
+    fillCart(cart, [bl('00000000-0000-4000-8000-000000000001', 1), bl('00000000-0000-4000-8000-000000000002', 1), bl('00000000-0000-4000-8000-000000000003', 1)]),
+    (e: Error) => e instanceof Blocked && e.message === 'Auchan refused several cart changes; stopping',
+  );
+  assert.deepEqual(cart.applyCalls.map((c) => c.map((x) => x.productId)), [['00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003'], ['00000000-0000-4000-8000-000000000001'], ['00000000-0000-4000-8000-000000000002']]);
+});
+
+test('three rejections in total stop the fill even when the single lines pass', async () => {
+  const cart = fakeCart({});
+  const inner = cart.applyQuantities;
+  cart.applyQuantities = async (c) => {
+    if (c.length > 1) {
+      cart.applyCalls.push(c);
+      throw new Rejected(400);
+    }
+    return inner(c);
+  };
+  const basket = Array.from({ length: 50 }, (_, i) => bl(uid(i), 1));
+  await assert.rejects(fillCart(cart, basket), (e: Error) => e instanceof Blocked && /refused several/.test(e.message));
+  assert.equal(cart.applyCalls.filter((c) => c.length > 1).length, 3);
 });
 
 test('a shape change stops before any POST', async () => {
@@ -71,15 +85,11 @@ test('an out-of-stock product is reported, not retried', async () => {
   assert.equal(r.sent, 1);
 });
 
-test('the 11th line rejected is skipped and the other 10 are added', async () => {
+test('the 11th line rejected alone stops the fill, the first 10 stay in the cart', async () => {
   const cart = fakeCart({}, { reject: ['00000000-0000-4000-8000-00000000000a'] });
   const basket = Array.from({ length: 11 }, (_, i) => bl(uid(i), 1));
-  const progress: number[][] = [];
-  const r = await fillCart(cart, basket, { onProgress: (s, t) => progress.push([s, t]) });
+  await assert.rejects(fillCart(cart, basket), Blocked);
   assert.equal(Object.keys(cart.quantities).length, 10);
-  assert.deepEqual(r.missing.map((m) => m.productId), ['00000000-0000-4000-8000-00000000000a']);
-  assert.equal(r.sent, 10);
-  assert.deepEqual(progress.at(-1), [11, 11]);
 });
 
 test('a partial add ends in missing, not outOfStock, and is not retried', async () => {

@@ -189,7 +189,14 @@ export function createHttpWorker(o: HttpOptions): Worker & CartAccess {
         }
       }
       csrf = undefined; // a stale token must not survive a page that has none (an expired session)
-      const state = await loadState('/orders'); // a fresh token for every batch
+      let state: any;
+      try {
+        state = await loadState('/orders'); // a fresh token for every batch
+      } catch (e) {
+        // A refusal of the page itself is not a bad change: stop, do not rerun.
+        if (e instanceof Rejected) throw new Blocked(`blocked by site (HTTP ${e.status}); stopping, not retrying`);
+        throw e;
+      }
       if (state?.session?.isLoggedIn === false) throw new LoginRequired();
       if (!csrf) throw new LoginRequired('no CSRF token in page state: session not logged in');
       const meta = { itemListName: 'search', favorite: false, pageViewId: crypto.randomUUID(), pageType: 'search' };

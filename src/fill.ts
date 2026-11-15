@@ -1,4 +1,5 @@
 import { MAX_BATCH, MAX_QUANTITY, Rejected, UUID, type CartAccess, type CartChange, type LimitedItem } from './http-worker.ts';
+import { Blocked } from './worker.ts';
 import { compareCart, parseCart, planFill, type BasketLine, type FillReport, type LimitNote } from './cart.ts';
 
 type ParsedCart = ReturnType<typeof parseCart>;
@@ -17,6 +18,8 @@ export interface FillOptions {
 
 const sendable = (c: CartChange): boolean => UUID.test(c.productId) && Number.isInteger(c.quantity) && c.quantity >= 1 && c.quantity <= MAX_QUANTITY;
 /** Out of stock means nothing went in; a partial add or any other limit is reported as missing, with its numbers. */
+const STOP = 'Auchan refused several cart changes; stopping';
+const MAX_REJECTIONS = 3;
 const isOutOfStock = (l: LimitedItem) => l.reason === 'OUT_OF_STOCK' && l.addedAmount === 0;
 
 export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOptions = {}): Promise<FillReport & { sent: number }> {
@@ -32,6 +35,12 @@ export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOp
   const outOfStock = new Set<string>();
   const limits: Record<string, LimitNote> = {};
   let processed = 0;
+  let rejections = 0;
+  /** Counts a refusal; a single line refused, or the third refusal overall, means Auchan is saying no: stop. */
+  const refused = (single: boolean) => {
+    rejections++;
+    if (single || rejections >= MAX_REJECTIONS) throw new Blocked(STOP);
+  };
 
   const tick = (n: number) => {
     processed += n;
@@ -54,10 +63,7 @@ export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOp
       await send(chunk);
     } catch (e) {
       if (!(e instanceof Rejected)) throw e;
-      if (chunk.length === 1) {
-        tick(1); // a single rejected change is skipped
-        continue;
-      }
+      refused(chunk.length === 1);
       // Re-plan against a fresh cart so nothing the batch may have added is added twice.
       const settled = processed + chunk.length;
       const ids = new Set(chunk.map((c) => c.productId));
@@ -67,7 +73,7 @@ export async function fillCart(cart: CartAccess, basket: BasketLine[], o: FillOp
           await send([change]);
         } catch (e2) {
           if (!(e2 instanceof Rejected)) throw e2;
-          tick(1);
+          refused(true);
         }
       }
       if (processed < settled) tick(settled - processed); // products the fresh cart already had

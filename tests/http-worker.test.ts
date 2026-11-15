@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { lstatSync, readdirSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cookieHeader, createHttpWorker, MAX_BATCH, Rejected, extractLinks, extractState, retrySeconds } from '../src/http-worker.ts';
@@ -311,4 +311,31 @@ test('a malformed limitedItems is a ShapeError', async () => {
     await assert.rejects(() => worker.applyQuantities([{ productId: P1, quantity: 1 }]), ShapeError);
     cleanup();
   }
+});
+
+test('a 4xx on the /orders page load inside applyQuantities stops the run as Blocked, and posts nothing', async () => {
+  for (const status of [400, 404, 418, 499]) {
+    const { worker, calls, cleanup } = setup((url) => (url.endsWith('/orders') ? new Response('secret', { status }) : new Response('{}')));
+    await assert.rejects(
+      () => worker.applyQuantities([{ productId: P1, quantity: 1 }]),
+      (e: Error) => e instanceof Blocked && !(e instanceof Rejected) && !e.message.includes('secret'),
+    );
+    assert.equal(calls.filter((c) => c.init.method === 'POST').length, 0);
+    cleanup();
+  }
+});
+
+test('saveCookies replaces a symlink at the session path instead of following it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sess-'));
+  const victim = join(dir, 'victim.txt');
+  writeFileSync(victim, 'untouched');
+  const session = join(dir, 'session.json');
+  symlinkSync(victim, session);
+  saveCookies(session, [{ name: 'a', value: '1' }]);
+  assert.equal(readFileSync(victim, 'utf8'), 'untouched');
+  assert.equal(lstatSync(session).isSymbolicLink(), false);
+  assert.equal(statSync(session).mode & 0o777, 0o600);
+  assert.equal(cookieHeader(session), 'a=1');
+  assert.deepEqual(readdirSync(dir).sort(), ['session.json', 'victim.txt']); // no temp file left
+  rmSync(dir, { recursive: true });
 });

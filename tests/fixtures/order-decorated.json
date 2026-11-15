@@ -5,7 +5,7 @@
       "1000000001": {
         "orderId": "1000000001",
         "regionId": "00000000-0000-4000-8000-000000000010",
-        "retailerRegionId": "PL_00012_MAG",
+        "retailerRegionId": "PL_00000_TEST",
         "status": "DELIVERED",
         "orderTotals": {
           "finalPrice": {
@@ -22,9 +22,9 @@
           }
         },
         "dates": {
-          "deliveryStartDate": "2026-04-11T12:00:00+01:00",
-          "deliveryEndDate": "2026-04-11T16:00:00+01:00",
-          "deliveryLatestUpdateTime": "2026-04-11T07:40:00+01:00",
+          "deliveryStartDate": "2026-01-02T12:00:00+01:00",
+          "deliveryEndDate": "2026-01-02T16:00:00+01:00",
+          "deliveryLatestUpdateTime": "2026-01-02T07:40:00+01:00",
           "timeZoneId": "Europe/Warsaw"
         },
         "groupedProducts": {
@@ -282,7 +282,7 @@
         ],
         "timeRestricted": false,
         "favorite": {
-          "lastBought": "2026-04-10T20:41:00.000Z"
+          "lastBought": "2026-01-01T20:41:00.000Z"
         },
         "isVerifiedPurchase": false,
         "brand": "FRoSTA",
@@ -351,7 +351,7 @@
         ],
         "timeRestricted": false,
         "favorite": {
-          "lastBought": "2026-04-10T20:41:00.000Z"
+          "lastBought": "2026-01-01T20:41:00.000Z"
         },
         "isVerifiedPurchase": false,
         "brand": "Owoce  Auchan",
@@ -407,7 +407,7 @@
         ],
         "timeRestricted": false,
         "favorite": {
-          "lastBought": "2026-04-10T20:41:00.000Z"
+          "lastBought": "2026-01-01T20:41:00.000Z"
         },
         "isVerifiedPurchase": false,
         "brand": "Balviten ",
@@ -448,7 +448,7 @@
         ],
         "timeRestricted": false,
         "favorite": {
-          "lastBought": "2026-04-10T20:41:00.000Z"
+          "lastBought": "2026-01-01T20:41:00.000Z"
         },
         "isVerifiedPurchase": false,
         "brand": "Alpro",
@@ -489,7 +489,7 @@
         ],
         "timeRestricted": false,
         "favorite": {
-          "lastBought": "2026-04-10T20:41:00.000Z"
+          "lastBought": "2026-01-01T20:41:00.000Z"
         },
         "isVerifiedPurchase": false,
         "brand": "Auchan",

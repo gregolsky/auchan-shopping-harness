@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium, type BrowserContext } from 'playwright-core';
 import { ShapeError } from './parse.ts';
@@ -186,9 +186,16 @@ export interface SessionCookie {
   value: string;
 }
 
+/** Written to a new file beside the target and renamed over it, so a symlink at the target is replaced, never followed. */
 export function saveCookies(file: string, cookies: SessionCookie[]): void {
-  writeFileSync(file, JSON.stringify(cookies.map(({ name, value }) => ({ name, value }))), { mode: 0o600 });
-  chmodSync(file, 0o600); // the mode above only applies when the file is created
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    writeFileSync(temp, JSON.stringify(cookies.map(({ name, value }) => ({ name, value }))), { flag: 'wx', mode: 0o600 });
+    renameSync(temp, file);
+  } catch (e) {
+    rmSync(temp, { force: true });
+    throw e;
+  }
 }
 
 /** Opens the dedicated, logged-in profile in a visible, sandboxed Chromium. */

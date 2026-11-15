@@ -16,7 +16,7 @@
               "orderId": "1000000001",
               "status": "DELIVERED",
               "region": {
-                "retailerRegionId": "PL_00012_MAG",
+                "retailerRegionId": "PL_00000_TEST",
                 "regionId": "00000000-0000-4000-8000-000000000010",
                 "__typename": "Region"
               },
@@ -30,8 +30,8 @@
               },
               "slot": {
                 "timeWindow": {
-                  "start": "2026-04-11T11:00:00.000Z",
-                  "end": "2026-04-11T15:00:00.000Z",
+                  "start": "2026-01-02T11:00:00.000Z",
+                  "end": "2026-01-02T15:00:00.000Z",
                   "timeZone": "Europe/Warsaw",
                   "__typename": "SlotTimeWindow"
                 },
@@ -63,7 +63,7 @@
               "orderId": "1000000002",
               "status": "DELIVERED",
               "region": {
-                "retailerRegionId": "PL_00012_MAG",
+                "retailerRegionId": "PL_00000_TEST",
                 "regionId": "00000000-0000-4000-8000-000000000010",
                 "__typename": "Region"
               },
@@ -110,7 +110,7 @@
               "orderId": "1000000003",
               "status": "DELIVERED",
               "region": {
-                "retailerRegionId": "PL_00012_MAG",
+                "retailerRegionId": "PL_00000_TEST",
                 "regionId": "00000000-0000-4000-8000-000000000010",
                 "__typename": "Region"
               },
