@@ -9,6 +9,10 @@ interface Script {
   loggedIn?: () => boolean;
   /** For a search url: what the page shows right now. */
   show(url: string, clock: Clock): { status: number; title: string; state: unknown };
+  /** What the home page shows right now; defaults to a logged-in "Auchan" page. */
+  home?(clock: Clock): { status: number; title: string; state: unknown };
+  /** Whether a captcha element is in the page right now. */
+  marker?(url: string, clock: Clock): boolean;
 }
 class Clock { t = 0; sleeps: number[] = []; sleep = async (ms: number) => { this.sleeps.push(ms); this.t += ms; }; now = () => this.t; }
 
@@ -16,10 +20,10 @@ function fakePage(script: Script, clock: Clock) {
   let url = 'about:blank';
   const gotos: string[] = [];
   let closed = false;
-  const view = () => (url.includes('/search?') ? script.show(url, clock) : { status: 200, title: 'Auchan', state: { session: { isLoggedIn: script.loggedIn ? script.loggedIn() : true } } });
+  const view = () => (url.includes('/search?') ? script.show(url, clock) : script.home ? script.home(clock) : { status: 200, title: 'Auchan', state: { session: { isLoggedIn: script.loggedIn ? script.loggedIn() : true } } });
   const page: PageLike = {
     async goto(u) { gotos.push(u); url = u; const s = view().status; return { status: () => s }; },
-    async evaluate(fn: any) { const st: any = view().state; return String(fn).includes('isLoggedIn') ? st?.session?.isLoggedIn === true : st; },
+    async evaluate(fn: any) { if (String(fn).includes('captcha')) return script.marker?.(url, clock) ?? false; const st: any = view().state; return String(fn).includes('isLoggedIn') ? st?.session?.isLoggedIn === true : st; },
     async title() { return view().title; },
     url: () => url,
     async close() { closed = true; },
@@ -27,7 +31,7 @@ function fakePage(script: Script, clock: Clock) {
   return { page, gotos, isClosed: () => closed };
 }
 
-const run = async (script: Script, terms: string[], o: { captchaWaitMs?: number; loginWaitMs?: number } = {}) => {
+const run = async (script: Script, terms: string[], o: { captchaWaitMs?: number; loginWaitMs?: number; stateWaitMs?: number } = {}) => {
   const clock = new Clock();
   const fp = fakePage(script, clock);
   const statuses: SearchStatus[] = [];
@@ -162,4 +166,46 @@ test('closing the page closes the whole context', async () => {
   const page = await pageFromContext({ pages: () => [pw], newPage: async () => pw, close: async () => { closed++; } } as any);
   await page.close();
   assert.equal(closed, 1);
+});
+
+test('after a captcha clears it waits for the page state, up to 15 s, instead of giving up', async () => {
+  const r = await run({
+    show: (_u, c) => (c.t < 20_000 ? { status: 405, title: CAPTCHA, state: undefined } : { status: 200, title: 'Wyszukaj', state: c.t >= 23_000 ? stateOf(2) : undefined }),
+  }, ['a']);
+  assert.equal(r.results[0].status, 'found');
+  assert.equal(r.fp.gotos.filter((g) => g.includes('/search?')).length, 1, 'it only waited: no reload');
+});
+
+test('a state that never appears after the captcha stops the run after the wait, with no reload', async () => {
+  const r = await run({
+    show: (_u, c) => (c.t < 20_000 ? { status: 405, title: CAPTCHA, state: undefined } : { status: 200, title: 'Wyszukaj', state: undefined }),
+  }, ['a', 'b']);
+  assert.deepEqual(r.results.map((x) => x.status), ['stopped', 'stopped']);
+  assert.equal(r.fp.gotos.filter((g) => g.includes('/search?')).length, 1);
+  assert.ok(r.clock.t >= 20_000 + 15_000 - 200 && r.clock.t < 20_000 + 15_000 + 1000, `waited about 15 s, not more (${r.clock.t})`);
+});
+
+test('a captcha element in the page counts as a captcha even when the title is ordinary', async () => {
+  const r = await run({
+    show: (_u, c) => ({ status: 200, title: 'Wyszukaj', state: c.t >= 6000 ? stateOf(1) : undefined }),
+    marker: (_u, c) => c.t < 4000,
+  }, ['a']);
+  assert.deepEqual(r.statuses.filter((s) => s.kind === 'captcha'), [{ kind: 'captcha', term: 'a' }]);
+  assert.equal(r.results[0].status, 'found');
+});
+
+test('a captcha element that never goes away is waited out and the run stops', async () => {
+  const r = await run({ show: () => ({ status: 200, title: 'Wyszukaj', state: stateOf(1) }), marker: () => true }, ['a'], { captchaWaitMs: 1000 });
+  assert.equal(r.results[0].status, 'stopped');
+});
+
+test('a captcha on the home page shows the captcha status, not the login prompt', async () => {
+  let loggedIn = false;
+  const r = await run({
+    home: (c) => (c.t < 10_000 ? { status: 405, title: CAPTCHA, state: undefined } : { status: 200, title: 'Auchan', state: { session: { isLoggedIn: (loggedIn = true) } } }),
+    show: () => ({ status: 200, title: 't', state: stateOf(1) }),
+  }, ['a']);
+  assert.ok(loggedIn);
+  assert.deepEqual(r.statuses.filter((s) => s.kind === 'captcha' || s.kind === 'login').map((s) => s.kind), ['captcha']);
+  assert.equal(r.results[0].status, 'found');
 });

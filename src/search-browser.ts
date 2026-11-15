@@ -7,6 +7,8 @@ export interface PageLike {
   title(): Promise<string>;
   url(): string;
   close(): Promise<void>;
+  /** Resolves when the page has finished loading (or its limit passed). Optional: a page that cannot say is treated as loaded. */
+  waitForLoad?(): Promise<void>;
   /** True once the user has closed the window. Optional: a page that cannot tell is treated as open. */
   isClosed?(): boolean;
 }
@@ -29,6 +31,8 @@ export interface BrowserSearchOptions {
   paceMs?: number;
   captchaWaitMs?: number;
   loginWaitMs?: number;
+  /** After a captcha clears: how long to wait for the page's state to appear. It only waits, never reloads. */
+  stateWaitMs?: number;
   onStatus(s: SearchStatus): void;
   /** Poll interval while waiting for the user. */
   pollMs?: number;
@@ -39,6 +43,12 @@ export interface BrowserSearchOptions {
 export const MAX_SEARCH_TERMS = 10;
 export const PROFILE_BUSY_TEXT = 'Zamknij inne okno przeglądarki z profilem zakupów i spróbuj ponownie.';
 const CAPTCHA_TITLE = /confirm you are human/i;
+
+/** Runs in the page: AWS WAF's challenge, a captcha iframe, or any element whose id or class names a captcha. */
+function hasCaptchaMarker(): boolean {
+  const doc = (globalThis as any).document;
+  return !!doc?.querySelector('iframe[src*="captcha" i], [id*="captcha" i], [class*="captcha" i], #challenge-container, [id*="awswafcaptcha" i]');
+}
 
 const stopReason = (status: number): string =>
   status === 403 ? 'Auchan odmówił dostępu (403) — przerywam bez ponawiania.'
@@ -53,6 +63,7 @@ export function createBrowserSearch(o: BrowserSearchOptions): { search(terms: st
   const paceMs = o.paceMs ?? 5_000;
   const captchaWaitMs = o.captchaWaitMs ?? 300_000;
   const loginWaitMs = o.loginWaitMs ?? 300_000;
+  const stateWaitMs = o.stateWaitMs ?? 15_000;
   const pollMs = o.pollMs ?? 2_000;
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const now = o.now ?? Date.now;
@@ -70,12 +81,28 @@ export function createBrowserSearch(o: BrowserSearchOptions): { search(terms: st
     }
   };
 
+  /** A captcha is told by its title or by a captcha element in the page; a title that cannot be read counts as one (fail-safe: keep waiting). */
   const isCaptcha = async (p: PageLike): Promise<boolean> => {
     try {
-      return CAPTCHA_TITLE.test(await p.title());
+      if (CAPTCHA_TITLE.test(await p.title())) return true;
     } catch {
       return true; // mid-navigation by the user: keep waiting
     }
+    try {
+      return (await p.evaluate(hasCaptchaMarker)) === true;
+    } catch {
+      return false; // the title already said this is no captcha
+    }
+  };
+
+  /** After a captcha clears the page may still be loading or reloading itself: wait for load, then for the state. Never navigates. */
+  const settleAfterCaptcha = async (p: PageLike, ready: () => Promise<boolean>): Promise<void> => {
+    try {
+      await p.waitForLoad?.();
+    } catch {
+      // keep going: the state poll below decides
+    }
+    await waitUntil(ready, stateWaitMs);
   };
 
   const waitUntil = async (cond: () => Promise<boolean>, limitMs: number): Promise<boolean> => {
@@ -132,6 +159,11 @@ export function createBrowserSearch(o: BrowserSearchOptions): { search(terms: st
       const home = await navigate(p, `${ORIGIN}/`);
       if (home === null) return stopRest();
       if (await refused(home)) return stopRest();
+      if (await isCaptcha(p)) {
+        o.onStatus({ kind: 'captcha', term: terms[0] });
+        if (!(await waitUntil(async () => !(await isCaptcha(p)), captchaWaitMs))) return stopRest();
+        await settleAfterCaptcha(p, async () => (await readState(p)) != null);
+      }
       if (!(await loggedIn(p))) {
         o.onStatus({ kind: 'login' });
         if (!(await waitUntil(() => loggedIn(p), loginWaitMs))) return stopRest();
@@ -146,6 +178,7 @@ export function createBrowserSearch(o: BrowserSearchOptions): { search(terms: st
         if (await isCaptcha(p)) {
           o.onStatus({ kind: 'captcha', term });
           if (!(await waitUntil(async () => !(await isCaptcha(p)), captchaWaitMs))) return stopRest();
+          await settleAfterCaptcha(p, async () => entityCount(await readState(p)) !== null);
         }
         const state = await readState(p);
         const n = entityCount(state);
@@ -162,7 +195,7 @@ export function createBrowserSearch(o: BrowserSearchOptions): { search(terms: st
   };
 }
 
-interface PwPage { goto(url: string): Promise<{ status(): number } | null>; evaluate<R>(fn: () => R | Promise<R>): Promise<R>; title(): Promise<string>; url(): string; isClosed(): boolean }
+interface PwPage { goto(url: string): Promise<{ status(): number } | null>; evaluate<R>(fn: () => R | Promise<R>): Promise<R>; title(): Promise<string>; url(): string; isClosed(): boolean; waitForLoadState(state: 'load', o: { timeout: number }): Promise<void> }
 interface PwContext { pages(): PwPage[]; newPage(): Promise<PwPage>; close(): Promise<void> }
 
 /** Wraps an open browser context as a page; if no page can be had the context is closed again, so no window is left behind. Exported for tests. */
@@ -179,6 +212,7 @@ export async function pageFromContext(context: PwContext): Promise<PageLike> {
     evaluate: (fn) => page.evaluate(fn),
     title: () => page.title(),
     url: () => page.url(),
+    waitForLoad: () => page.waitForLoadState('load', { timeout: 15_000 }),
     isClosed: () => page.isClosed(),
     close: () => context.close(),
   };
