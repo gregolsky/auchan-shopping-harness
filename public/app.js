@@ -214,7 +214,8 @@ export const MANUAL_HINT = 'Produkty dodane ręcznie na Auchan planer pozna po z
 export function auchanSearchUrl(term) { return `https://zakupy.auchan.pl/search?q=${encodeURIComponent(String(term))}`; }
 
 /** What the search status panel says, from the last search event and the service's busy flag; null when there is nothing to show. */
-export function searchPanel(event, busy) {
+export function searchPanel(event, busy, block = null) {
+  if (block && busy !== 'search') return { text: searchBlockText(block), active: false };
   if (busy === 'search') {
     if (!event || event.status === 'done' || event.status === 'stopped') return { text: 'Otwieram przeglądarkę…', active: true };
     if (event.status === 'login') return { text: 'Zaloguj się w oknie przeglądarki…', active: true };
@@ -227,10 +228,16 @@ export function searchPanel(event, busy) {
   return null;
 }
 
+/** After Auchan refused a search, searching is held back; this says until when. */
+export function searchBlockText(block, timeZone) {
+  const when = new Date(block.until).toLocaleString('pl-PL', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', ...(timeZone ? { timeZone } : {}) });
+  return `Auchan odmówił wyszukiwania (${block.status}). Wyszukiwanie wstrzymane do ${when}.`;
+}
+
 /** The "search on Auchan" button: how many terms it covers, or a forced rerun when all were searched in the last 7 days. */
 export function searchButton(state) {
   const search = state.search;
-  if (!search || KEYS.indexOf(state.trip?.step) >= 4) return null;
+  if (!search || search.block || KEYS.indexOf(state.trip?.step) >= 4) return null;
   const disabled = Boolean(state.busy);
   if (search.terms.length > 0) return { label: `Szukaj w Auchan (${search.terms.length})`, force: false, disabled };
   if (search.recent.length > 0) return { label: `Szukaj ponownie (${search.recent.length})`, force: true, disabled };
@@ -325,7 +332,7 @@ export function start() {
   }
   const searchPanelNode = document.querySelector('#search-status');
   function showSearch() {
-    const view = state ? searchPanel(searchEvent, state.busy) : null;
+    const view = state ? searchPanel(searchEvent, state.busy, state.search?.block ?? null) : null;
     searchPanelNode.hidden = view === null;
     if (view === null) return;
     searchPanelNode.querySelector('.working-text').textContent = view.text;

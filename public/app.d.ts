@@ -26,5 +26,6 @@ export function proposalButtons(op: any): { accept: string; skip: string };
 export function acceptAllSummary(ops: any[]): string;
 export const MANUAL_HINT: string;
 export function auchanSearchUrl(term: string): string;
-export function searchPanel(event: any, busy: string | null): any;
+export function searchPanel(event: any, busy: string | null, block?: { until: string; status: number } | null): any;
+export function searchBlockText(block: { until: string; status: number }, timeZone?: string): string;
 export function searchButton(state: any): any;

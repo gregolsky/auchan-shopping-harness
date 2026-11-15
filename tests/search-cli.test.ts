@@ -149,3 +149,16 @@ test('any other failure is a Polish message with exit 1, not a stack trace', asy
     assert.equal(existsSync(t.deps.lockFile!), false);
   } finally { t.done(); }
 });
+
+test('a 403 is remembered as a 24 hour block, and the next run refuses to search', async () => {
+  const t = setup({ results: (terms, say) => { say({ kind: 'stopped', reason: 'Auchan odmówił dostępu (403) — przerywam bez ponawiania.', status: 403 }); return terms.map((term) => ({ term, status: 'stopped' as const })); } });
+  try {
+    assert.equal(await main(['a'], t.deps), 1);
+    assert.equal(t.store.searchBlock(new Date())?.status, 403);
+    t.searched.length = 0;
+    t.err.length = 0;
+    assert.equal(await main(['a'], t.deps), 1);
+    assert.equal(t.searched.length, 0, 'no browser the second time');
+    assert.match(t.err.join('\n'), /Auchan odmówił wyszukiwania \(403\)\. Wyszukiwanie wstrzymane do /);
+  } finally { t.done(); }
+});

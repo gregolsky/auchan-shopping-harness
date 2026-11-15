@@ -136,6 +136,7 @@ for (const code of [403, 429, 500]) {
     assert.equal(clock.sleeps.length, 0);
     const stop = statuses.find((x) => x.kind === 'stopped');
     assert.ok(stop && stop.kind === 'stopped');
+    assert.equal(stop.status, code);
     if (code === 403) assert.equal(stop.reason, REASON_403);
     else assert.match(stop.reason, new RegExp(`\\(${code}\\)`));
   });

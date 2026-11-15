@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, MANUAL_HINT } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT } from '../public/app.js';
 
 const line = { lineKey: 't:maka', term: 'mąka', name: 'Mąka pszenna', productId: 'a', quantity: 2, lineCostGrosze: 1259,
   reason: 'bought before', confidence: 'medium', confidenceReason: 'not bought before', included: true, kind: 'item',
@@ -344,6 +344,16 @@ test('the search panel reports the result, a stop, and hides when nothing happen
 
 test('a stop with a reason shows that reason', () => {
   assert.deepEqual(searchPanel({ type: 'search', status: 'stopped', found: 0, total: 2, reason: 'Zamknij inne okno.' }, null), { text: 'Zamknij inne okno.', active: false });
+});
+
+test('after a refusal the page says until when searching is held back, and hides the button', () => {
+  const block = { until: '2026-11-16T14:30:00.000Z', status: 403 };
+  const text = searchBlockText(block, 'UTC');
+  assert.match(text, /^Auchan odmówił wyszukiwania \(403\)\. Wyszukiwanie wstrzymane do .*16.*14:30\.$/);
+  assert.deepEqual(searchPanel(null, null, block), { text: searchBlockText(block), active: false });
+  assert.deepEqual(searchPanel({ type: 'search', status: 'stopped', found: 0, total: 1 }, null, block), { text: searchBlockText(block), active: false }, 'the block wins over the stale stop');
+  assert.equal(searchButton({ trip: { step: 'szkic' }, busy: null, search: { terms: ['a'], recent: [], block } }), null);
+  assert.notEqual(searchButton({ trip: { step: 'szkic' }, busy: null, search: { terms: ['a'], recent: [], block: null } }), null);
 });
 
 test('the search button counts the terms, and offers a forced rerun when all were searched lately', () => {

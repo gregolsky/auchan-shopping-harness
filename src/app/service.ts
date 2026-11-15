@@ -11,7 +11,7 @@ import { acquireLock, lockHeld, releaseLock } from '../lock.ts';
 import { LOCK_PATH } from '../dbpath.ts';
 import { zl } from '../money.ts';
 import { cleanText, parseSearchState } from '../parse.ts';
-import { createBrowserSearch, MAX_SEARCH_TERMS, PROFILE_BUSY_TEXT } from '../search-browser.ts';
+import { createBrowserSearch, MAX_SEARCH_TERMS, PROFILE_BUSY_TEXT, searchBlockText } from '../search-browser.ts';
 import type { BrowserSearchOptions, PageLike, SearchResult } from '../search-browser.ts';
 import { normaliseTerm } from '../store.ts';
 import type { IntentRule, Store } from '../store.ts';
@@ -246,7 +246,8 @@ export function createService(d: ServiceDeps) {
       const { ordersAt, promotionsAt } = withStore((s) => ({ ordersAt: s.lastSyncFinishedAt('orders'), promotionsAt: s.lastSyncFinishedAt('promotions') }));
       const oldest = ordersAt !== null && promotionsAt !== null ? (ordersAt < promotionsAt ? ordersAt : promotionsAt) : null;
       const ageHours = oldest === null ? null : Math.max(0, Math.round(((d.now().getTime() - new Date(oldest).getTime()) / 3600_000) * 10) / 10);
-      return { trip, freshness: { ordersAt, promotionsAt, ageHours }, busy, search: { ...searchPlan(), last: lastSearch } };
+      const block = withStore((s) => s.searchBlock(d.now()));
+      return { trip, freshness: { ordersAt, promotionsAt, ageHours }, busy, search: { ...searchPlan(), last: lastSearch, block } };
     },
 
     async note(input: { note: string; includeUsual: boolean; budgetGrosze?: number }): Promise<Trip> {
@@ -414,6 +415,8 @@ export function createService(d: ServiceDeps) {
       let wanted: string[];
       try {
         if (lockHeld(lockFile)) return refuse(BUSY);
+        const block = withStore((s) => s.searchBlock(d.now()));
+        if (block !== null) return refuse(searchBlockText(block));
         region = withStore((s) => s.latestOrderRegion());
         const plan = terms === undefined ? searchPlan() : null;
         const given = plan !== null ? (opts.force ? [...plan.terms, ...plan.recent] : plan.terms) : [...new Map((terms ?? []).map((x) => x.trim()).filter(Boolean).map((x) => [normaliseTerm(x), x])).values()];
@@ -532,7 +535,14 @@ export function createService(d: ServiceDeps) {
       onStatus: (s) => {
         if (s.kind === 'login') announce({ type: 'search', status: 'login' });
         else if (s.kind === 'captcha') announce({ type: 'search', status: 'captcha', term: cleanText(s.term) });
-        else if (s.kind === 'stopped') { stoppedReason ??= cleanText(s.reason); safeEmit({ type: 'log', text: s.reason }); }
+        else if (s.kind === 'stopped') {
+          stoppedReason ??= cleanText(s.reason);
+          // Auchan said no: searching stays off for a day, whatever happens after this.
+          if (s.status === 403 || s.status === 429) {
+            try { withStore((st) => st.blockSearch(s.status!, d.now())); } catch (e) { console.error(`Nie udało się zapisać blokady szukania: ${e instanceof Error ? e.message : String(e)}`); }
+          }
+          safeEmit({ type: 'log', text: s.reason });
+        }
         else announce({ type: 'search', status: 'searching', term: cleanText(s.term), index: s.index, total: s.total });
       },
     });

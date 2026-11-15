@@ -922,3 +922,41 @@ test('closing the browser window mid-search stops at once with a clear message a
   assert.equal(existsSync(t.lockFile), false);
   assert.match(t.svc.state().trip.messages.at(-1)!, /Okno przeglądarki zostało zamknięte/);
 });
+
+test('after a 403 a new search is refused for 24 hours and the state says why; it expires afterwards', async () => {
+  const t = await draftWithUnmatched({ page: () => fakeSearchPage(undefined, { status: 403 }) });
+  await t.svc.searchAuchan();
+  await searchEnd(t.events);
+  assert.deepEqual(t.svc.state().search.block, { until: '2026-11-16T10:00:00.000Z', status: 403 });
+  const log: string[] = [];
+  const again = await t.svc.searchAuchan(['parówki'], { force: true });
+  assert.equal(again.started, false);
+  assert.match(again.reason!, /Auchan odmówił wyszukiwania \(403\)\. Wyszukiwanie wstrzymane do 16 listopada \d\d:\d\d\./);
+  assert.equal(t.svc.state().busy, null);
+  assert.equal(log.length, 0);
+  // 24 h later it is allowed again
+  const later = setupLater(t);
+  assert.equal(later.svc.state().search.block, null);
+});
+
+test('a 429 blocks too; a captcha timeout or a closed window does not', async () => {
+  const t = await draftWithUnmatched({ page: () => fakeSearchPage(undefined, { status: 429 }) });
+  await t.svc.searchAuchan();
+  await searchEnd(t.events);
+  assert.equal(t.svc.state().search.block?.status, 429);
+  const closed = page403(false);
+  const t2 = await draftWithUnmatched({ page: () => ({ ...closed, isClosed: () => true, async goto() { return null; } }) });
+  await t2.svc.searchAuchan();
+  await searchEnd(t2.events);
+  assert.equal(t2.svc.state().search.block, null);
+});
+
+const page403 = (_x: boolean): PageLike => fakeSearchPage();
+function setupLater(t: ReturnType<typeof setup>) {
+  const svc = createService({
+    openStore: () => ({ ...t.store, close() {} }), spawn: async () => ({ code: null, stdout: '', timedOut: false, missing: true }), tripFile: t.tripFile,
+    now: () => new Date('2026-11-16T10:00:01Z'), emit: () => {},
+    fillDeps: { lockFile: t.lockFile } as any, syncDeps: {} as any, openSearchPage: async () => fakeSearchPage(),
+  });
+  return { svc };
+}

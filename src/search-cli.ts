@@ -2,7 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { cleanText, parseSearchState } from './parse.ts';
 import { buildDraft } from './draft.ts';
 import { zl } from './money.ts';
-import { createBrowserSearch, MAX_SEARCH_TERMS, openSearchPage, PROFILE_BUSY_TEXT, type SearchResult, type SearchStatus } from './search-browser.ts';
+import { createBrowserSearch, MAX_SEARCH_TERMS, openSearchPage, PROFILE_BUSY_TEXT, searchBlockText, type SearchResult, type SearchStatus } from './search-browser.ts';
 import { liveDeps as syncDeps } from './cli.ts';
 import { normaliseTerm, type Store } from './store.ts';
 import { acquireLock, releaseLock } from './lock.ts';
@@ -71,6 +71,11 @@ async function run(args: string[], deps: SearchDeps): Promise<number> {
       return 1;
     }
     const now = new Date();
+    const block = store.searchBlock(now);
+    if (block) {
+      deps.error(searchBlockText(block));
+      return 1;
+    }
     const fresh = force ? [] : terms.filter((t) => store.searchedRecently(t, now));
     const toSearch = terms.filter((t) => !fresh.includes(t));
     for (const t of fresh) deps.log(`${t}: szukano niedawno, pomijam (użyj --force, by szukać ponownie)`);
@@ -81,7 +86,10 @@ async function run(args: string[], deps: SearchDeps): Promise<number> {
       const search = deps.createSearch((s) => {
         if (s.kind === 'login') deps.log('Zaloguj się w oknie przeglądarki i zostaw je otwarte…');
         else if (s.kind === 'captcha') deps.log('Rozwiąż weryfikację w oknie przeglądarki…');
-        else if (s.kind === 'stopped') deps.log(s.reason);
+        else if (s.kind === 'stopped') {
+          deps.log(s.reason);
+          if (s.status === 403 || s.status === 429) store.blockSearch(s.status, new Date());
+        }
         else deps.log(`Szukam: ${cleanText(s.term)} (${s.index}/${s.total})…`);
       });
       let results: SearchResult[];

@@ -16,6 +16,9 @@ export interface SearchInput {
   prices: PriceObservation[];
 }
 
+/** After Auchan refuses a search (403 or 429), searching stays off this long. */
+export const SEARCH_BLOCK_HOURS = 24;
+
 /** A term searched this recently is not searched again unless forced. */
 export const SEARCH_FRESH_DAYS = 7;
 
@@ -131,6 +134,10 @@ export interface Store {
   saveSearchResults(term: string, parsed: SearchInput, now: Date): void;
   /** True if the term was searched within the last SEARCH_FRESH_DAYS days. */
   searchedRecently(term: string, now: Date): boolean;
+  /** Remembers that Auchan refused a search (HTTP status 403 or 429) at `now`. */
+  blockSearch(status: number, now: Date): void;
+  /** While a refusal is younger than SEARCH_BLOCK_HOURS: when searching may resume and the status that caused it; otherwise null. */
+  searchBlock(now: Date): { until: string; status: number } | null;
   recentOrders(limit: number): RecentOrder[];
   productHistory(query: string): ProductHistoryRow[];
   currentPromotions(opts: { boughtBefore?: boolean; limit: number }): PromotionRow[];
@@ -225,6 +232,10 @@ CREATE TABLE IF NOT EXISTS search_runs (
   found INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS search_runs_term ON search_runs (term, searched_at);
+CREATE TABLE IF NOT EXISTS search_blocks (
+  blocked_at TEXT NOT NULL,
+  status INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS intents (
   term TEXT PRIMARY KEY,
   brand TEXT
@@ -472,6 +483,18 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
       if (!has) return false;
       const since = new Date(now.getTime() - SEARCH_FRESH_DAYS * 86_400_000).toISOString();
       return db.prepare('SELECT 1 FROM search_runs WHERE term = ? AND searched_at >= ? LIMIT 1').get(normaliseTerm(term), since) !== undefined;
+    },
+
+    blockSearch(status, now) {
+      db.prepare('INSERT INTO search_blocks (blocked_at, status) VALUES (?, ?)').run(now.toISOString(), status);
+    },
+
+    searchBlock(now) {
+      const has = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'search_blocks'").get() !== undefined;
+      if (!has) return null;
+      const since = new Date(now.getTime() - SEARCH_BLOCK_HOURS * 3600_000).toISOString();
+      const r = db.prepare('SELECT blocked_at, status FROM search_blocks WHERE blocked_at > ? ORDER BY blocked_at DESC LIMIT 1').get(since) as { blocked_at: string; status: number } | undefined;
+      return r ? { until: new Date(new Date(r.blocked_at).getTime() + SEARCH_BLOCK_HOURS * 3600_000).toISOString(), status: r.status } : null;
     },
 
     recentOrders(limit) {

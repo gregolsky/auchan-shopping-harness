@@ -16,7 +16,7 @@ export interface PageLike {
 export type SearchStatus =
   | { kind: 'login' }
   | { kind: 'captcha'; term: string }
-  | { kind: 'stopped'; reason: string }
+  | { kind: 'stopped'; reason: string; /** The HTTP status that ended the run, when it was one. */ status?: number }
   | { kind: 'searching'; term: string; index: number; total: number };
 
 export interface SearchResult {
@@ -51,6 +51,12 @@ function hasCaptchaMarker(): boolean {
 }
 
 export const WINDOW_CLOSED = 'Okno przeglądarki zostało zamknięte.';
+/** What the user is told while searching is held back after a refusal. */
+export function searchBlockText(block: { until: string; status: number }): string {
+  const when = new Date(block.until).toLocaleString('pl-PL', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  return `Auchan odmówił wyszukiwania (${block.status}). Wyszukiwanie wstrzymane do ${when}.`;
+}
+
 const WRONG_PAGE = 'Okno przeglądarki pokazuje inną stronę — przerwano wyszukiwanie.';
 
 /** Whether the window shows the search page for exactly this term; anything else (the user navigated, a redirect) is not read. */
@@ -183,7 +189,7 @@ export function createBrowserSearch(o: BrowserSearchOptions): { search(terms: st
         if (status === null) return true;
         if (status >= 200 && status < 300) return false;
         if (status !== 403 && status !== 429 && (await isCaptcha(p))) return false;
-        o.onStatus({ kind: 'stopped', reason: stopReason(status) });
+        o.onStatus({ kind: 'stopped', reason: stopReason(status), status });
         return true;
       };
 

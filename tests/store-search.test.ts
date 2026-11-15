@@ -92,3 +92,15 @@ test('a read-only handle on an old database without search_runs reports not sear
     s.close();
   });
 });
+
+test('a search refusal blocks searching for 24 hours, then expires', () => {
+  withDb((path) => {
+    const s = openStore(path);
+    assert.equal(s.searchBlock(NOW), null);
+    s.blockSearch(403, NOW);
+    assert.deepEqual(s.searchBlock(new Date('2026-11-16T09:59:00Z')), { until: '2026-11-16T10:00:00.000Z', status: 403 });
+    assert.equal(s.searchBlock(new Date('2026-11-16T10:00:00Z')), null);
+    s.close();
+    assert.deepEqual(openStore(path).searchBlock(new Date('2026-11-15T12:00:00Z')), { until: '2026-11-16T10:00:00.000Z', status: 403 }, 'it survives a restart');
+  });
+});
