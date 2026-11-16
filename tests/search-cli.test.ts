@@ -145,7 +145,8 @@ test('any other failure is a Polish message with exit 1, not a stack trace', asy
   const t = setup({ results: () => { throw new Error('boom'); } });
   try {
     assert.equal(await main(['a'], t.deps), 1);
-    assert.match(t.err.join('\n'), /Wyszukiwanie nie powiodło się: boom/);
+    assert.match(t.err.join('\n'), /Wyszukiwanie nie powiodło się\./);
+    assert.doesNotMatch(t.err.join('\n'), /boom/);
     assert.equal(existsSync(t.deps.lockFile!), false);
   } finally { t.done(); }
 });

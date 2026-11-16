@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { BasketLine } from './types.ts';
 import { cleanText } from './parse.ts';
+import { UserError } from './errors.ts';
 import { isBlockedProduct, type BlockedProduct } from './blacklist.ts';
 
 export const BASKET_SCHEMA = `
@@ -45,9 +46,9 @@ export function basketMethods(db: DatabaseSync, blockedProducts: () => BlockedPr
       const seen = new Set<string>();
       for (const l of lines) {
         const known = product.get(l.productId) as { name: string } | undefined;
-        if (isBlockedProduct({ productId: l.productId, name: known?.name }, blocked)) throw new Error(`Produkt zablokowany: ${cleanText(known?.name ?? l.productId)}`);
-        if (!Number.isInteger(l.quantity) || l.quantity < 1 || l.quantity > 20) throw new Error(`Quantity must be a whole number from 1 to 20: ${l.productId}`);
-        if (seen.has(l.productId)) throw new Error(`Duplicate product in basket: ${l.productId}`);
+        if (isBlockedProduct({ productId: l.productId, name: known?.name }, blocked)) throw new UserError(`Produkt zablokowany: ${cleanText(known?.name ?? l.productId)}`);
+        if (!Number.isInteger(l.quantity) || l.quantity < 1 || l.quantity > 20) throw new UserError(`Quantity must be a whole number from 1 to 20: ${l.productId}`);
+        if (seen.has(l.productId)) throw new UserError(`Duplicate product in basket: ${l.productId}`);
         seen.add(l.productId);
       }
       db.exec('BEGIN IMMEDIATE');
@@ -56,8 +57,8 @@ export function basketMethods(db: DatabaseSync, blockedProducts: () => BlockedPr
         let total = 0;
         for (const l of lines) {
           const p = product.get(l.productId) as { name: string; in_catalogue: number; price: number | null } | undefined;
-          if (p && isBlockedProduct({ productId: l.productId, name: p.name }, blocked)) throw new Error(`Produkt zablokowany: ${cleanText(p.name)}`);
-          if (!p || p.in_catalogue !== 1 || p.price === null) throw new Error(`Unknown or unavailable product: ${l.productId}`);
+          if (p && isBlockedProduct({ productId: l.productId, name: p.name }, blocked)) throw new UserError(`Produkt zablokowany: ${cleanText(p.name)}`);
+          if (!p || p.in_catalogue !== 1 || p.price === null) throw new UserError(`Unknown or unavailable product: ${l.productId}`);
           insLine.run(basketId, l.term, l.productId, l.quantity, p.price);
           total += p.price * l.quantity;
         }

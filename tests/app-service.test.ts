@@ -8,6 +8,7 @@ import type { AppEvent } from '../src/app/service.ts';
 import type { Spawn } from '../src/app/claude.ts';
 import { saveTrip } from '../src/app/trip.ts';
 import { openStore, type Store } from '../src/store.ts';
+import { failureText } from '../src/app/messages.ts';
 import { Blocked, LoginRequired, ProfileBusy, RateLimited, Refused, type Worker } from '../src/worker.ts';
 import type { CartAccess } from '../src/http-worker.ts';
 import type { Product, PriceObservation } from '../src/types.ts';
@@ -274,7 +275,8 @@ test('a fill without a report goes back to zatwierdzenie with the failure in mes
   await done(events);
   const s = svc.state();
   assert.equal(s.trip.step, 'zatwierdzenie');
-  assert.match(s.trip.messages.at(-1)!, /Wypełnianie nie powiodło się: .*boom/);
+  assert.match(s.trip.messages.at(-1)!, /^Wypełnianie nie powiodło się: nieoczekiwany błąd\. /);
+  assert.doesNotMatch(s.trip.messages.at(-1)!, /boom/);
   assert.equal((events.find((e) => e.type === 'done') as any).code, 1);
   assert.equal(events.some((e) => e.type === 'report'), false);
 });
@@ -531,7 +533,8 @@ test('the login prompt during a fill is Polish and is not part of the failure te
   assert.ok(logs.includes('Zaloguj się w oknie przeglądarki i zostaw je otwarte — dodawanie ruszy samo.'));
   const last = svc.state().trip.messages.at(-1)!;
   assert.doesNotMatch(last, /Zaloguj/);
-  assert.match(last, /boom/);
+  assert.match(last, /nieoczekiwany błąd/);
+  assert.doesNotMatch(last, /boom/);
 });
 
 test('a product listed twice is refused with its name', async () => {
@@ -1052,7 +1055,8 @@ test('a fill that fails with an unknown error logs Polish, not the CLI English',
   await svc.approve();
   await done(events);
   const logs = events.flatMap((e) => (e.type === 'log' ? [e.text] : []));
-  assert.ok(logs.some((l) => /nieoczekiwany błąd \(boom\)/.test(l)), logs.join('|'));
+  assert.ok(logs.some((l) => /nieoczekiwany błąd\./.test(l)), logs.join('|'));
+  assert.ok(!logs.some((l) => /boom/.test(l)), 'the raw message stays out of the page');
   assert.ok(!logs.some((l) => /Fill failed/.test(l)));
 });
 
@@ -1097,4 +1101,28 @@ test('a medium line with no note keeps Claude\'s question; only a high line lose
   assert.equal(line.confidence, 'medium');
   assert.equal(line.note, '');
   assert.equal(line.question?.text, 'Które mleko?');
+});
+
+test('internal failures reach the page as fixed Polish text; the details only go to stderr, cleaned', async (t) => {
+  const logged: string[] = [];
+  t.mock.method(console, 'error', (...a: unknown[]) => { logged.push(a.join(' ')); });
+  const secret = 'SQLITE_CANTOPEN /home/me/.state/harness.db\u001b[31m token=abc';
+  const { svc, store } = setup();
+  const n = await svc.note({ note: 'chleb', includeUsual: false });
+  svc.answer(n.lines[0].lineKey, B);
+  store.approveBasket = () => { throw new Error(secret); };
+  const r = await svc.approve();
+  assert.equal(r.started, false);
+  assert.equal(r.reason, 'Nie udało się zatwierdzić koszyka.');
+  const again = setup();
+  const m = await again.svc.note({ note: 'chleb', includeUsual: false });
+  again.svc.answer(m.lines[0].lineKey, B);
+  again.store.latestOrderRegion = () => { throw new Error(secret); };
+  const s = await again.svc.searchAuchan(['chleb'], {});
+  assert.equal(s.started, false);
+  assert.equal(s.reason, 'Nie udało się przygotować szukania.');
+  assert.equal(failureText(new Error(secret), 'dodawanie'), 'nieoczekiwany błąd.');
+  const text = logged.join('\n');
+  assert.match(text, /Error: SQLITE_CANTOPEN/);
+  assert.doesNotMatch(text, /[\u0000-\u0008\u000b-\u001f]/);
 });

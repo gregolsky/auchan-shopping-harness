@@ -5,6 +5,7 @@ import { openStore, type Store } from './store.ts';
 import { browserLogin, LoginRequired, Blocked, Refused, ProfileBusy, RateLimited, type Worker } from './worker.ts';
 import { createHttpWorker } from './http-worker.ts';
 import { cleanText, ShapeError } from './parse.ts';
+import { logDetail } from './errors.ts';
 import { checkOrders, syncOrderImages, syncOrders, syncPlaced } from './sync-orders.ts';
 import { syncPromotions } from './sync-promotions.ts';
 import { DB_PATH, SESSION_PATH } from './dbpath.ts';
@@ -79,7 +80,8 @@ function describe(err: unknown, action: 'sync' | 'fill'): string {
   if (err instanceof Blocked) return 'Auchan refused the request. Do not rerun; the request format may need review.';
   if (err instanceof ProfileBusy) return 'Browser profile is busy: close the other browser first.';
   if (err instanceof ShapeError) return `Unexpected response shape: ${err.message}`;
-  return `${action === 'sync' ? 'Sync' : 'Fill'} failed: ${err instanceof Error ? err.message : String(err)}`;
+  logDetail(action === 'sync' ? 'Sync' : 'Fill', err);
+  return `${action === 'sync' ? 'Sync' : 'Fill'} failed unexpectedly. Details are on stderr.`;
 }
 
 /** Auchan's login does not survive a browser restart, so it must happen in this window. Undefined if the user gave up. */

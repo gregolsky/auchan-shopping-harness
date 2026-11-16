@@ -313,7 +313,7 @@ test('describeFailure output carries no control or bidi characters', () => {
   const dirty = 'boom\u001b]52;c;ZXZpbA==\u0007\u202e';
   assert.doesNotMatch(describeFailure(new Error(dirty)), /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/);
   assert.doesNotMatch(describeFailure(new ShapeError(dirty)), /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/);
-  assert.match(describeFailure(new Error(dirty), 'fill'), /boom/);
+  assert.equal(describeFailure(new Error(dirty), 'fill'), 'Fill failed unexpectedly. Details are on stderr.');
 });
 
 test('sync output cleans the oldest-seen date', async (t) => {

@@ -1,5 +1,6 @@
 import type { SyncEvent } from '../cli.ts';
 import { cleanText, ShapeError } from '../parse.ts';
+import { logDetail } from '../errors.ts';
 import { Blocked, LoginRequired, ProfileBusy, RateLimited, Refused } from '../worker.ts';
 
 /** Polish plural form: one (1), few (2-4, not 12-14), many (the rest). */
@@ -49,5 +50,6 @@ export function failureText(err: unknown, action: 'synchronizacja' | 'dodawanie'
   if (err instanceof LoginRequired) return 'Auchan nadal nie widzi logowania: zaloguj się w oknie przeglądarki i spróbuj ponownie.';
   if (err instanceof ProfileBusy) return 'Profil przeglądarki jest zajęty: zamknij drugą przeglądarkę.';
   if (err instanceof ShapeError) return 'Auchan zwrócił odpowiedź w nieoczekiwanym kształcie. Nic nie zapisano; strona mogła się zmienić.';
-  return `nieoczekiwany błąd (${cleanText(err instanceof Error ? err.message : String(err))}).`;
+  logDetail('Nieoczekiwany błąd', err);
+  return 'nieoczekiwany błąd.';
 }

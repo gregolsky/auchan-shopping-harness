@@ -178,7 +178,7 @@ test('a corrupt database is an error, not the run-sync hint', async () => {
         };
         assert.equal(r.isError, true);
         assert.doesNotMatch(r.content[0].text, /run npm run sync first/);
-        assert.match(r.content[0].text, /Database error/);
+        assert.equal(r.content[0].text, 'Database error: the local database could not be read. See the server log for details.');
       }),
   );
 });

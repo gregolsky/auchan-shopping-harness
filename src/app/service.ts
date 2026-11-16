@@ -11,6 +11,7 @@ import { acquireLock, lockHeld, releaseLock } from '../lock.ts';
 import { LOCK_PATH } from '../dbpath.ts';
 import { zl } from '../money.ts';
 import { cleanText, parseSearchState } from '../parse.ts';
+import { logDetail, shownText } from '../errors.ts';
 import { createBrowserSearch, MAX_SEARCH_TERMS, PROFILE_BUSY_TEXT, searchBlockText } from '../search-browser.ts';
 import type { BrowserSearchOptions, PageLike, SearchResult } from '../search-browser.ts';
 import { normaliseTerm } from '../store.ts';
@@ -94,7 +95,7 @@ export function createService(d: ServiceDeps) {
     try {
       d.emit(e);
     } catch (err) {
-      console.error(`Błąd zdarzenia: ${err instanceof Error ? err.message : String(err)}`);
+      logDetail('Błąd zdarzenia', err);
     }
   };
 
@@ -388,25 +389,26 @@ export function createService(d: ServiceDeps) {
       try {
         lines = approvedLines(trip);
       } catch (e) {
-        return refuse(e instanceof ListProblem ? e.message : `Lista zakupów jest niepoprawna: ${e instanceof Error ? e.message : String(e)}`);
+        return refuse(e instanceof ListProblem ? e.message : 'Lista zakupów jest niepoprawna. Sprawdź ilości i spróbuj ponownie.');
       }
       if (lines.length === 0) return refuse('Nic nie jest zaznaczone do zamówienia.');
       try {
         if (lockHeld(d.fillDeps.lockFile ?? LOCK_PATH)) return refuse(BUSY);
         withStore((s) => s.approveBasket(lines, trip.unmatched.map((u) => u.term), d.now()));
       } catch (e) {
-        return refuse(`Nie udało się zatwierdzić koszyka: ${e instanceof Error ? e.message : String(e)}`);
+        return refuse(shownText('Zatwierdzanie koszyka', e, 'Nie udało się zatwierdzić koszyka.'));
       }
       const previous = trip;
       try {
         commit({ ...trip, step: 'koszyk' });
       } catch (e) {
         trip = previous;
-        return refuse(`Nie udało się zapisać wyprzedzającego stanu: ${e instanceof Error ? e.message : String(e)}`);
+        logDetail('Zapis stanu przed wypełnianiem', e);
+        return refuse('Nie udało się zapisać stanu przed dodawaniem.');
       }
       busy = 'fill';
       void runInBackground(generation).catch((e) => {
-        console.error(`Błąd wypełniania: ${e instanceof Error ? e.message : String(e)}`);
+        logDetail('Błąd wypełniania', e);
         busy = null;
       });
       return { started: true };
@@ -432,7 +434,8 @@ export function createService(d: ServiceDeps) {
         wanted = opts.force || terms === undefined ? given : withStore((s) => given.filter((x) => !s.searchedRecently(x, d.now())));
         if (terms !== undefined && !opts.force && wanted.length < given.length && wanted.length === 0) return refuse('Te hasła były szukane niedawno (w ostatnich 7 dniach). Kliknij ponownie, jeśli chcesz szukać jeszcze raz.');
       } catch (e) {
-        return refuse(`Nie udało się przygotować szukania: ${e instanceof Error ? e.message : String(e)}`);
+        logDetail('Przygotowanie szukania', e);
+        return refuse('Nie udało się przygotować szukania.');
       }
       if (region === null) return refuse('Najpierw zsynchronizuj zamówienia: wyszukiwanie potrzebuje Twojego regionu dostawy.');
       wanted = wanted.slice(0, MAX_SEARCH_TERMS);
@@ -446,10 +449,11 @@ export function createService(d: ServiceDeps) {
       } catch (e) {
         busy = null;
         releaseLock(lockFile, token);
-        return refuse(`Nie udało się uruchomić szukania: ${e instanceof Error ? e.message : String(e)}`);
+        logDetail('Uruchomienie szukania', e);
+        return refuse('Nie udało się uruchomić szukania.');
       }
       void runSearch(wanted, region, lockFile, token).catch((e) => {
-        console.error(`Błąd szukania: ${e instanceof Error ? e.message : String(e)}`);
+        logDetail('Błąd szukania', e);
         busy = null;
       });
       return { started: true };
@@ -462,21 +466,23 @@ export function createService(d: ServiceDeps) {
         d.emit({ type: 'state' });
       } catch (e) {
         busy = null;
-        return refuse(`Nie udało się uruchomić synchronizacji: ${e instanceof Error ? e.message : String(e)}`);
+        logDetail('Uruchomienie synchronizacji', e);
+        return refuse('Nie udało się uruchomić synchronizacji.');
       }
       void (async () => {
         let code = 1;
         try {
           code = await syncAll(d.syncDeps, (text) => safeEmit({ type: 'log', text }), (e) => { for (const text of syncMessages(e)) safeEmit({ type: 'log', text }); });
         } catch (e) {
-          safeEmit({ type: 'log', text: `Synchronizacja nie powiodła się: ${e instanceof Error ? e.message : String(e)}` });
+          logDetail('Synchronizacja', e);
+          safeEmit({ type: 'log', text: 'Synchronizacja nie powiodła się.' });
         } finally {
           busy = null;
           safeEmit({ type: 'state' });
           safeEmit({ type: 'done', code });
         }
       })().catch((e) => {
-        console.error(`Błąd synchronizacji: ${e instanceof Error ? e.message : String(e)}`);
+        logDetail('Błąd synchronizacji', e);
         busy = null;
       });
       return { started: true };
@@ -553,7 +559,7 @@ export function createService(d: ServiceDeps) {
           stoppedReason ??= cleanText(s.reason);
           // Auchan said no: searching stays off for a day, whatever happens after this.
           if (s.status === 403 || s.status === 429) {
-            try { withStore((st) => st.blockSearch(s.status!, d.now())); } catch (e) { console.error(`Nie udało się zapisać blokady szukania: ${e instanceof Error ? e.message : String(e)}`); }
+            try { withStore((st) => st.blockSearch(s.status!, d.now())); } catch (e) { logDetail('Zapis blokady szukania', e); }
           }
           safeEmit({ type: 'log', text: s.reason });
         }
@@ -569,7 +575,8 @@ export function createService(d: ServiceDeps) {
       } catch (e) {
         failed = true;
         if (e instanceof ProfileBusy) failedReason = PROFILE_BUSY_TEXT;
-        safeEmit({ type: 'log', text: failedReason ?? `Szukanie nie powiodło się: ${cleanText(e instanceof Error ? e.message : String(e))}` });
+        logDetail('Szukanie', e);
+        safeEmit({ type: 'log', text: failedReason ?? 'Szukanie nie powiodło się.' });
       } finally {
         await search.close().catch(() => {});
         activeSearch = null;
@@ -591,7 +598,8 @@ export function createService(d: ServiceDeps) {
             found.push(r.term);
           } catch (e) {
             failed = true;
-            safeEmit({ type: 'log', text: `${cleanText(r.term)}: ${cleanText(e instanceof Error ? e.message : String(e))}` });
+            logDetail(`Zapis wyników szukania (${cleanText(r.term)})`, e);
+            safeEmit({ type: 'log', text: `${cleanText(r.term)}: nie udało się zapisać wyników.` });
           }
         }
       });
@@ -618,8 +626,8 @@ export function createService(d: ServiceDeps) {
       busy = null;
       announce({ type: 'search', status: failed ? 'stopped' : 'done', found: found.length, total: terms.length, ...(failedReason !== undefined ? { reason: failedReason } : {}) });
     } catch (e) {
-      const text = `Nie udało się zapisać wyników szukania: ${cleanText(e instanceof Error ? e.message : String(e))}`;
-      console.error(`Błąd zapisu po szukaniu: ${e instanceof Error ? e.message : String(e)}`);
+      const text = 'Nie udało się zapisać wyników szukania.';
+      logDetail('Błąd zapisu po szukaniu', e);
       busy = null;
       announce({ type: 'search', status: 'stopped', reason: text });
       safeEmit({ type: 'log', text });
@@ -651,7 +659,8 @@ export function createService(d: ServiceDeps) {
         },
       });
     } catch (e) {
-      problems.push(e instanceof Error ? e.message : String(e));
+      logDetail('Wypełnianie', e);
+      problems.push('nieoczekiwany błąd.');
     }
     const code = result?.code ?? 1;
     try {
@@ -670,7 +679,7 @@ export function createService(d: ServiceDeps) {
         if (mine) commit({ ...trip, step: 'zatwierdzenie', ...(stopped403 ? { blocked: true } : {}), messages: [...trip.messages, `Wypełnianie nie powiodło się: ${text}`] });
       }
     } catch (e) {
-      console.error(`Błąd zapisu po wypełnianiu: ${e instanceof Error ? e.message : String(e)}`);
+      logDetail('Błąd zapisu po wypełnianiu', e);
     } finally {
       busy = null;
       safeEmit({ type: 'done', code });

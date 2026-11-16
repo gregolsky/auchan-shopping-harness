@@ -5,6 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { openStore, type Store, type SyncKind } from './store.ts';
 import { DB_PATH } from './dbpath.ts';
+import { logDetail, shownText, UserError } from './errors.ts';
 import { buildDraft } from './draft.ts';
 
 // This file must never import the worker or anything that can reach Auchan. Only the planner write tools open the store writable.
@@ -26,13 +27,15 @@ function withData(dbPath: string, kind: SyncKind, fn: (store: Store, freshness: 
     return json(fn(store, { lastSyncAt, ageHours }));
   } catch (e) {
     // Busy, corrupt, unreadable or mismatched database: say so, do not suggest a sync.
-    return { isError: true, content: [{ type: 'text' as const, text: `Database error: ${e instanceof Error ? e.message : String(e)}` }] };
+    logDetail('Database error', e);
+    return { isError: true, content: [{ type: 'text' as const, text: DB_ERROR_TEXT }] };
   } finally {
     store?.close();
   }
 }
 
-const DB_ERROR = (e: unknown) => ({ isError: true, content: [{ type: 'text' as const, text: `Database error: ${e instanceof Error ? e.message : String(e)}` }] });
+const DB_ERROR_TEXT = 'Database error: the local database could not be read. See the server log for details.';
+const DB_ERROR = (e: unknown) => ({ isError: true, content: [{ type: 'text' as const, text: e instanceof UserError ? e.message : shownText('Database error', e, DB_ERROR_TEXT) }] });
 const fail = (msg: string) => ({ isError: true, content: [{ type: 'text' as const, text: msg }] });
 const NEVER_AUCHAN = ' Money is in grosze (1 zł = 100 grosze). Reads only the local database; never contacts Auchan.';
 
@@ -136,7 +139,7 @@ export function createServer(dbPath: string = DB_PATH): McpServer {
         try {
           s.recordCorrection({ term, proposedProductId: proposedProductId ?? null, chosenProductId: chosenProductId ?? null, reason });
         } catch (e) {
-          if (chosenProductId && /FOREIGN KEY/i.test(String(e))) throw new Error('Unknown chosenProductId: no such product in the local data.');
+          if (chosenProductId && /FOREIGN KEY/i.test(String(e))) throw new UserError('Unknown chosenProductId: no such product in the local data.');
           throw e;
         }
         return { ok: true };

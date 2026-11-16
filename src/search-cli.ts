@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
-import { cleanText, parseSearchState } from './parse.ts';
+import { cleanText, parseSearchState, ShapeError } from './parse.ts';
+import { logDetail } from './errors.ts';
 import { buildDraft } from './draft.ts';
 import { zl } from './money.ts';
 import { createBrowserSearch, MAX_SEARCH_TERMS, openSearchPage, PROFILE_BUSY_TEXT, searchBlockText, type SearchResult, type SearchStatus } from './search-browser.ts';
@@ -35,7 +36,8 @@ export async function main(args: string[], deps: SearchDeps = liveDeps): Promise
   try {
     token = acquireLock(lockFile);
   } catch (e) {
-    deps.error(`Nie udało się sprawdzić blokady: ${cleanText(e instanceof Error ? e.message : String(e))}`);
+    logDetail('Blokada', e);
+    deps.error('Nie udało się sprawdzić blokady.');
     return 1;
   }
   if (!token) {
@@ -45,7 +47,8 @@ export async function main(args: string[], deps: SearchDeps = liveDeps): Promise
   try {
     return await run(args, deps);
   } catch (e) {
-    deps.error(e instanceof ProfileBusy ? PROFILE_BUSY_TEXT : `Wyszukiwanie nie powiodło się: ${cleanText(e instanceof Error ? e.message : String(e))}`);
+    if (!(e instanceof ProfileBusy)) logDetail('Wyszukiwanie', e);
+    deps.error(e instanceof ProfileBusy ? PROFILE_BUSY_TEXT : 'Wyszukiwanie nie powiodło się.');
     return 1;
   } finally {
     releaseLock(lockFile, token);
@@ -110,12 +113,13 @@ async function run(args: string[], deps: SearchDeps): Promise<number> {
         } else {
           try {
             const parsed = parseSearchState(r.state, r.term, new Date().toISOString());
-            if (parsed.regionId !== region) throw new Error(`strona wyników jest dla innego regionu niż Twoje zamówienia; nie zapisuję`);
+            if (parsed.regionId !== region) throw new ShapeError(`strona wyników jest dla innego regionu niż Twoje zamówienia; nie zapisuję`);
             store.saveSearchResults(r.term, parsed, new Date());
             deps.log(`${term}: znaleziono ${parsed.products.length} ${plural(parsed.products.length)}`);
             known.push(r.term);
           } catch (e) {
-            deps.error(`${term}: ${cleanText(e instanceof Error ? e.message : String(e))}`);
+            if (!(e instanceof ShapeError)) logDetail(`Zapis wyników (${term})`, e);
+            deps.error(`${term}: ${e instanceof ShapeError ? cleanText(e.message) : 'nie udało się zapisać wyników.'}`);
             failed = true;
           }
         }

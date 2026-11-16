@@ -175,7 +175,7 @@ test('the lock file exists during the fill and is gone afterwards, also after a 
   assert.equal(await main([], bad.deps), 1);
   assert.ok(bad.log.lockDuring.every(Boolean));
   assert.equal(existsSync(bad.lockFile), false);
-  assert.match(bad.log.err.join('\n'), /Fill failed: boom/);
+  assert.match(bad.log.err.join('\n'), /Fill failed unexpectedly\./);
   assert.match(bad.log.err.join('\n'), /bezpieczne/);
   assert.equal(bad.log.closed, 1);
 });
