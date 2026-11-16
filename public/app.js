@@ -22,6 +22,12 @@ export function categoryFor(categoryPath) {
   return { key, label: CATEGORY_LABELS[key], icon: key };
 }
 
+/** The category text a card shows: none when the card already sits under a heading of that category. */
+export function categoryLabelText(categoryPath, groupKey = null) {
+  const category = categoryFor(categoryPath);
+  return category.key === groupKey ? '' : category.label;
+}
+
 export function groupByCategory(items) {
   const groups = new Map();
   items.forEach((item) => {
@@ -416,11 +422,12 @@ function iconNode(key) {
   iconPaths(key).forEach((shape) => { const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d', shape); svg.append(path); });
   return svg;
 }
-function categoryTag(categoryPath) {
+function categoryTag(categoryPath, groupKey = null) {
   const category = categoryFor(categoryPath);
   const tag = element('span', 'category-tag');
   tag.setAttribute('aria-label', category.label);
-  return append(tag, iconNode(category.icon), element('span', '', category.label));
+  const text = categoryLabelText(categoryPath, groupKey);
+  return text ? append(tag, iconNode(category.icon), element('span', '', text)) : append(tag, iconNode(category.icon));
 }
 function append(parent, ...children) { for (const child of children) parent.append(child); return parent; }
 function button(label, action, className = 'button', disabled = false) {
@@ -543,13 +550,13 @@ export function start() {
     return node;
   }
   /** One product of the list with everything needed to decide next to it: the stepper, Claude's proposal, the question or other candidates. */
-  function lineCardNode(line, ops) {
+  function lineCardNode(line, ops, groupKey = null) {
     const view = lineCard(line, ops);
     const node = element('article', `line-card${view.held ? ' waiting' : ''}`);
     node.dataset.lineKey = line.lineKey; node.tabIndex = -1;
     node.append(element('div', 'meta from-list', view.label));
     const info = element('div', 'line-info');
-    append(info, element('span', 'line-name', view.name), categoryTag(view.categoryPath), element('span', 'price', view.priceText), element('span', `badge ${view.badge.level}`, view.badge.text));
+    append(info, element('span', 'line-name', view.name), categoryTag(view.categoryPath, groupKey), element('span', 'price', view.priceText), element('span', `badge ${view.badge.level}`, view.badge.text));
     if (view.badge.reason) info.append(element('div', 'meta why', `Dlaczego sprawdzić: ${view.badge.reason}`));
     node.append(append(element('div', 'line-main'), thumb(view.imageUrl, view.imageAlt), info));
     if (view.suggestion) node.append(append(element('div', 'actions'), button(view.included ? '✓ W koszyku' : '＋ Dodaj', () => run('/api/line', { lineKey: line.lineKey, included: !view.included }), 'small')));
@@ -591,7 +598,7 @@ export function start() {
       const section = element('section', 'category-group');
       const title = append(element(heading, 'category-heading'), iconNode(category.icon), element('span', '', category.label), element('span', 'category-count', String(items.length)));
       section.append(title);
-      items.forEach((line) => section.append(lineCardNode(line, opsFor(line))));
+      items.forEach((line) => section.append(lineCardNode(line, opsFor(line), category.key)));
       parent.append(section);
     });
   }

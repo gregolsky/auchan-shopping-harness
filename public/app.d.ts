@@ -1,5 +1,6 @@
 export const STEPS: string[];
 export function categoryFor(categoryPath?: string[]): { key: string; label: string; icon: string };
+export function categoryLabelText(categoryPath: string[] | undefined, groupKey?: string | null): string;
 export function groupByCategory<T extends { categoryPath?: string[] }>(items: T[]): { category: { key: string; label: string; icon: string }; items: T[] }[];
 export function iconPaths(key: string): string[];
 export function reportView(text: string, tripLines?: { name: string; categoryPath?: string[] }[]): { sections: { key: string; title: string; items: { title: string; detail: string; categoryPath?: string[]; category: { key: string; label: string; icon: string } }[] }[]; summary: string[] };

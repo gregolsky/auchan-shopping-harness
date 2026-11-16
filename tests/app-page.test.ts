@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionHelp, actionNote, categoryFor, groupByCategory, iconPaths, reportView } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionHelp, actionNote, categoryFor, groupByCategory, categoryLabelText, iconPaths, reportView } from '../public/app.js';
 
 test('catalog category paths map to stable shopping sections and unknown paths stay in Inne', () => {
   assert.equal(categoryFor(['Artykuły spożywcze', 'Sery']).key, 'dairy');
@@ -615,4 +615,12 @@ test('after an action the page says the new state of the item in words', () => {
   assert.equal(actionNote('remove', 'chleb tostowy'), 'chleb tostowy — usunięty z zakupów');
   assert.equal(actionNote('search', 'chleb tostowy'), 'chleb tostowy — zostaje na liście, szukasz innego produktu');
   assert.equal(actionNote('other', 'chleb tostowy'), 'chleb tostowy — zostaje na liście, wybierz inny produkt');
+});
+
+test('a card repeats its category text only outside a group of that category', () => {
+  const path = ['Nabiał i jaja', 'Jogurty'];
+  const category = categoryFor(path);
+  assert.equal(categoryLabelText(path, category.key), '');
+  assert.equal(categoryLabelText(path, 'pantry'), category.label);
+  assert.equal(categoryLabelText(path), category.label);
 });
