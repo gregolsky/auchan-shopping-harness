@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, fchmodSync, fstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
@@ -271,16 +271,30 @@ export function createStop(service: Pick<AppService, 'shutdown'>, server: http.S
 export const DEFAULT_PORT = 47474;
 const TOKEN_RE = /^[0-9a-f]{32}$/;
 
-/** The page token survives restarts so the URL can be bookmarked; owner-only file, replaced if damaged. */
+/** The page token survives restarts so the URL can be bookmarked; owner-only file, replaced if damaged. A symlink at the path is never followed. */
 export function loadOrCreateToken(file: string): string {
+  let fd: number | undefined;
   try {
-    const saved = readFileSync(file, 'utf8').trim();
-    if (TOKEN_RE.test(saved)) return saved;
-  } catch { /* missing or unreadable: make a new one */ }
+    fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const saved = readFileSync(fd, 'utf8').trim();
+    if (TOKEN_RE.test(saved)) {
+      if ((fstatSync(fd).mode & 0o077) !== 0) fchmodSync(fd, 0o600);
+      return saved;
+    }
+  } catch { /* missing, a symlink or unreadable: make a new one */ } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
   const token = randomBytes(16).toString('hex');
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-  writeFileSync(file, token + '\n', { mode: 0o600 });
-  chmodSync(file, 0o600);
+  // A new file beside the path, renamed over it: a symlink at the path is replaced, not written through.
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    writeFileSync(temp, token + '\n', { flag: 'wx', mode: 0o600 });
+    renameSync(temp, file);
+  } catch (e) {
+    rmSync(temp, { force: true });
+    throw e;
+  }
   return token;
 }
 

@@ -104,3 +104,10 @@ test('a takeover of a lock that is unchanged since judgement succeeds', () => {
   assert.equal(readFileSync(file, 'utf8'), token);
   assert.deepEqual(readdirSync(dir), ['fill.lock']);
 });
+
+test('a lock directory created for the lock is owner-only', () => {
+  const { dir } = tmp();
+  const file = join(dir, 'nested', 'fill.lock');
+  assert.ok(acquireLock(file));
+  assert.equal(statSync(join(dir, 'nested')).mode & 0o777, 0o700);
+});

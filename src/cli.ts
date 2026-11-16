@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openStore, type Store } from './store.ts';
@@ -22,8 +22,34 @@ export interface Deps {
 
 /** Order history and the session live here: owner only, whichever command creates it first. */
 export function ensureStateDir(file: string): void {
-  mkdirSync(dirname(file), { recursive: true });
-  chmodSync(dirname(file), 0o700);
+  const dir = dirname(file);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // chmod follows a symlink; a linked state directory is left as its owner arranged it.
+  if (!lstatSync(dir).isSymbolicLink()) chmodSync(dir, 0o700);
+}
+
+/** The database file exists and is owner-only before SQLite opens it. A symlink at the path is refused: opening it would write wherever it points. */
+export function ensureDbFile(file: string): void {
+  let st;
+  try {
+    st = lstatSync(file);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  }
+  if (st?.isSymbolicLink()) throw new Error('The database path is a symbolic link; remove it and run again.');
+  if (st) {
+    chmodSync(file, 0o600);
+    return;
+  }
+  // Created whole beside the path and renamed in, so nothing is ever written through a link planted in between. SQLite reads an empty file as an empty database.
+  const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    writeFileSync(temp, '', { flag: 'wx', mode: 0o600 });
+    renameSync(temp, file);
+  } catch (e) {
+    rmSync(temp, { force: true });
+    throw e;
+  }
 }
 
 export const liveDeps: Deps = {
@@ -33,9 +59,7 @@ export const liveDeps: Deps = {
   },
   openStore() {
     ensureStateDir(DB_PATH);
-    // Create and restrict the file before opening it, so a failed chmod leaves no open handle behind. SQLite reads an empty file as an empty database.
-    if (!existsSync(DB_PATH)) writeFileSync(DB_PATH, '', { mode: 0o600 });
-    chmodSync(DB_PATH, 0o600);
+    ensureDbFile(DB_PATH); // before opening, so a failure leaves no open handle behind
     return openStore(DB_PATH);
   },
 };

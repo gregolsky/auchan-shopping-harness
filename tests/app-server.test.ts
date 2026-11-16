@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -423,4 +423,42 @@ test('the app port is fixed by default and APP_PORT overrides it only with a val
 
 test('a busy port is explained in Polish with the address of the running app', () => {
   assert.equal(portBusyMessage(47474, 'http://127.0.0.1:47474/?t=x'), 'Port 47474 jest zajęty — aplikacja już działa pod: http://127.0.0.1:47474/?t=x (albo port zajmuje inny program)');
+});
+
+test('a damaged short hex token is replaced and a valid token file that is too open ends owner-only', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'token-'));
+  const file = join(dir, 'app-token');
+  writeFileSync(file, 'abcd\n');
+  const fresh = loadOrCreateToken(file);
+  assert.match(fresh, /^[0-9a-f]{32}$/);
+  assert.equal(readFileSync(file, 'utf8').trim(), fresh);
+  chmodSync(file, 0o644);
+  assert.equal(loadOrCreateToken(file), fresh);
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+  rmSync(dir, { recursive: true });
+});
+
+test('the token file is replaced, never followed, when the path is a symlink', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'token-'));
+  const victim = join(dir, 'victim.txt');
+  // dangling link: nothing may be created at the victim
+  const dangling = join(dir, 'dangling');
+  symlinkSync(victim, dangling);
+  const t1 = loadOrCreateToken(dangling);
+  assert.equal(lstatSync(dangling).isSymbolicLink(), false);
+  assert.equal(readFileSync(dangling, 'utf8').trim(), t1);
+  assert.equal(statSync(dangling).mode & 0o777, 0o600);
+  assert.throws(() => statSync(victim), /ENOENT/);
+  // link to a file holding a valid token with open permissions: not read, not chmodded, not overwritten
+  const valid = 'c'.repeat(32);
+  writeFileSync(victim, valid + '\n');
+  chmodSync(victim, 0o644);
+  const linked = join(dir, 'linked');
+  symlinkSync(victim, linked);
+  const t2 = loadOrCreateToken(linked);
+  assert.notEqual(t2, valid);
+  assert.equal(readFileSync(victim, 'utf8'), valid + '\n');
+  assert.equal(statSync(victim).mode & 0o777, 0o644);
+  assert.equal(lstatSync(linked).isSymbolicLink(), false);
+  rmSync(dir, { recursive: true });
 });

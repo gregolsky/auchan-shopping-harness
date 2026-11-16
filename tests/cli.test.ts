@@ -1,10 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { describeFailure, main, runSync, type Deps } from '../src/cli.ts';
+import { describeFailure, ensureDbFile, ensureStateDir, main, runSync, type Deps } from '../src/cli.ts';
 import { openStore, type Store } from '../src/store.ts';
 import { Blocked, LoginRequired, Refused, type Worker } from '../src/worker.ts';
 import { parseDecoratedOrder, ShapeError } from '../src/parse.ts';
-import { readFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const page = (ids: string[]) => ({
   data: { customer: { ordersCompleted: {
@@ -398,4 +400,40 @@ test('sync orders reports placed orders, in Polish for the app', async () => {
   const en: string[] = [];
   await runSync('orders', w as Worker, store, 0, (x) => en.push(x), () => {});
   assert.ok(en.includes('placed orders (before delivery): 0'));
+});
+
+test('the database file is created owner-only, tightened when open, and never written through a symlink', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'db-'));
+  const db = join(dir, 'harness.db');
+  ensureDbFile(db);
+  assert.equal(statSync(db).mode & 0o777, 0o600);
+  assert.equal(statSync(db).size, 0);
+  chmodSync(db, 0o644);
+  ensureDbFile(db);
+  assert.equal(statSync(db).mode & 0o777, 0o600);
+  const victim = join(dir, 'victim.txt');
+  writeFileSync(victim, 'keep');
+  chmodSync(victim, 0o644);
+  const linked = join(dir, 'linked.db');
+  symlinkSync(victim, linked);
+  assert.throws(() => ensureDbFile(linked), /symbolic link/);
+  const dangling = join(dir, 'dangling.db');
+  symlinkSync(join(dir, 'nothing'), dangling);
+  assert.throws(() => ensureDbFile(dangling), /symbolic link/);
+  assert.equal(readFileSync(victim, 'utf8'), 'keep');
+  assert.equal(statSync(victim).mode & 0o777, 0o644);
+  assert.throws(() => statSync(join(dir, 'nothing')), /ENOENT/);
+});
+
+test('the state directory is owner-only, and a linked directory is not chmodded through the link', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'state-'));
+  ensureStateDir(join(dir, '.state', 'x.db'));
+  assert.equal(statSync(join(dir, '.state')).mode & 0o777, 0o700);
+  const real = join(dir, 'real');
+  mkdirSync(real, { mode: 0o755 });
+  chmodSync(real, 0o755);
+  symlinkSync(real, join(dir, 'link'));
+  ensureStateDir(join(dir, 'link', 'x.db'));
+  assert.equal(lstatSync(join(dir, 'link')).isSymbolicLink(), true);
+  assert.equal(statSync(real).mode & 0o777, 0o755);
 });

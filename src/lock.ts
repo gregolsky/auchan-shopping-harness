@@ -86,7 +86,7 @@ export function takeOverStale(file: string, judged: string): string | false {
 
 /** Takes the lock atomically and returns what it wrote (the token for releaseLock); false when a live process holds it. A stale lock is moved aside and replaced once. */
 export function acquireLock(file: string): string | false {
-  mkdirSync(dirname(file), { recursive: true });
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   const first = write(file);
   if (first !== false) return first;
   const raw = readRaw(file);
