@@ -38,3 +38,23 @@ A local, read-only copy of order history and promotions, kept in `.state/harness
 ## Search (user-approved)
 
 `npm run search-auchan -- <term>...` (up to 10 terms, add `--force` to search again) looks each term up on Auchan in a visible browser window with the dedicated profile, saves the results (products and prices, source `search`) and prints the planner's top match per term. Auchan shows a captcha for automated browsers: solve it by hand in the window; the harness waits and never tries to get around it. HTTP 403 or an unexpected page stops the run without retry. It waits 5 seconds between searches, and a term searched in the last 7 days is skipped unless `--force`. Run `npm run sync orders` first (the search needs your delivery region).
+
+## Your data / delete my data
+
+Everything stays on this computer, except what goes to Anthropic as described below.
+
+What is stored:
+
+- `.state/` (owner-only, never committed): the Auchan session cookies (`session.json`), your orders with delivery times and your region id, product prices, the choices the planner learned (corrections, brands, blocked products), the current trip (`trip.json`) and the app token (`app-token`).
+- `tests/fixtures/raw/` (never committed): raw captures of Auchan responses, which can hold personal details. Delete them when you no longer need them.
+- The Chromium profile at `~/.cache/chrome-devtools-mcp/zakupy`: the browser login for Auchan, used only for logging in and for the search window.
+
+What goes to Anthropic: the app and the `/zakupy` skill call `claude -p`, which sends your shopping note, product names and prices to Anthropic. Order ids, your region, cookies and the session are not sent.
+
+To delete everything:
+
+```
+rm -rf .state tests/fixtures/raw ~/.cache/chrome-devtools-mcp/zakupy
+```
+
+Log out on Auchan as well if you want the session to end there.

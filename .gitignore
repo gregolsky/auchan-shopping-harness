@@ -40,3 +40,13 @@ credentials.json
 
 # Raw captured Auchan responses (personal data)
 tests/fixtures/raw/
+
+# Agent notes, logs, test output and screenshots
+.superpowers/
+*.log
+test-results/
+playwright-report/
+*.raw.json
+*.db
+*.sqlite*
+*.png
