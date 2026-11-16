@@ -508,3 +508,27 @@ test('loadTrip drops an invalid retailerProductId and keeps the trip', () => {
     assert.equal(loaded.lines[0].candidates[0].retailerProductId, undefined);
   }
 });
+
+test('latestPriceSeenAt flows from the draft to the line and its candidates, and loadTrip drops a malformed one', () => {
+  const d = draft();
+  d.items[0] = { ...d.items[0], latestPriceSeenAt: '2026-08-07T10:00:00Z', alternatives: [{ productId: 'B', name: 'Ser B', lineCostGrosze: 800, confidence: 'high', latestPriceSeenAt: '2026-10-01T10:00:00Z' }] };
+  const t = tripFromDraft(emptyTrip(NOW), d, {});
+  const line = t.lines.find((l) => l.productId === 'A')!;
+  assert.equal(line.latestPriceSeenAt, '2026-08-07T10:00:00Z');
+  assert.deepEqual(line.candidates.map((c) => c.latestPriceSeenAt), ['2026-08-07T10:00:00Z', '2026-10-01T10:00:00Z']);
+  assert.equal(chooseProduct(t, line.lineKey, 'B').trip.lines.find((l) => l.productId === 'B')!.latestPriceSeenAt, '2026-10-01T10:00:00Z');
+  assert.equal(t.lines.find((l) => l.productId === 'M')!.latestPriceSeenAt, undefined);
+  const file = join(mkdtempSync(join(tmpdir(), 'trip-')), 'trip.json');
+  saveTrip(file, t);
+  assert.equal(loadTrip(file)!.lines.find((l) => l.productId === 'A')!.latestPriceSeenAt, '2026-08-07T10:00:00Z');
+  for (const bad of ['yesterday', '', 5, null, '2026-13-45T00:00:00Z']) {
+    const raw: any = JSON.parse(JSON.stringify(t));
+    raw.lines[0].latestPriceSeenAt = bad;
+    raw.lines[0].candidates[0].latestPriceSeenAt = bad;
+    writeFileSync(file, JSON.stringify(raw));
+    const loaded = loadTrip(file)!;
+    assert.ok(loaded, String(bad));
+    assert.equal(loaded.lines[0].latestPriceSeenAt, undefined);
+    assert.equal(loaded.lines[0].candidates[0].latestPriceSeenAt, undefined);
+  }
+});

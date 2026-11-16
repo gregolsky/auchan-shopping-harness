@@ -99,6 +99,8 @@ export interface ProductFacts {
   usualQuantity: number | null;
   /** current_grosze of the newest price_history row. */
   latestPriceGrosze: number | null;
+  /** seen_at of that newest price row; optional so hand-built facts need not carry it. */
+  latestPriceSeenAt?: string | null;
   /** Offer fields only from rows seen in the latest promotion sync. */
   offerText: string | null;
   requiredQuantity: number | null;
@@ -616,9 +618,11 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
         if ((last.get(l.product_id) ?? '') < l.delivered_at) last.set(l.product_id, l.delivered_at);
       }
       const latestPrice = new Map<string, number>(); // rows are in seen_at order, so the last one wins
+      const latestSeen = new Map<string, string>();
       const orderPrices = new Map<string, number[]>();
       for (const r of prices) {
         latestPrice.set(r.product_id, r.current_grosze);
+        latestSeen.set(r.product_id, r.seen_at);
         if (r.source === 'order') (orderPrices.get(r.product_id) ?? orderPrices.set(r.product_id, []).get(r.product_id)!).push(r.current_grosze);
       }
       const offer = new Map<string, { offerText: string | null; requiredQuantity: number | null }>();
@@ -635,7 +639,7 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
         return {
           productId: p.product_id, retailerProductId: p.retailer_product_id ?? null, name: p.name, brand: p.brand, categoryPath: JSON.parse(p.category_path), size: p.size,
           timesBought: q.length, lastBoughtAt: last.get(p.product_id) ?? null, usualQuantity: median(q),
-          latestPriceGrosze: latestPrice.get(p.product_id) ?? null,
+          latestPriceGrosze: latestPrice.get(p.product_id) ?? null, latestPriceSeenAt: latestSeen.get(p.product_id) ?? null,
           offerText: offer.get(p.product_id)?.offerText ?? null, requiredQuantity: offer.get(p.product_id)?.requiredQuantity ?? null,
           medianUnitPriceGrosze: med === null ? null : Math.round(med), pricePoints: units.length,
           imageUrl: p.image_url, imageAlt: p.image_alt,

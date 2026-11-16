@@ -334,3 +334,11 @@ test('the retailer product id travels to the line and its alternatives', () => {
   assert.equal(d.items[0].alternatives[0].retailerProductId, '00475176');
   assert.ok(!('retailerProductId' in d.items[0].alternatives[1]));
 });
+
+test('the date of the latest price travels to the line and its alternatives', () => {
+  const facts = [fact('a', { name: 'Kawa a', timesBought: 5, latestPriceSeenAt: '2026-08-07T10:00:00Z' }), fact('b', { name: 'Kawa b', timesBought: 2, latestPriceSeenAt: '2026-10-30T10:00:00Z' }), fact('c', { name: 'Kawa c', timesBought: 1 })];
+  const d = buildDraft(input([{ term: 'kawa', quantity: 1 }]), facts, [], now);
+  assert.equal(d.items[0].latestPriceSeenAt, '2026-08-07T10:00:00Z');
+  assert.equal(d.items[0].alternatives[0].latestPriceSeenAt, '2026-10-30T10:00:00Z');
+  assert.ok(!('latestPriceSeenAt' in d.items[0].alternatives[1]));
+});

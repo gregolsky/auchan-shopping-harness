@@ -444,3 +444,14 @@ test('product facts expose the retailer product id', () => {
   assert.equal(s.productFacts()[0].retailerProductId, 'r-a');
   s.close();
 });
+
+test('product facts expose the date of the latest price, and none without one', () => {
+  const s = openStore(':memory:');
+  s.savePromotions(promo([product('a', 'Mleko')], [price('a', '2026-08-07T10:00:00Z', 328)]));
+  s.savePromotions(promo([product('a', 'Mleko')], [price('a', '2026-10-31T10:00:00Z', 248)]));
+  const f = s.productFacts()[0];
+  assert.equal(f.latestPriceGrosze, 248);
+  assert.equal(f.latestPriceSeenAt, '2026-10-31T10:00:00Z');
+  assert.equal(s.productFacts({ asOf: '2026-09-01T00:00:00Z' })[0].latestPriceSeenAt, '2026-08-07T10:00:00Z');
+  s.close();
+});

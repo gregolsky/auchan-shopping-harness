@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionHelp, actionHelpEvent, actionNote, categoryFor, groupByCategory, categoryLabelText, iconPaths, reportView, reportPriceText, auchanProductUrl } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionHelp, actionHelpEvent, actionNote, categoryFor, groupByCategory, categoryLabelText, iconPaths, reportView, reportPriceText, auchanProductUrl, priceAgeText } from '../public/app.js';
 
 test('catalog category paths map to stable shopping sections and unknown paths stay in Inne', () => {
   assert.equal(categoryFor(['Artykuły spożywcze', 'Sery']).key, 'dairy');
@@ -685,4 +685,30 @@ test('the Auchan product link is an anchor opened safely and never inside a butt
   assert.match(option, /element\('button', 'option'\)/);
   for (const used of ['line.retailerProductId', 'view.retailerProductId', 'item.retailerProductId', 'p.product']) assert.ok(js.includes(used) || used === 'p.product', used);
   assert.ok((js.match(/productLink\(/g) ?? []).length >= 5, 'line card, option, proposal, approval/line list and report rows');
+});
+
+test('priceAgeText is empty for a fresh or unknown price and names the day of an old one', () => {
+  const now = new Date('2026-11-15T12:00:00Z');
+  assert.equal(priceAgeText('2026-08-07T10:00:00Z', now), 'cena z 7 sie');
+  assert.equal(priceAgeText('2026-10-31T10:00:00Z', now), null);
+  assert.equal(priceAgeText('2026-10-16T12:00:00Z', now), null, 'exactly 30 days is still fresh');
+  assert.equal(priceAgeText('2026-10-16T11:59:00Z', now), 'cena z 16 paź');
+  assert.equal(priceAgeText(null, now), null);
+  assert.equal(priceAgeText(undefined, now), null);
+  assert.equal(priceAgeText('garbage', now), null);
+  assert.equal(priceAgeText('2027-01-01T00:00:00Z', now), null, 'a date in the future is not stale');
+  const months = ['2026-01-02', '2026-02-03', '2026-03-04', '2026-04-05', '2026-05-06', '2026-06-07', '2026-07-08', '2026-08-09', '2026-09-10', '2026-10-11', '2026-11-12', '2026-12-13'];
+  assert.deepEqual(months.map((d) => priceAgeText(`${d}T10:00:00Z`, new Date('2027-06-01T00:00:00Z'))!.replace(/^cena z \d+ /, '')), ['sty', 'lut', 'mar', 'kwi', 'maj', 'cze', 'lip', 'sie', 'wrz', 'paź', 'lis', 'gru']);
+});
+
+test('cards carry the price age text and the approval total warns when an included line has a stale price', () => {
+  const now = new Date('2026-11-15T12:00:00Z');
+  const old = { ...line, question: null, latestPriceSeenAt: '2026-08-07T10:00:00Z', candidates: [{ productId: 'a', name: 'A', confidence: 'high', lineCostGrosze: 1, latestPriceSeenAt: '2026-08-07T10:00:00Z' }, { productId: 'b', name: 'B', confidence: 'high', lineCostGrosze: 2, latestPriceSeenAt: '2026-11-10T10:00:00Z' }] };
+  const card = lineCard(old, [], now);
+  assert.equal(card.priceAge, 'cena z 7 sie');
+  assert.equal(card.alternatives[0].priceAge, null);
+  const trip = (lines: object[]) => ({ trip: { step: 'zatwierdzenie', lines, proposal: null, unmatched: [], messages: [] } });
+  assert.equal(viewModel(trip([old]), now).staleNote, 'Część cen może być nieaktualna.');
+  assert.equal(viewModel(trip([{ ...old, included: false }]), now).staleNote, null);
+  assert.equal(viewModel(trip([{ ...old, latestPriceSeenAt: '2026-11-01T00:00:00Z' }]), now).staleNote, null);
 });

@@ -198,7 +198,7 @@ export function approveHint(model, busy) {
   return null;
 }
 
-export function viewModel(state) {
+export function viewModel(state, now = new Date()) {
   const trip = state.trip || {};
   const lines = trip.lines || [];
   const stepIndex = stepIndexOf(trip);
@@ -206,6 +206,7 @@ export function viewModel(state) {
     stepIndex,
     freshnessText: state.freshness?.ageHours == null ? 'Brak pełnej synchronizacji' : `Dane sprzed ${state.freshness.ageHours} godz.`,
     lines: lines.filter((l) => l.kind === 'item'), suggestions: lines.filter((l) => l.kind === 'suggestion'),
+    staleNote: lines.some((l) => l.included && priceAgeText(l.latestPriceSeenAt, now)) ? 'Część cen może być nieaktualna.' : null,
     unmatched: trip.unmatched || [], total: lines.filter((l) => l.included).reduce((sum, l) => sum + l.lineCostGrosze, 0),
     canApprove: stepIndex <= 4 && lines.some((l) => l.included) && !lines.some((l) => (l.included || l.held) && l.question) && !trip.proposal && !state.busy && !trip.blocked,
     inCart: stepIndex >= FIRST_CART,
@@ -288,7 +289,7 @@ export function describeOp(op, linesByKey) {
   }
 }
 
-const mini = (c) => ({ productId: c.productId, retailerProductId: c.retailerProductId, name: c.name, priceText: zl(c.lineCostGrosze), imageUrl: c.imageUrl || null, imageAlt: c.imageAlt || c.name, categoryPath: c.categoryPath });
+const mini = (c, now) => ({ productId: c.productId, retailerProductId: c.retailerProductId, name: c.name, priceText: zl(c.lineCostGrosze), priceAge: priceAgeText(c.latestPriceSeenAt, now), imageUrl: c.imageUrl || null, imageAlt: c.imageAlt || c.name, categoryPath: c.categoryPath });
 
 /** Claude's pending operations: per line (by lineKey) and the ones not tied to a line; each keeps its index in the proposal. */
 export function proposalView(trip) {
@@ -343,26 +344,26 @@ export function acceptAllSummary(ops) {
 export const acceptAllText = (count) => `Przyjmij wszystkie propozycje (${count})`;
 
 /** Everything one product card shows, so the DOM code only has to place it. */
-export function lineCard(line, ops = []) {
+export function lineCard(line, ops = [], now = new Date()) {
   const find = (id) => (line.candidates || []).find((c) => c.productId === id);
   const proposals = ops.map(({ index, op }) => {
     if (op.op === 'remove') return { index, kind: 'remove', text: 'usuń', product: null };
     if (op.op === 'setQuantity') return { index, kind: 'setQuantity', text: `ilość ${op.quantity}`, product: null };
     const c = find(op.productId);
-    return { index, kind: 'choose', text: c?.name || op.productId, product: c ? mini(c) : null };
+    return { index, kind: 'choose', text: c?.name || op.productId, product: c ? mini(c, now) : null };
   });
-  const asked = line.question ? line.question.options.map(find).filter(Boolean).map(mini) : [];
+  const asked = line.question ? line.question.options.map(find).filter(Boolean).map((c) => mini(c, now)) : [];
   const doubtful = line.held || line.confidence !== 'high';
   return {
     lineKey: line.lineKey, term: line.term ?? null, hasOthers: asked.length > 0 || (line.candidates || []).some((c) => c.productId !== line.productId && c.confidence !== 'low'),
-    label: lineLabel(line), retailerProductId: line.retailerProductId, name: line.name, priceText: zl(line.lineCostGrosze), categoryPath: line.categoryPath,
+    label: lineLabel(line), retailerProductId: line.retailerProductId, name: line.name, priceText: zl(line.lineCostGrosze), priceAge: priceAgeText(line.latestPriceSeenAt, now), categoryPath: line.categoryPath,
     imageUrl: line.imageUrl || null, imageAlt: line.imageAlt || line.name,
     quantity: line.quantity, canDec: line.quantity > 1, canInc: line.quantity < 20,
     suggestion: line.kind === 'suggestion', included: Boolean(line.included), held: Boolean(line.held),
     badge: { text: badgeText(line), level: line.held ? 'low' : line.confidence, reason: doubtful ? confidenceReasonText(line.confidenceReason) : null },
     proposals,
     question: line.question ? { text: line.question.text, options: asked } : null,
-    alternatives: line.question ? [] : (line.candidates || []).filter((c) => c.productId !== line.productId && c.confidence !== 'low').slice(0, 3).map(mini),
+    alternatives: line.question ? [] : (line.candidates || []).filter((c) => c.productId !== line.productId && c.confidence !== 'low').slice(0, 3).map((c) => mini(c, now)),
   };
 }
 
@@ -418,6 +419,16 @@ export const MANUAL_HINT = 'Produkty dodane ręcznie na Auchan planer pozna po z
 /** The product page on Auchan; null when the id is missing or not Auchan's digits-only product id. */
 export function auchanProductUrl(retailerProductId) {
   return typeof retailerProductId === 'string' && /^\d{4,14}$/.test(retailerProductId) ? `https://zakupy.auchan.pl/products/${retailerProductId}/details` : null;
+}
+
+const MONTHS = ['sty', 'lut', 'mar', 'kwi', 'maj', 'cze', 'lip', 'sie', 'wrz', 'paź', 'lis', 'gru'];
+const STALE_DAYS = 30;
+/** „cena z 7 sie” for a price seen more than 30 days before now; null when it is recent, unknown or unreadable. */
+export function priceAgeText(seenAt, now = new Date()) {
+  const at = typeof seenAt === 'string' ? new Date(seenAt) : null;
+  if (!at || Number.isNaN(at.getTime())) return null;
+  if (now.getTime() - at.getTime() <= STALE_DAYS * 86_400_000) return null;
+  return `cena z ${at.getUTCDate()} ${MONTHS[at.getUTCMonth()]}`;
 }
 
 export function auchanSearchUrl(term) { return `https://zakupy.auchan.pl/search?q=${encodeURIComponent(String(term))}`; }
@@ -489,6 +500,12 @@ function productLink(retailerProductId) {
   const link = element('a', 'product-link', 'Zobacz na Auchan ↗');
   link.href = href; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.referrerPolicy = 'no-referrer';
   return link;
+}
+/** A price with, when it is old, „· cena z 7 sie” after it. */
+function priceNode(text, age) {
+  const node = element('span', 'price', text);
+  if (age) node.append(element('span', 'price-age', ` · ${age}`));
+  return node;
 }
 function card(title, description = '') {
   const node = element('section', 'card');
@@ -597,7 +614,7 @@ export function start() {
     const node = element('button', 'option');
     node.type = 'button'; node.addEventListener('click', action);
     const description = append(element('span', 'option-details'), element('span', 'option-name', product.name), categoryTag(product.categoryPath));
-    append(node, thumb(product.imageUrl, product.imageAlt, 'thumb small-thumb'), description, element('span', 'price', product.priceText));
+    append(node, thumb(product.imageUrl, product.imageAlt, 'thumb small-thumb'), description, priceNode(product.priceText, product.priceAge));
     const wrap = element('div', 'option-item');
     wrap.append(node);
     const link = productLink(product.retailerProductId);
@@ -611,7 +628,7 @@ export function start() {
     node.dataset.lineKey = line.lineKey; node.tabIndex = -1;
     node.append(element('div', 'meta from-list', view.label));
     const info = element('div', 'line-info');
-    append(info, element('span', 'line-name', view.name), categoryTag(view.categoryPath, groupKey), element('span', 'price', view.priceText), element('span', `badge ${view.badge.level}`, view.badge.text));
+    append(info, element('span', 'line-name', view.name), categoryTag(view.categoryPath, groupKey), priceNode(view.priceText, view.priceAge), element('span', `badge ${view.badge.level}`, view.badge.text));
     const ownLink = productLink(view.retailerProductId);
     if (ownLink) info.append(ownLink);
     if (view.badge.reason) info.append(element('div', 'meta why', `Dlaczego sprawdzić: ${view.badge.reason}`));
@@ -628,7 +645,7 @@ export function start() {
     view.proposals.forEach((p) => {
       const row = element('div', 'proposal');
       row.append(element('span', 'proposal-title', 'Claude proponuje:'));
-      if (p.product) append(row, thumb(p.product.imageUrl, p.product.imageAlt, 'thumb small-thumb'), element('span', 'line-name', p.text), element('span', 'price', p.product.priceText));
+      if (p.product) append(row, thumb(p.product.imageUrl, p.product.imageAlt, 'thumb small-thumb'), element('span', 'line-name', p.text), priceNode(p.product.priceText, p.product.priceAge));
       else row.append(element('span', 'line-name', p.text));
       const proposedLink = p.product && productLink(p.product.retailerProductId);
       if (proposedLink) row.append(proposedLink);
@@ -772,7 +789,7 @@ export function start() {
     appendGroupedProducts(box, included);
     if (!included.length) box.append(element('p', 'empty', 'Lista jest pusta. Wróć do listy.'));
     if (model.unmatched.length) append(box, element('h3', '', 'Do dodania ręcznie w Auchan'), ...model.unmatched.flatMap((u) => [element('p', 'meta', unmatchedText(u)), searchLink(u.term)]), element('p', 'meta', MANUAL_HINT));
-    append(box, element('div', 'total', `Szacowana kwota: ${zl(model.total)}`), model.inCart ? element('p', 'meta', 'Te zakupy są już w koszyku. Zacznij nowe zakupy, żeby dodać coś jeszcze.') : button('✓ Zatwierdź i dodaj do koszyka', async () => { const result = await run('/api/approve', {}); if (result?.started) { selected = 5; render(); } }, 'button', !model.canApprove));
+    append(box, element('div', 'total', `Szacowana kwota: ${zl(model.total)}`), ...(model.staleNote ? [element('p', 'meta stale-note', model.staleNote)] : []), model.inCart ? element('p', 'meta', 'Te zakupy są już w koszyku. Zacznij nowe zakupy, żeby dodać coś jeszcze.') : button('✓ Zatwierdź i dodaj do koszyka', async () => { const result = await run('/api/approve', {}); if (result?.started) { selected = 5; render(); } }, 'button', !model.canApprove));
     if (!model.canApprove && !model.inCart && model.approveHint) box.append(element('p', 'meta', model.approveHint));
     target.append(box);
   }

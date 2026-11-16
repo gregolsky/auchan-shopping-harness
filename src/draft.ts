@@ -28,10 +28,12 @@ export interface DraftLine {
   /** Why a medium or low line is doubtful; "" for high. */
   confidenceReason: string;
   retailerProductId?: string;
+  /** When the price was last seen (ISO); lets the page say that an old price may have changed. */
+  latestPriceSeenAt?: string;
   imageUrl?: string | null;
   imageAlt?: string | null;
   categoryPath?: string[];
-  alternatives: { productId: string; retailerProductId?: string; name: string; lineCostGrosze: number; confidence: Confidence; imageUrl?: string | null; imageAlt?: string | null; categoryPath?: string[] }[];
+  alternatives: { productId: string; retailerProductId?: string; latestPriceSeenAt?: string; name: string; lineCostGrosze: number; confidence: Confidence; imageUrl?: string | null; imageAlt?: string | null; categoryPath?: string[] }[];
 }
 
 export interface Draft {
@@ -79,6 +81,7 @@ function line(f: Buyable, p: { term: string | null; quantity: number; reason: st
     confidence: p.confidence ?? 'high', confidenceReason: p.confidenceReason ?? '', alternatives: p.alternatives ?? [],
     imageUrl: f.imageUrl, imageAlt: f.imageAlt, categoryPath: f.categoryPath,
     ...(f.retailerProductId ? { retailerProductId: f.retailerProductId } : {}),
+    ...(f.latestPriceSeenAt ? { latestPriceSeenAt: f.latestPriceSeenAt } : {}),
   };
 }
 
@@ -119,7 +122,7 @@ export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: Inte
     let reason = basisReason(top, term) + savingNote(top);
     const note = perishableNote(top, quantity);
     if (note) reason += `; ${note}`;
-    const alternatives = ranked.slice(1, 4).filter(buyable).sort((a, b) => CONF_RANK[a.confidence] - CONF_RANK[b.confidence]).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, quantity), confidence: c.confidence, imageUrl: c.imageUrl, imageAlt: c.imageAlt, categoryPath: c.categoryPath, ...(c.retailerProductId ? { retailerProductId: c.retailerProductId } : {}) }));
+    const alternatives = ranked.slice(1, 4).filter(buyable).sort((a, b) => CONF_RANK[a.confidence] - CONF_RANK[b.confidence]).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, quantity), confidence: c.confidence, imageUrl: c.imageUrl, imageAlt: c.imageAlt, categoryPath: c.categoryPath, ...(c.retailerProductId ? { retailerProductId: c.retailerProductId } : {}), ...(c.latestPriceSeenAt ? { latestPriceSeenAt: c.latestPriceSeenAt } : {}) }));
     used.add(top.productId);
     items.push(line(top, { term, quantity, reason, guess: top.guess, alternatives, confidence: top.confidence, confidenceReason: top.confidenceReason }, now));
   }

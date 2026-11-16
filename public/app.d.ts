@@ -1,4 +1,5 @@
 export const STEPS: string[];
+export function priceAgeText(seenAt?: string | null, now?: Date): string | null;
 export function auchanProductUrl(retailerProductId?: string | null): string | null;
 export function categoryFor(categoryPath?: string[]): { key: string; label: string; icon: string };
 export function categoryLabelText(categoryPath: string[] | undefined, groupKey?: string | null): string;
@@ -8,7 +9,7 @@ export function reportView(text: string, tripLines?: { productId?: string; retai
 export function reportPriceText(item: { unitPriceGrosze?: number | null; priceSource?: 'planned' | 'cart'; approvedGrosze?: number; nowGrosze?: number; risePercent?: number }): string;
 export function progressLine(stepIndex: number): string;
 export function zl(grosze: number): string;
-export function viewModel(state: any): any;
+export function viewModel(state: any, now?: Date): any;
 export function describeOp(op: any, linesByKey: Map<string, any>): string;
 export function start(): void;
 export function describeQuestions(model: any): { intro: string | null; empty: string | null; canContinue: boolean };
@@ -24,7 +25,7 @@ export function doneSummary(model: any): string;
 export function failureText(kind: 'note' | 'ask', message: string): string;
 export function badgeText(line: any): string;
 export function confidenceReasonText(reason: string): string;
-export function lineCard(line: any, ops?: { index: number; op: any }[]): any;
+export function lineCard(line: any, ops?: { index: number; op: any }[], now?: Date): any;
 export function proposalView(trip: any): { count: number; byLine: Record<string, { index: number; op: any }[]>; loose: { index: number; op: any; text: string }[] };
 export function unmatchedCard(item: { term: string; hint?: string }): { title: string; hint: string | null };
 export function acceptAllText(count: number): string;
