@@ -342,3 +342,14 @@ test('the date of the latest price travels to the line and its alternatives', ()
   assert.equal(d.items[0].alternatives[0].latestPriceSeenAt, '2026-10-30T10:00:00Z');
   assert.ok(!('latestPriceSeenAt' in d.items[0].alternatives[1]));
 });
+
+test('a twin listing of the chosen product is not offered as an alternative', () => {
+  const facts = [
+    fact('00781527', { name: 'Mleko UHT 3.2%  Auchan 1 l', brand: 'Auchan', size: '1 l', timesBought: 9, lastBoughtAt: '2026-10-31T10:00:00Z' }),
+    fact('00475176', { name: 'Mleko UHT 3,2% Auchan 1l', brand: 'Auchan', size: '1l', timesBought: 5, lastBoughtAt: '2026-08-07T10:00:00Z' }),
+    fact('big', { name: 'Mleko UHT 3,2% Auchan 1,5 l', brand: 'Auchan', size: '1,5 l', timesBought: 1, lastBoughtAt: '2026-05-01T10:00:00Z' }),
+  ];
+  const d = buildDraft(input([{ term: 'mleko', quantity: 1 }]), facts, [], now);
+  assert.equal(d.items[0].productId, '00781527');
+  assert.deepEqual(d.items[0].alternatives.map((a) => a.productId), ['big']);
+});

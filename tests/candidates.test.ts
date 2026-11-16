@@ -431,3 +431,35 @@ test('an adjective term word meets a noun or adjective of the same stem, but not
   assert.equal(m('mleko', 'Jogurt naturalny', 'Mlekovita'), false);
   assert.equal(m('mlekowy', 'Jogurt naturalny Mlekovita', 'Mlekovita'), false);
 });
+
+const milkA = (over: Partial<ProductFacts> = {}) => fact('00781527', { name: 'Mleko UHT 3.2%  Auchan 1 l', brand: 'Auchan', size: '1 l', timesBought: 9, lastBoughtAt: '2026-10-31T10:00:00Z', latestPriceGrosze: 248, latestPriceSeenAt: '2026-10-31T10:00:00Z', ...over });
+const milkB = (over: Partial<ProductFacts> = {}) => fact('00475176', { name: 'Mleko UHT 3,2% Auchan 1l', brand: 'Auchan', size: '1l', timesBought: 5, lastBoughtAt: '2026-08-07T10:00:00Z', latestPriceGrosze: 328, latestPriceSeenAt: '2026-08-07T10:00:00Z', ...over });
+
+test('the same product listed twice under differently written names merges into the one bought last', () => {
+  assert.deepEqual(ids(rankCandidates('mleko', 1, [milkA(), milkB()], null)), ['00781527']);
+  assert.deepEqual(ids(rankCandidates('mleko', 1, [milkB(), milkA()], null)), ['00781527']);
+  // Recency, not purchase count, decides.
+  assert.deepEqual(ids(rankCandidates('mleko', 1, [milkA({ timesBought: 1, lastBoughtAt: '2026-01-01T00:00:00Z' }), milkB({ timesBought: 20 })], null)), ['00475176']);
+});
+
+test('of two duplicates never bought, the one with the newer price observation stays; a bought one beats an unbought one', () => {
+  const unboughtA = milkA({ timesBought: 0, lastBoughtAt: null });
+  const unboughtB = milkB({ timesBought: 0, lastBoughtAt: null });
+  assert.deepEqual(ids(rankCandidates('mleko', 1, [unboughtB, unboughtA], null)), ['00781527']);
+  assert.deepEqual(ids(rankCandidates('mleko', 1, [milkA({ timesBought: 0, lastBoughtAt: null, latestPriceSeenAt: '2026-11-10T00:00:00Z' }), milkB({ timesBought: 0, lastBoughtAt: null })], null)), ['00781527']);
+  assert.deepEqual(ids(rankCandidates('mleko', 1, [unboughtA, milkB()], null)), ['00475176']);
+});
+
+test('products that differ in size or brand never merge', () => {
+  const big = fact('big', { name: 'Mleko UHT 3,2% Auchan 1,5 l', brand: 'Auchan', size: '1,5 l', timesBought: 1, lastBoughtAt: '2026-01-01T00:00:00Z' });
+  const laciate = fact('laciate', { name: 'Mleko UHT 3,2% Łaciate 1 l', brand: 'Łaciate', size: '1 l', timesBought: 1, lastBoughtAt: '2026-01-01T00:00:00Z' });
+  assert.deepEqual(ids(rankCandidates('mleko', 1, [milkA(), milkB(), big, laciate], null)).sort(), ['00781527', 'big', 'laciate']);
+  // Same written name, different brand or size field: still apart.
+  assert.equal(rankCandidates('mleko', 1, [milkA(), milkB({ brand: 'Inna' })], null).length, 2);
+  assert.equal(rankCandidates('mleko', 1, [milkA(), milkB({ size: '2 l' })], null).length, 2);
+});
+
+test('a rule\'s preferred product survives a merge with a more recently bought twin', () => {
+  const r = rankCandidates('mleko', 1, [milkA(), milkB()], rule({ preferredProductId: '00475176' }));
+  assert.deepEqual(ids(r), ['00475176']);
+});

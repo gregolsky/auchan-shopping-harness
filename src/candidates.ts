@@ -131,9 +131,11 @@ export function rankCandidates(term: string, quantity: number | ((f: ProductFact
     });
   }
 
+  const merged = mergeTwins(out, rule?.preferredProductId ?? null);
+
   // Among products never bought, the one Auchan listed first leads.
   const lead = (c: Candidate) => (c.basis === 'value' && c.searchRank === 0 ? 0 : 1);
-  return out.sort((a, b) =>
+  return merged.sort((a, b) =>
     group(a) - group(b)
     || lead(a) - lead(b)
     || RANK[a.confidence] - RANK[b.confidence]
@@ -141,4 +143,30 @@ export function rankCandidates(term: string, quantity: number | ((f: ProductFact
     || (a.unitPriceGrosze === null ? 1 : 0) - (b.unitPriceGrosze === null ? 1 : 0)
     || (a.unitPriceGrosze ?? 0) - (b.unitPriceGrosze ?? 0)
     || a.name.localeCompare(b.name, 'pl'));
+}
+
+const UNITS = 'l|ml|cl|g|dag|kg|szt|m|cm';
+/** A product's identity for merging: name and size written alike (case, Polish letters, decimal comma, spaces, "1l" or "1 l"). */
+function twinText(s: string | null): string {
+  return normaliseTerm(s ?? '').replace(/,/g, '.').replace(new RegExp(`(\\d)\\s*(${UNITS})(?![\\p{L}\\d])`, 'gu'), '$1 $2').replace(/\s+/g, ' ');
+}
+
+/**
+ * Auchan lists some products twice under names that differ only in writing ("3,2%" and "3.2%", "1l" and "1 l"). Of such
+ * twins only one is offered: a rule's preferred product, else the one bought last, else (nothing bought) the one with the newest price.
+ */
+function mergeTwins(list: Candidate[], preferredId: string | null): Candidate[] {
+  const best = new Map<string, Candidate>();
+  const better = (a: Candidate, b: Candidate): boolean => {
+    if ((a.productId === preferredId) !== (b.productId === preferredId)) return a.productId === preferredId;
+    const bought = (a.lastBoughtAt ?? '').localeCompare(b.lastBoughtAt ?? '');
+    return bought !== 0 ? bought > 0 : (a.latestPriceSeenAt ?? '').localeCompare(b.latestPriceSeenAt ?? '') > 0;
+  };
+  const keyOf = (c: Candidate) => `${twinText(c.name)}|${normaliseTerm(c.brand)}|${twinText(c.size)}`;
+  for (const c of list) {
+    const key = keyOf(c);
+    const held = best.get(key);
+    if (!held || better(c, held)) best.set(key, c);
+  }
+  return list.filter((c) => best.get(keyOf(c)) === c);
 }
