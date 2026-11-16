@@ -259,6 +259,7 @@ test('approve fills the fake cart and emits progress then report then done; a se
   assert.equal((events.find((e) => e.type === 'done') as any).code, 0);
   assert.equal(svc.state().trip.step, 'platnosc');
   assert.equal(make().state().trip.reportText, rep.report.text, 'the report survives a service restart');
+  assert.deepEqual(make().state().trip.reportData, rep.report.structured, 'structured rows survive a service restart');
   assert.equal(svc.state().busy, null);
   assert.ok(store.latestApprovedBasket());
 });

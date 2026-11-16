@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } 
 import { dirname } from 'node:path';
 import type { Confidence } from '../candidates.ts';
 import type { Draft, DraftLine } from '../draft.ts';
+import type { PaymentReport, PaymentRow } from '../cart.ts';
 import { validImageUrl } from '../parse.ts';
 import { normaliseTerm } from '../store.ts';
 import { validateOps } from './ops.ts';
@@ -25,7 +26,7 @@ export interface UnmatchedTerm { term: string; hint: string; quantity?: number; 
 export interface Proposal { id: string; ops: Op[]; dropped: number; source: 'claude' | 'fallback' }
 export interface Trip {
   note: string; step: Step; mode: 'claude' | 'fallback'; lines: TripLine[]; unmatched: UnmatchedTerm[];
-  messages: string[]; proposal: Proposal | null; updatedAt: string; reportText?: string | null;
+  messages: string[]; proposal: Proposal | null; updatedAt: string; reportText?: string | null; reportData?: PaymentReport | null;
   /** Auchan answered the fill with a block (403): approving again is refused until a new trip is started. */
   blocked?: boolean;
 }
@@ -34,7 +35,7 @@ export interface Correction { term: string; proposedProductId: string | null; ch
 const MAX_QUANTITY = 20;
 
 export function emptyTrip(now: Date): Trip {
-  return { note: '', step: 'dane', mode: 'claude', lines: [], unmatched: [], messages: [], proposal: null, updatedAt: now.toISOString(), reportText: null };
+  return { note: '', step: 'dane', mode: 'claude', lines: [], unmatched: [], messages: [], proposal: null, updatedAt: now.toISOString(), reportText: null, reportData: null };
 }
 
 export function lineKeyFor(term: string | null, productId: string): string {
@@ -258,10 +259,12 @@ export function approvedLines(trip: Trip): { term: string | null; productId: str
 export const totalGrosze = (trip: Trip): number => trip.lines.filter((l) => l.included).reduce((sum, l) => sum + l.lineCostGrosze, 0);
 
 const MAX_REPORT = 30_000;
+const MAX_STRUCTURED_REPORT = 200_000;
 
 export function saveTrip(file: string, trip: Trip): void {
   // A long report is cut rather than making the saved trip unloadable.
   if (typeof trip.reportText === 'string' && trip.reportText.length > MAX_REPORT) trip = { ...trip, reportText: trip.reportText.slice(0, MAX_REPORT) };
+  if (trip.reportData && JSON.stringify(trip.reportData).length > MAX_STRUCTURED_REPORT) trip = { ...trip, reportData: null };
   const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
   try {
     mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
@@ -283,6 +286,23 @@ const isStr = (v: unknown): v is string => typeof v === 'string';
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 const isArr = <T>(v: unknown, ok: (x: unknown) => x is T): v is T[] => Array.isArray(v) && v.every(ok);
 const validCategoryPath = (v: unknown): v is string[] => isArr(v, isStr) && v.length <= 8 && v.every((part) => part.length <= 120);
+const validMoney = (v: unknown): v is number => isInt(v) && v >= 0 && v <= 10_000_000_000;
+const validPaymentRow = (v: unknown): v is PaymentRow => isRec(v) && isStr(v.name) && v.name.length <= 2000
+  && (v.productId === undefined || (isStr(v.productId) && v.productId.length <= 200))
+  && (v.categoryPath === undefined || validCategoryPath(v.categoryPath))
+  && (v.quantity === undefined || (typeof v.quantity === 'number' && Number.isFinite(v.quantity) && v.quantity >= 0 && v.quantity <= 1000))
+  && (v.unitPriceGrosze === undefined || v.unitPriceGrosze === null || validMoney(v.unitPriceGrosze))
+  && (v.priceSource === undefined || v.priceSource === 'planned' || v.priceSource === 'cart')
+  && (v.approvedGrosze === undefined || validMoney(v.approvedGrosze)) && (v.nowGrosze === undefined || validMoney(v.nowGrosze))
+  && (v.risePercent === undefined || (typeof v.risePercent === 'number' && Number.isFinite(v.risePercent) && v.risePercent >= 0 && v.risePercent <= 1_000_000))
+  && (v.substitutes === undefined || (isArr(v.substitutes, isStr) && v.substitutes.length <= 2 && v.substitutes.every((s) => s.length <= 500)))
+  && (v.limit === undefined || (isRec(v.limit) && isStr(v.limit.reason) && v.limit.reason.length <= 500 && isInt(v.limit.added) && isInt(v.limit.requested)))
+  && (v.note === undefined || (isStr(v.note) && v.note.length <= 500));
+const validPaymentReport = (v: unknown): v is PaymentReport => isRec(v) && isArr(v.sections, (section): section is PaymentReport['sections'][number] =>
+  isRec(section) && ['warning', 'missing', 'action', 'info', 'increase'].includes(String(section.key))
+  && isStr(section.title) && section.title.length <= 100 && isArr(section.items, validPaymentRow) && section.items.length <= 500)
+  && v.sections.length <= 8 && isRec(v.summary) && isInt(v.summary.addedCount) && v.summary.addedCount >= 0 && v.summary.addedCount <= 500
+  && (v.summary.cartTotalGrosze === null || validMoney(v.summary.cartTotalGrosze));
 
 function validCandidate(v: unknown): v is TripCandidate {
   return isRec(v) && isStr(v.productId) && isStr(v.name) && isInt(v.lineCostGrosze) && v.lineCostGrosze >= 0 && v.lineCostGrosze <= MAX_COST && isStr(v.confidence) && CONFS.includes(v.confidence)
@@ -313,7 +333,8 @@ function validTrip(v: unknown): v is Trip {
       && (u.quantity === undefined || (isInt(u.quantity) && u.quantity >= 1 && u.quantity <= MAX_QUANTITY)) && (u.note === undefined || isStr(u.note)))
     && isArr(v.messages, isStr) && v.messages.length <= 200 && v.messages.every((m) => m.length <= 2000)
     && validProposal(v.proposal) && isStr(v.updatedAt) && (v.blocked === undefined || typeof v.blocked === 'boolean')
-    && (v.reportText === undefined || v.reportText === null || (isStr(v.reportText) && v.reportText.length <= MAX_REPORT));
+    && (v.reportText === undefined || v.reportText === null || (isStr(v.reportText) && v.reportText.length <= MAX_REPORT))
+    && (v.reportData === undefined || v.reportData === null || validPaymentReport(v.reportData));
 }
 
 /** An image that is not an Auchan image URL (or has an odd description) is dropped; the trip stays usable. */

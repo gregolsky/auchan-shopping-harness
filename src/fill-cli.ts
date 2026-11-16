@@ -7,7 +7,7 @@ import { fillCart } from './fill.ts';
 import { cleanText } from './parse.ts';
 import { zl } from './money.ts';
 import { buildDraft } from './draft.ts';
-import { parseCart, type FillReport, type PriceNote } from './cart.ts';
+import { parseCart, type FillReport, type PriceNote, type PaymentReport, type PaymentRow, type BasketLine } from './cart.ts';
 import { isBlockedProduct } from './blacklist.ts';
 import { acquireLock, releaseLock } from './lock.ts';
 import { LOCK_PATH, SESSION_PATH } from './dbpath.ts';
@@ -69,6 +69,42 @@ export function formatReport(
   out.push(`Razem w koszyku: ${r.cartTotalGrosze === null ? 'nieznana kwota' : zl(r.cartTotalGrosze)}`);
   out.push(`Zapłać na ${CHECKOUT}`);
   return out.join('\n');
+}
+
+/** Build the app's report from cart fields, never by parsing the printable CLI report. */
+export function structuredReport(
+  r: FillReport & { sent: number }, unmatched: string[], substitutes: Record<string, string[]> = {}, names: Record<string, string> = {},
+  blockedInCart: { productId: string; name: string }[] = [], skippedBlocked: BasketLine[] = [], categoryPaths: Record<string, string[]> = {},
+): PaymentReport {
+  const sections: PaymentReport['sections'] = [];
+  const category = (id: string): Pick<PaymentRow, 'categoryPath'> => categoryPaths[id] ? { categoryPath: categoryPaths[id].slice(0, 8).map((part) => cleanText(part).slice(0, 120)) } : {};
+  const basketRow = (line: BasketLine): PaymentRow => ({ productId: line.productId, name: cleanText(line.name), quantity: line.quantity,
+    unitPriceGrosze: line.approvedPriceGrosze, priceSource: 'planned', ...category(line.productId),
+    ...(r.limits[line.productId] ? { limit: { ...r.limits[line.productId], reason: cleanText(r.limits[line.productId]!.reason) } } : {}),
+    ...(substitutes[line.productId]?.length ? { substitutes: substitutes[line.productId].slice(0, 2).map(cleanText) } : {}) });
+  const priceRow = (price: PriceNote): PaymentRow => {
+    const line = [...r.added, ...r.alreadyEnough, ...r.missing, ...r.outOfStock].find((item) => item.productId === price.productId);
+    return { productId: price.productId, name: cleanText(price.name), ...(line ? { quantity: line.quantity } : {}),
+      approvedGrosze: price.approvedGrosze, nowGrosze: price.nowGrosze, risePercent: price.risePercent, ...category(price.productId) };
+  };
+  const section = (key: PaymentReport['sections'][number]['key'], title: string, items: PaymentRow[]) => {
+    if (items.length) sections.push({ key, title, items });
+  };
+  section('warning', 'Sprawdź przed zapłatą', [
+    ...blockedInCart.map((item) => ({ productId: item.productId, name: cleanText(item.name), ...category(item.productId), note: 'Zablokowany produkt w koszyku — usuń go na Auchan.' })),
+    ...r.checkBeforePaying.map(priceRow),
+  ]);
+  section('warning', 'Pominięto zablokowane produkty', skippedBlocked.map((line) => ({ ...basketRow(line), note: 'Nie dodano do koszyka.' })));
+  section('missing', 'Brak w sklepie', r.outOfStock.map(basketRow));
+  section('missing', 'Nie dodano', r.missing.map(basketRow));
+  section('action', 'Dodaj sam na Auchan', unmatched.map((name) => ({ name: cleanText(name) })));
+  section('info', 'Było już w koszyku', [
+    ...r.alreadyEnough.map(basketRow),
+    ...r.extras.map((line): PaymentRow => ({ productId: line.productId, name: cleanText(names[line.productId] ?? `produkt spoza koszyka ${line.productId}`),
+      quantity: line.quantity, unitPriceGrosze: line.unitPriceGrosze, priceSource: 'cart', ...category(line.productId) })),
+  ]);
+  section('increase', 'Niewielkie podwyżki', r.smallRises.map(priceRow));
+  return { sections, summary: { addedCount: r.added.length, cartTotalGrosze: r.cartTotalGrosze } };
 }
 
 const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
@@ -133,6 +169,7 @@ export interface FillResult {
   substitutes: Record<string, string[]>;
   /** The printable report, when there is one. */
   text: string | null;
+  structured: PaymentReport | null;
   /** The error that stopped the fill, if one did (never carries cookies). */
   failure?: unknown;
 }
@@ -146,7 +183,7 @@ export async function runFill(deps: FillDeps, hooks: FillHooks): Promise<FillRes
   let runId: number | undefined;
   const tally = { sent: 0 };
   let cleanup = () => {};
-  const fail = (code: number, failure?: unknown): FillResult => ({ code, report: null, substitutes: {}, text: null, failure });
+  const fail = (code: number, failure?: unknown): FillResult => ({ code, report: null, substitutes: {}, text: null, structured: null, failure });
   try {
     store = deps.openStore();
     // Taken atomically before the basket is read and held for the whole run, so two fills never overlap
@@ -213,13 +250,22 @@ export async function runFill(deps: FillDeps, hooks: FillHooks): Promise<FillRes
       // The report is worth more than its extras.
     }
     // A blocked product already in the cart is only reported; it is never removed automatically.
-    const blockedInCart = report.extras
+    const blockedRows = report.extras
       .filter((e) => isBlockedProduct({ productId: e.productId, name: names[e.productId] }, blockedProducts))
-      .map((e) => names[e.productId] ?? `produkt ${e.productId}`);
+      .map((e) => ({ productId: e.productId, name: names[e.productId] ?? `produkt ${e.productId}` }));
+    const blockedInCart = blockedRows.map((row) => row.name);
+    const productIds = new Set([...report.added, ...report.alreadyEnough, ...report.missing, ...report.outOfStock, ...report.extras].map((row) => row.productId));
+    const categoryPaths: Record<string, string[]> = {};
+    try {
+      for (const fact of store.productFacts()) if (productIds.has(fact.productId)) categoryPaths[fact.productId] = fact.categoryPath;
+    } catch {
+      // A category is optional; the cart result remains authoritative.
+    }
     const skippedText = skippedBlocked.length ? `Pominięto zablokowane produkty:\n${skippedBlocked.map((l) => `  - ${cleanText(l.name)}`).join('\n')}\n\n` : '';
     const text = skippedText + formatReport(report, basket.unmatched, subs, names, blockedInCart);
+    const structured = structuredReport(report, basket.unmatched, subs, names, blockedRows, skippedBlocked, categoryPaths);
     (hooks.report ?? hooks.log)(text);
-    return { code: 0, report, substitutes: subs, text };
+    return { code: 0, report, substitutes: subs, text, structured };
   } catch (err) {
     if (runId !== undefined) store?.finishFill(runId, { status: 'failed', sent: tally.sent, missing: 0, checkBeforePaying: 0 });
     if (hooks.failed) hooks.failed(err);

@@ -40,6 +40,26 @@ export interface FillReport {
   limits: Record<string, LimitNote>;
 }
 
+/** Payment rows keep the cart's numbers separate from their display text. */
+export interface PaymentRow {
+  productId?: string;
+  name: string;
+  categoryPath?: string[];
+  quantity?: number;
+  unitPriceGrosze?: number | null;
+  priceSource?: 'planned' | 'cart';
+  approvedGrosze?: number;
+  nowGrosze?: number;
+  risePercent?: number;
+  substitutes?: string[];
+  limit?: LimitNote;
+  note?: string;
+}
+export interface PaymentReport {
+  sections: { key: 'warning' | 'missing' | 'action' | 'info' | 'increase'; title: string; items: PaymentRow[] }[];
+  summary: { addedCount: number; cartTotalGrosze: number | null };
+}
+
 /** Whole pieces still missing; a fractional cart quantity never turns into a fractional send. */
 const missingPieces = (target: number, have: number): number => Math.round(target - have);
 const uniq = <T extends { productId: string }>(rows: T[]): T[] => {

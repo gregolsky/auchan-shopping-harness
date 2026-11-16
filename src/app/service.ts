@@ -654,9 +654,9 @@ export function createService(d: ServiceDeps) {
       if (result !== null && result.report !== null) {
         const { report, substitutes } = result;
         const text = result.text ?? formatReport(report, trip.unmatched.map((u) => u.term), substitutes);
-        safeEmit({ type: 'report', report: { ...report, substitutes, text } });
+        safeEmit({ type: 'report', report: { ...report, substitutes, text, structured: result.structured } });
         busy = null;
-        if (mine) commit({ ...trip, step: 'platnosc', reportText: text });
+        if (mine) commit({ ...trip, step: 'platnosc', reportText: text, reportData: result.structured });
       } else {
         busy = null;
         const polish = failureText(result?.failure);

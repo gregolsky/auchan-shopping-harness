@@ -38,8 +38,10 @@ const base = () => tripFromDraft(emptyTrip(NOW), draft(), { 'Ser żółty': 'bez
 
 test('the payment report survives a trip save and reload', () => {
   const file = join(mkdtempSync(join(tmpdir(), 'trip-report-')), 'trip.json');
-  saveTrip(file, { ...base(), step: 'platnosc', reportText: 'Sprawdź przed zapłatą:\n  - Mąka 1 kg' });
+  const reportData = { sections: [{ key: 'missing' as const, title: 'Brak w sklepie', items: [{ productId: 'M', name: 'Mąka', quantity: 1, unitPriceGrosze: 299, priceSource: 'planned' as const }] }], summary: { addedCount: 0, cartTotalGrosze: 299 } };
+  saveTrip(file, { ...base(), step: 'platnosc', reportText: 'Sprawdź przed zapłatą:\n  - Mąka 1 kg', reportData });
   assert.match(loadTrip(file)?.reportText ?? '', /Sprawdź przed zapłatą/);
+  assert.deepEqual(loadTrip(file)?.reportData, reportData);
 });
 test('a report longer than the limit is cut when saving, so the trip is never lost', () => {
   const file = join(mkdtempSync(join(tmpdir(), 'trip-long-')), 'trip.json');

@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeFileSync } from 'node:fs';
-import { main, formatReport, interruptHandler, type FillDeps } from '../src/fill-cli.ts';
+import { main, formatReport, structuredReport, interruptHandler, type FillDeps } from '../src/fill-cli.ts';
 import { openStore, type Store } from '../src/store.ts';
 import { Blocked, LoginRequired, type Worker } from '../src/worker.ts';
 import type { CartAccess } from '../src/http-worker.ts';
@@ -125,6 +125,25 @@ test('formatReport lists blocked cart products before price warnings', () => {
     checkBeforePaying: [{ productId: A, name: 'Mleko', approvedGrosze: 100, nowGrosze: 200, risePercent: 100 }] };
   const text = formatReport(report, [], {}, {}, ['Chleb']);
   assert.match(text, /Sprawdź przed zapłatą:\n  - Chleb — zablokowany produkt w koszyku, usuń go na Auchan\n  - Mleko:/);
+});
+
+test('structured payment report carries product ids, quantities, prices and categories as fields', () => {
+  const line = { term: 'mleko', productId: A, name: 'Mleko', quantity: 2, approvedPriceGrosze: 199 };
+  const report: any = { added: [line], alreadyEnough: [], extras: [{ productId: B, quantity: 1, unitPriceGrosze: 350, lineTotalGrosze: 350 }], missing: [], outOfStock: [],
+    checkBeforePaying: [{ productId: A, name: 'Mleko', approvedGrosze: 199, nowGrosze: 259, risePercent: 30.1 }], smallRises: [], cartTotalGrosze: 869, sent: 1, limits: {} };
+  const data = structuredReport(report, ['chleb'], {}, { [B]: 'Ser' }, [{ productId: B, name: 'Ser' }], [], { [A]: ['Artykuły spożywcze', 'Mleko, nabiał i jaja'] });
+  const warning = data.sections.find((s) => s.title === 'Sprawdź przed zapłatą')!;
+  const price = warning.items.find((r) => r.productId === A)!;
+  assert.equal(price.quantity, 2);
+  assert.equal(price.approvedGrosze, 199);
+  assert.equal(price.nowGrosze, 259);
+  assert.deepEqual(price.categoryPath, ['Artykuły spożywcze', 'Mleko, nabiał i jaja']);
+  assert.equal(warning.items.find((r) => r.productId === B)?.note, 'Zablokowany produkt w koszyku — usuń go na Auchan.');
+  const extra = data.sections.find((s) => s.title === 'Było już w koszyku')!.items[0];
+  assert.equal(extra.quantity, 1);
+  assert.equal(extra.unitPriceGrosze, 350);
+  assert.equal(extra.priceSource, 'cart');
+  assert.deepEqual(data.summary, { addedCount: 1, cartTotalGrosze: 869 });
 });
 
 test('fill resumes after login', async (t) => {
