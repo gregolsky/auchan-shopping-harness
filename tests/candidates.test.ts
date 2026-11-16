@@ -416,3 +416,18 @@ test('a short stem meets common Polish endings but not other letters', () => {
   assert.equal(m('maka', 'Makaron'), false);
   assert.equal(m('ser', 'Serwetki'), false);
 });
+
+test('an adjective term word meets a noun or adjective of the same stem, but not a brand word', () => {
+  const m = (term: string, name: string, brand = '') => matchesTerm(term, { name, brand });
+  assert.equal(m('skyr waniliowy', 'Skyr Jogurt typu islandzkiego wanilia - bez laktozy Mlekovita 330 g', 'Mlekovita'), true);
+  assert.equal(m('jogurt waniliowy', 'Jogurt z wanilią'), true);
+  assert.equal(m('jogurt waniliowy', 'Jogurt waniliowy'), true);
+  assert.equal(m('jogurt truskawkowy', 'Jogurt truskawka'), true);
+  assert.equal(m('budyń czekoladowy', 'Budyń czekolada'), true);
+  assert.equal(m('zupa pomidorowa', 'Zupa pomidor z bazylią'), true);
+  assert.equal(m('sos pomidorowy', 'Sos pomidory suszone'), true);
+  assert.equal(m('jogurt waniliowy', 'Jogurt naturalny'), false);
+  // Brand words are not caught by the rule: "mleko" is not an adjective, and "mlekowy" stops at "Mlekovita".
+  assert.equal(m('mleko', 'Jogurt naturalny', 'Mlekovita'), false);
+  assert.equal(m('mlekowy', 'Jogurt naturalny Mlekovita', 'Mlekovita'), false);
+});

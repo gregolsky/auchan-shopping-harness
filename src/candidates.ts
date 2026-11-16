@@ -30,6 +30,18 @@ const SHORT_STEM_ENDING = /^(?:[aeiouy]|ka|ki|ek|ce)?$/;
 
 /** Whether a normalised name word meets a normalised term word under the stem rule above. */
 function wordMatcher(w: string): (h: string) => boolean {
+  const base = nounMatcher(w);
+  // An adjective ("waniliowy") also meets a noun of its stem ("wanilia", "wanilią"); the ending is limited so
+  // brand words ("Mlekovita" for "mlekowy") stay out.
+  const adj = w.match(/^(.{4,}?)(?:owy|owa|owe|owej|owych|owym|ny|na|ne)$/);
+  if (!adj) return base;
+  const adjStem = adj[1];
+  return (h) => base(h) || (h.startsWith(adjStem) && ADJECTIVE_REST.test(h.slice(adjStem.length)));
+}
+
+const ADJECTIVE_REST = /^(?:[aeiouy]{1,2}|ka|ke|ki|ek|ow(?:y|a|e|ej|ych|ym)|n(?:y|a|e|ej|ych|ym))?$/;
+
+function nounMatcher(w: string): (h: string) => boolean {
   const stem = w.length >= 4 ? w.replace(/[aeiouy]$/, '') : w;
   // A stem under 4 letters ("mak" from "maka") would otherwise meet brand words such as "Makar", so after it only a
   // plain Polish ending is allowed: one vowel, or a diminutive/plural ending ("ryb" + "ka", "ki", "ek").
