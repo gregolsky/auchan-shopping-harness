@@ -415,7 +415,6 @@ export function unmatchedCard(item) { return { title: `Nie znalazłem: ${item.te
 
 export const MANUAL_HINT = 'Produkty dodane ręcznie na Auchan planer pozna po złożeniu zamówienia.';
 
-/** The Auchan search page for a term, for the user to open themselves when the planner cannot find a product. */
 /** The product page on Auchan; null when the id is missing or not Auchan's digits-only product id. */
 export function auchanProductUrl(retailerProductId) {
   return typeof retailerProductId === 'string' && /^\d{4,14}$/.test(retailerProductId) ? `https://zakupy.auchan.pl/products/${retailerProductId}/details` : null;
@@ -748,7 +747,7 @@ export function start() {
       button('Ułóż szkic →', async () => { const parsed = parseBudget(budget.value); if (!parsed.ok) { tell(parsed.error); return; } const body = { note: note.value, includeUsual: usual.checked }; if (parsed.grosze !== undefined) body.budgetGrosze = parsed.grosze; await withClaude('note', async () => { const result = await run('/api/note', body, (m) => failureText('note', m)); if (result) { selected = afterNote(viewModel(state).stepIndex); render(); tell(doneSummary(viewModel(state))); } }); }, 'button', state.busy === 'fill' || state.busy === 'search' || claudeStatus(pending).disableNote));
     target.append(form);
   }
-  function renderDraft() {
+  function renderReviewStep() {
     const results = card('3. Przegląd', 'Sprawdź nazwę, ilość i ocenę dopasowania.');
     const model = viewModel(state);
     const blockedNotice = state.trip.messages?.find((m) => m.startsWith('Pominięto zablokowane produkty:'));
@@ -782,7 +781,7 @@ export function start() {
     model.unmatched.forEach((item) => target.append(unmatchedNode(item)));
     target.append(button('Dalej: zatwierdzenie →', () => { selected = 4; render(); }, 'quiet', !info.canContinue));
   }
-  function renderReview() {
+  function renderApprovalStep() {
     const model = viewModel(state);
     const box = card('5. Zatwierdzenie', 'Ostatnia kontrola przed dodaniem produktów do koszyka Auchan.');
     const included = state.trip.lines.filter((l) => l.included);
@@ -893,7 +892,6 @@ export function start() {
       target.append(searchBox);
     } catch (error) { tell(error.message); }
   }
-  /** Claude's pending changes: one button for all of them, and the ones that belong to no line. The rest sit on the product cards. */
   /** Scrolls to a product card, focuses it for keyboard users and flashes it briefly. */
   function showLine(lineKey) {
     const node = [...document.querySelectorAll('.line-card')].find((n) => n.dataset.lineKey === lineKey);
@@ -903,6 +901,7 @@ export function start() {
     node.classList.add('flash');
     setTimeout(() => node.classList.remove('flash'), 1600);
   }
+  /** Claude's pending changes: one button for all of them, and the ones that belong to no line. The rest sit on the product cards. */
   function renderProposal() {
     const proposal = state.trip.proposal;
     if (!proposal || ![2, 3].includes(selected)) return;
@@ -945,7 +944,7 @@ export function start() {
     showSearch(); renderSteps(model); target.replaceChildren();
     if (rulesOpen) { void renderRules(version); return; }
     renderProposal();
-    [renderData, renderList, renderDraft, renderQuestions, renderReview, renderCart, renderPayment][selected]();
+    [renderData, renderList, renderReviewStep, renderQuestions, renderApprovalStep, renderCart, renderPayment][selected]();
     renderAsk();
     const messages = (state.trip.messages || []).filter((m) => selected !== 2 || !m.startsWith('Pominięto zablokowane produkty:')).slice(-4);
     if (messages.length) {

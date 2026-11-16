@@ -712,3 +712,9 @@ test('cards carry the price age text and the approval total warns when an includ
   assert.equal(viewModel(trip([{ ...old, included: false }]), now).staleNote, null);
   assert.equal(viewModel(trip([{ ...old, latestPriceSeenAt: '2026-11-01T00:00:00Z' }]), now).staleNote, null);
 });
+
+test('theme.js and app.js use the same storage key for the theme', () => {
+  const key = /'(zakupy-theme)'/;
+  assert.equal(readFileSync('public/theme.js', 'utf8').match(key)?.[1], 'zakupy-theme');
+  assert.match(readFileSync('public/app.js', 'utf8'), /THEME_KEY = 'zakupy-theme'/);
+});

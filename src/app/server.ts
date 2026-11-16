@@ -22,7 +22,7 @@ const HEADERS: Record<string, string> = {
 const STATIC: Record<string, { file: string; type: string }> = {
   '/': { file: 'index.html', type: 'text/html; charset=utf-8' },
   '/app.js': { file: 'app.js', type: 'text/javascript; charset=utf-8' },
-  '/theme.js': { file: 'theme.js', type: 'application/javascript; charset=utf-8' },
+  '/theme.js': { file: 'theme.js', type: 'text/javascript; charset=utf-8' },
   '/app.css': { file: 'app.css', type: 'text/css; charset=utf-8' },
   '/icon.svg': { file: 'icon.svg', type: 'image/svg+xml' },
   '/shopping.svg': { file: 'shopping.svg', type: 'image/svg+xml' },

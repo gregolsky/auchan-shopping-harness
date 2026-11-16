@@ -132,6 +132,7 @@ function withQuantity(l: TripLine, quantity: number): TripLine {
 function withProduct(l: TripLine, productId: string): TripLine {
   const c = l.candidates.find((x) => x.productId === productId);
   if (!c) return l;
+  // The old product's category, ids and price date must not outlive the choice; the new product's own are added back below.
   const { categoryPath: _oldCategory, retailerProductId: _oldRetailer, latestPriceSeenAt: _oldSeen, ...rest } = l;
   return { ...rest, productId, ...(c.retailerProductId ? { retailerProductId: c.retailerProductId } : {}), ...(c.latestPriceSeenAt ? { latestPriceSeenAt: c.latestPriceSeenAt } : {}), name: c.name, imageUrl: c.imageUrl ?? null, imageAlt: c.imageAlt ?? null, ...(c.categoryPath ? { categoryPath: c.categoryPath } : {}), lineCostGrosze: c.lineCostGrosze, confidence: 'high', confidenceReason: '', question: null, included: l.held ? true : l.included, held: false };
 }

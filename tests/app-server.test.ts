@@ -342,7 +342,7 @@ test('theme.js is served as JavaScript with the security headers', async () => {
   try {
     const r = await fetch(s.base + `/theme.js?t=${TOKEN}`);
     assert.equal(r.status, 200);
-    assert.match(r.headers.get('content-type') ?? '', /^application\/javascript/);
+    assert.match(r.headers.get('content-type') ?? '', /^text\/javascript/);
     assert.match(r.headers.get('content-security-policy') ?? '', /script-src 'self'/);
     assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
     assert.equal(await r.text(), 'z');
