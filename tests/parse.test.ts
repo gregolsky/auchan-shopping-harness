@@ -390,3 +390,26 @@ test('one malformed product on a search page is skipped, the others are kept', (
   assert.equal(r.prices.length, 2);
   assert.throws(() => parsePromotionsState(state, '2026-11-01T10:00:00Z'), ShapeError, 'other pages stay strict');
 });
+
+test('product names and brands are cut to 200 characters, offer texts to 300', () => {
+  const order = fx('order-decorated.json');
+  const first = order.entities.order[order.result].groupedProducts.products[0];
+  order.entities.product[first.productId].name = 'n'.repeat(500);
+  order.entities.product[first.productId].brand = 'b'.repeat(500);
+  first.promotions = [{ name: 'o'.repeat(900) }];
+  const parsed = parseDecoratedOrder(order);
+  const product = parsed.products.find((p) => p.productId === first.productId)!;
+  assert.equal(product.name.length, 200);
+  assert.equal(product.brand.length, 200);
+  assert.equal(parsed.prices.find((p) => p.productId === first.productId)!.offerText!.length, 300);
+
+  const promo = fx('promotions-state.json');
+  const entity = Object.values<any>(promo.data.products.productEntities).find((e) => Array.isArray(e.offers) && e.offers.length)!;
+  entity.name = 'n'.repeat(500);
+  entity.brand = 'b'.repeat(500);
+  entity.offers[0].description = 'o'.repeat(900);
+  const out = parsePromotionsState(promo, '2026-10-31T10:00:00Z');
+  assert.equal(out.products.find((p) => p.productId === entity.productId)!.name.length, 200);
+  assert.equal(out.products.find((p) => p.productId === entity.productId)!.brand.length, 200);
+  assert.equal(out.prices.find((p) => p.productId === entity.productId)!.offerText!.length, 300);
+});

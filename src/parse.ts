@@ -65,6 +65,7 @@ export function parseImage(images: unknown): { url: string; alt: string | null }
 }
 
 const MAX_FIELD = 200;
+const MAX_OFFER = 300;
 /** Auchan's text kept short and clean: no control characters, at most 200 characters. */
 const tidy = (v: unknown): string => cleanText(String(v)).trim().slice(0, MAX_FIELD);
 
@@ -73,8 +74,8 @@ function toProduct(p: Obj, unitLabel: string | null): Product {
   return {
     productId: str(p.productId, 'product.productId'),
     retailerProductId: str(p.retailerProductId, 'product.retailerProductId'),
-    name: cleanText(str(p.name, 'product.name')),
-    brand: cleanText(String(p.brand ?? '')).trim(),
+    name: cleanText(str(p.name, 'product.name')).slice(0, MAX_FIELD),
+    brand: cleanText(String(p.brand ?? '')).trim().slice(0, MAX_FIELD),
     categoryPath: Array.isArray(p.categoryPath) ? p.categoryPath.map(tidy) : [],
     unitLabel: unitLabel === null ? null : tidy(unitLabel),
     size: typeof p.size?.value === 'string' && tidy(p.size.value) !== '' ? tidy(p.size.value) : null,
@@ -154,7 +155,7 @@ export function parseDecoratedOrder(json: unknown): {
       originalGrosze: retail > current ? retail : null,
       currentGrosze: current,
       unitCurrentGrosze: unit?.value ? money(unit.value, 'pricePerUnit.value') : null,
-      offerText: Array.isArray(line.promotions) && line.promotions.length ? cleanText(str(obj(line.promotions[0], 'line.promotions[0]').name, 'promotion.name')) : null,
+      offerText: Array.isArray(line.promotions) && line.promotions.length ? cleanText(str(obj(line.promotions[0], 'line.promotions[0]').name, 'promotion.name')).slice(0, MAX_OFFER) : null,
       requiredQuantity: null,
     });
   }
@@ -200,7 +201,7 @@ function readEntities(
         originalGrosze: price.original ? money(price.original, 'price.original') : null,
         currentGrosze: money(price.current, 'price.current'),
         unitCurrentGrosze: unit?.current ? money(unit.current, 'price.unit.current') : null,
-        offerText: offer ? cleanText(str(offer.description, 'offer.description')) : null,
+        offerText: offer ? cleanText(str(offer.description, 'offer.description')).slice(0, MAX_OFFER) : null,
         requiredQuantity: offer && typeof offer.requiredProductQuantity === 'number' ? offer.requiredProductQuantity : null,
       };
       products.push(product);
