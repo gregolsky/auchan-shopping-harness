@@ -45,6 +45,9 @@ button:disabled{opacity:1;cursor:not-allowed;border-color:var(--dis-line);backgr
 .proposal .actions{margin:0;margin-left:auto}
 .options{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;margin-top:6px}
 .option{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:8px;align-items:center;text-align:left;padding:6px 8px;border:1px solid var(--field);border-radius:10px;background:var(--surface);color:inherit;min-height:56px}
+.option-item{display:flex;flex-direction:column;gap:3px;min-width:0}
+.option-item .option{flex:1}
+.product-link{font-size:13px;text-decoration:underline;align-self:flex-start;padding:2px 0}
 .option:hover{border-color:var(--green);background:var(--hover-bg)}
 .option-name{overflow-wrap:anywhere;font-size:14px}
 .question{font-weight:650}

@@ -68,13 +68,14 @@ const REPORT_ORDER = ['warning', 'missing', 'action', 'info', 'increase'];
 export function reportView(reportText, tripLines = [], structured = null) {
   if (structured) {
     const known = new Map(tripLines.filter((line) => line.productId).map((line) => [line.productId, line.categoryPath]));
+    const retailerIds = new Map(tripLines.filter((line) => line.productId && line.retailerProductId).map((line) => [line.productId, line.retailerProductId]));
     return {
       sections: structured.sections.filter((section) => section.items.length).map((section) => ({ ...section, items: section.items.map((item) => {
         const categoryPath = item.categoryPath ?? known.get(item.productId);
         const details = [item.note];
         if (item.limit) details.push(`Dodano ${item.limit.added} z ${item.limit.requested} (powód: ${item.limit.reason}).`);
         if (item.substitutes?.length) details.push(`Zamienniki: ${item.substitutes.join('; ')}.`);
-        return { ...item, title: item.name, detail: details.filter(Boolean).join(' '), categoryPath, category: categoryFor(categoryPath) };
+        return { ...item, title: item.name, detail: details.filter(Boolean).join(' '), categoryPath, category: categoryFor(categoryPath), retailerProductId: item.retailerProductId ?? retailerIds.get(item.productId) };
       }) })),
       summary: [`Dodano produktów: ${structured.summary.addedCount}`, `Razem w koszyku: ${structured.summary.cartTotalGrosze === null ? 'nieznana kwota' : zl(structured.summary.cartTotalGrosze)}`],
     };
@@ -98,7 +99,7 @@ export function reportView(reportText, tripLines = [], structured = null) {
     const product = known.find((candidate) => text.startsWith(candidate.name) && (text.length === candidate.name.length || /[\s:—]/.test(text[candidate.name.length])));
     const categoryPath = product?.categoryPath;
     const split = text.match(/^(.*?) (— .+|\(zamiast tego:.+\))$/) || text.match(/^(.*?): (\d[\d,]* zł.+)$/);
-    current.items.push({ title: split ? split[1] : text, detail: split ? split[2].replace(/^— /, '') : '', categoryPath, category: categoryFor(categoryPath) });
+    current.items.push({ title: split ? split[1] : text, detail: split ? split[2].replace(/^— /, '') : '', categoryPath, category: categoryFor(categoryPath), retailerProductId: product?.retailerProductId });
   });
   return { sections: sections.filter((section) => section.items.length).sort((a, b) => REPORT_ORDER.indexOf(a.key) - REPORT_ORDER.indexOf(b.key)), summary };
 }
@@ -287,7 +288,7 @@ export function describeOp(op, linesByKey) {
   }
 }
 
-const mini = (c) => ({ productId: c.productId, name: c.name, priceText: zl(c.lineCostGrosze), imageUrl: c.imageUrl || null, imageAlt: c.imageAlt || c.name, categoryPath: c.categoryPath });
+const mini = (c) => ({ productId: c.productId, retailerProductId: c.retailerProductId, name: c.name, priceText: zl(c.lineCostGrosze), imageUrl: c.imageUrl || null, imageAlt: c.imageAlt || c.name, categoryPath: c.categoryPath });
 
 /** Claude's pending operations: per line (by lineKey) and the ones not tied to a line; each keeps its index in the proposal. */
 export function proposalView(trip) {
@@ -354,7 +355,7 @@ export function lineCard(line, ops = []) {
   const doubtful = line.held || line.confidence !== 'high';
   return {
     lineKey: line.lineKey, term: line.term ?? null, hasOthers: asked.length > 0 || (line.candidates || []).some((c) => c.productId !== line.productId && c.confidence !== 'low'),
-    label: lineLabel(line), name: line.name, priceText: zl(line.lineCostGrosze), categoryPath: line.categoryPath,
+    label: lineLabel(line), retailerProductId: line.retailerProductId, name: line.name, priceText: zl(line.lineCostGrosze), categoryPath: line.categoryPath,
     imageUrl: line.imageUrl || null, imageAlt: line.imageAlt || line.name,
     quantity: line.quantity, canDec: line.quantity > 1, canInc: line.quantity < 20,
     suggestion: line.kind === 'suggestion', included: Boolean(line.included), held: Boolean(line.held),
@@ -414,6 +415,11 @@ export function unmatchedCard(item) { return { title: `Nie znalazłem: ${item.te
 export const MANUAL_HINT = 'Produkty dodane ręcznie na Auchan planer pozna po złożeniu zamówienia.';
 
 /** The Auchan search page for a term, for the user to open themselves when the planner cannot find a product. */
+/** The product page on Auchan; null when the id is missing or not Auchan's digits-only product id. */
+export function auchanProductUrl(retailerProductId) {
+  return typeof retailerProductId === 'string' && /^\d{4,14}$/.test(retailerProductId) ? `https://zakupy.auchan.pl/products/${retailerProductId}/details` : null;
+}
+
 export function auchanSearchUrl(term) { return `https://zakupy.auchan.pl/search?q=${encodeURIComponent(String(term))}`; }
 
 /** What the search status panel says, from the last search event and the service's busy flag; null when there is nothing to show. */
@@ -474,6 +480,14 @@ function button(label, action, className = 'button', disabled = false) {
 function searchLink(term) {
   const link = element('a', 'search-link', `Szukaj „${term}” na Auchan ↗`);
   link.href = auchanSearchUrl(term); link.target = '_blank'; link.rel = 'noopener noreferrer'; link.referrerPolicy = 'no-referrer';
+  return link;
+}
+/** A small link to the product's page on Auchan; null without a valid id. It is placed beside a button, never inside one. */
+function productLink(retailerProductId) {
+  const href = auchanProductUrl(retailerProductId);
+  if (!href) return null;
+  const link = element('a', 'product-link', 'Zobacz na Auchan ↗');
+  link.href = href; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.referrerPolicy = 'no-referrer';
   return link;
 }
 function card(title, description = '') {
@@ -578,13 +592,17 @@ export function start() {
   }
 
   const proposalOp = (index, accept) => run('/api/proposal/op', { proposalId: state.trip.proposal.id, index, accept });
-  /** A clickable mini-card: thumbnail, name and price of one candidate. */
+  /** A clickable mini-card (thumbnail, name, price) with the product's Auchan link beside the button, not in it. */
   function option(product, action) {
     const node = element('button', 'option');
     node.type = 'button'; node.addEventListener('click', action);
     const description = append(element('span', 'option-details'), element('span', 'option-name', product.name), categoryTag(product.categoryPath));
     append(node, thumb(product.imageUrl, product.imageAlt, 'thumb small-thumb'), description, element('span', 'price', product.priceText));
-    return node;
+    const wrap = element('div', 'option-item');
+    wrap.append(node);
+    const link = productLink(product.retailerProductId);
+    if (link) wrap.append(link);
+    return wrap;
   }
   /** One product of the list with everything needed to decide next to it: the stepper, Claude's proposal, the question or other candidates. */
   function lineCardNode(line, ops, groupKey = null) {
@@ -594,6 +612,8 @@ export function start() {
     node.append(element('div', 'meta from-list', view.label));
     const info = element('div', 'line-info');
     append(info, element('span', 'line-name', view.name), categoryTag(view.categoryPath, groupKey), element('span', 'price', view.priceText), element('span', `badge ${view.badge.level}`, view.badge.text));
+    const ownLink = productLink(view.retailerProductId);
+    if (ownLink) info.append(ownLink);
     if (view.badge.reason) info.append(element('div', 'meta why', `Dlaczego sprawdzić: ${view.badge.reason}`));
     node.append(append(element('div', 'line-main'), thumb(view.imageUrl, view.imageAlt), info));
     if (view.suggestion) node.append(append(element('div', 'actions'), button(view.included ? '✓ W koszyku' : '＋ Dodaj', () => run('/api/line', { lineKey: line.lineKey, included: !view.included }), 'small')));
@@ -610,6 +630,8 @@ export function start() {
       row.append(element('span', 'proposal-title', 'Claude proponuje:'));
       if (p.product) append(row, thumb(p.product.imageUrl, p.product.imageAlt, 'thumb small-thumb'), element('span', 'line-name', p.text), element('span', 'price', p.product.priceText));
       else row.append(element('span', 'line-name', p.text));
+      const proposedLink = p.product && productLink(p.product.retailerProductId);
+      if (proposedLink) row.append(proposedLink);
       append(row, append(element('div', 'actions'), button('Weź to', () => proposalOp(p.index, true), 'small'), button('Zostaw obecny', () => proposalOp(p.index, false), 'small quiet')));
       node.append(row);
     });
@@ -776,6 +798,8 @@ export function start() {
           items.forEach((item) => {
             const row = element('li', 'report-item');
             append(row, categoryTag(item.categoryPath), element('span', 'report-name', item.title));
+            const itemLink = productLink(item.retailerProductId);
+            if (itemLink) row.append(itemLink);
             const facts = element('div', 'report-facts');
             if (item.quantity !== undefined) facts.append(element('span', 'report-quantity', `× ${String(item.quantity).replace('.', ',')}`));
             const price = reportPriceText(item);

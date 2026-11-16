@@ -479,3 +479,32 @@ test('Claude\'s ask never offers a low candidate; with none left it asks with no
   const onlyLow = applyOps(t, [{ op: 'ask', lineKey: CHEESE, question: 'Który?', options: ['B'] }]).trip.lines.find((l) => l.lineKey === CHEESE)!;
   assert.deepEqual(onlyLow.question, { text: 'Który?', options: [] });
 });
+
+test('retailerProductId flows from the draft to the line and its candidates and survives a save', () => {
+  const d = draft();
+  d.items[0] = { ...d.items[0], retailerProductId: '00781527', alternatives: [{ productId: 'B', name: 'Ser B', lineCostGrosze: 800, confidence: 'high', retailerProductId: '00475176' }] };
+  const t = tripFromDraft(emptyTrip(NOW), d, {});
+  const line = t.lines.find((l) => l.productId === 'A')!;
+  assert.equal(line.retailerProductId, '00781527');
+  assert.deepEqual(line.candidates.map((c) => c.retailerProductId), ['00781527', '00475176']);
+  assert.equal(chooseProduct(t, line.lineKey, 'B').trip.lines.find((l) => l.productId === 'B')!.retailerProductId, '00475176');
+  assert.equal(t.lines.find((l) => l.productId === 'M')!.retailerProductId, undefined);
+  const file = join(mkdtempSync(join(tmpdir(), 'trip-')), 'trip.json');
+  saveTrip(file, t);
+  assert.equal(loadTrip(file)!.lines.find((l) => l.productId === 'A')!.retailerProductId, '00781527');
+});
+
+test('loadTrip drops an invalid retailerProductId and keeps the trip', () => {
+  const t = tripFromDraft(emptyTrip(NOW), draft(), {});
+  for (const bad of ['abc', '12', '12345678901234567', '../../x', 12345, null]) {
+    const raw: any = JSON.parse(JSON.stringify(t));
+    raw.lines[0].retailerProductId = bad;
+    raw.lines[0].candidates[0].retailerProductId = bad;
+    const file = join(mkdtempSync(join(tmpdir(), 'trip-')), 'trip.json');
+    writeFileSync(file, JSON.stringify(raw));
+    const loaded = loadTrip(file)!;
+    assert.ok(loaded, String(bad));
+    assert.equal(loaded.lines[0].retailerProductId, undefined);
+    assert.equal(loaded.lines[0].candidates[0].retailerProductId, undefined);
+  }
+});

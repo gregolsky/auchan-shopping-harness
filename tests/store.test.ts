@@ -437,3 +437,10 @@ test('ordersMissingImages lists orders with an imageless product; saveOrderImage
   assert.equal(facts.find((f) => f.productId === 'a')!.imageUrl, IMG);
   s.close();
 });
+
+test('product facts expose the retailer product id', () => {
+  const s = openStore(':memory:');
+  s.savePromotions(promo([product('a', 'Mleko')], [price('a', '2026-10-01T10:00:00Z', 300)]));
+  assert.equal(s.productFacts()[0].retailerProductId, 'r-a');
+  s.close();
+});

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionHelp, actionHelpEvent, actionNote, categoryFor, groupByCategory, categoryLabelText, iconPaths, reportView, reportPriceText } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionHelp, actionHelpEvent, actionNote, categoryFor, groupByCategory, categoryLabelText, iconPaths, reportView, reportPriceText, auchanProductUrl } from '../public/app.js';
 
 test('catalog category paths map to stable shopping sections and unknown paths stay in Inne', () => {
   assert.equal(categoryFor(['Artykuły spożywcze', 'Sery']).key, 'dairy');
@@ -652,4 +652,37 @@ test('a card repeats its category text only outside a group of that category', (
   assert.equal(categoryLabelText(path, category.key), '');
   assert.equal(categoryLabelText(path, 'pantry'), category.label);
   assert.equal(categoryLabelText(path), category.label);
+});
+
+test('auchanProductUrl builds the details page for a valid retailer id and is null otherwise', () => {
+  assert.equal(auchanProductUrl('00781527'), 'https://zakupy.auchan.pl/products/00781527/details');
+  for (const bad of [undefined, null, '', 'abc', '12', '../x', '0078 1527', '123456789012345', 781527]) assert.equal(auchanProductUrl(bad as any), null, String(bad));
+});
+
+test('product cards, alternatives, questions and report rows carry the retailer id for their link', () => {
+  const line = { lineKey: 't:a', term: 'a', note: '', productId: 'p1', retailerProductId: '00781527', name: 'A', quantity: 1, lineCostGrosze: 100, confidence: 'medium', confidenceReason: '', held: false, included: true, kind: 'item',
+    candidates: [{ productId: 'p1', retailerProductId: '00781527', name: 'A', confidence: 'high', lineCostGrosze: 100 }, { productId: 'p2', retailerProductId: '00475176', name: 'B', confidence: 'high', lineCostGrosze: 200 }], question: null };
+  const card = lineCard(line);
+  assert.equal(card.retailerProductId, '00781527');
+  assert.equal(card.alternatives[0].retailerProductId, '00475176');
+  assert.equal(lineCard({ ...line, question: { text: 'q', options: ['p2'] } }).question!.options[0].retailerProductId, '00475176');
+  const report = reportView('', [line], { sections: [{ key: 'info', title: 'Było już w koszyku', items: [{ productId: 'p1', name: 'A' }, { productId: 'zz', name: 'Z' }] }], summary: { addedCount: 0, cartTotalGrosze: null } });
+  assert.equal(report.sections[0].items[0].retailerProductId, '00781527');
+  assert.equal(report.sections[0].items[1].retailerProductId, undefined);
+});
+
+test('the Auchan product link is an anchor opened safely and never inside a button', () => {
+  const js = readFileSync('public/app.js', 'utf8');
+  const fn = js.slice(js.indexOf('function productLink'), js.indexOf('function productLink') + 500);
+  assert.match(fn, /Zobacz na Auchan ↗/);
+  assert.match(fn, /target = '_blank'/);
+  assert.match(fn, /rel = 'noopener noreferrer'/);
+  assert.match(fn, /referrerPolicy = 'no-referrer'/);
+  // The option is a wrapper holding the choose button and the link side by side.
+  const option = js.slice(js.indexOf('function option('), js.indexOf('function lineCardNode'));
+  assert.match(option, /productLink\(/);
+  assert.doesNotMatch(option, /node\.append\([^)]*productLink|append\(node,[^)]*productLink/, 'the link is not appended to the button');
+  assert.match(option, /element\('button', 'option'\)/);
+  for (const used of ['line.retailerProductId', 'view.retailerProductId', 'item.retailerProductId', 'p.product']) assert.ok(js.includes(used) || used === 'p.product', used);
+  assert.ok((js.match(/productLink\(/g) ?? []).length >= 5, 'line card, option, proposal, approval/line list and report rows');
 });

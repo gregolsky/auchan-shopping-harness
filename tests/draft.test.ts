@@ -326,3 +326,11 @@ test('products the Auchan search saved for a term are candidates of its line', (
   assert.equal(d.items[0].confidenceReason, 'z wyszukiwania Auchan');
   assert.deepEqual(d.items[0].alternatives.map((a) => a.productId), ['j2']);
 });
+
+test('the retailer product id travels to the line and its alternatives', () => {
+  const facts = [fact('a', { name: 'Kawa a', timesBought: 5, retailerProductId: '00781527' }), fact('b', { name: 'Kawa b', timesBought: 2, retailerProductId: '00475176' }), fact('c', { name: 'Kawa c', timesBought: 1 })];
+  const d = buildDraft(input([{ term: 'kawa', quantity: 1 }]), facts, [], now);
+  assert.equal(d.items[0].retailerProductId, '00781527');
+  assert.equal(d.items[0].alternatives[0].retailerProductId, '00475176');
+  assert.ok(!('retailerProductId' in d.items[0].alternatives[1]));
+});

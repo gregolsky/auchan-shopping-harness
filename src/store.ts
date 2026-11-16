@@ -87,6 +87,8 @@ export function normaliseTerm(s: string): string {
 
 export interface ProductFacts {
   productId: string;
+  /** Auchan's own product id, the one its product page uses; optional so hand-built facts need not carry it. */
+  retailerProductId?: string | null;
   name: string;
   brand: string;
   categoryPath: string[];
@@ -590,7 +592,7 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
       // asOf: only orders delivered strictly before it, and prices seen strictly before it; no offers, as promotion
       // syncs are not dated per order. In-catalogue stays as it is today (a known limit for replays).
       const asOf = opts?.asOf ?? null;
-      const products = db.prepare(`SELECT product_id, name, brand, category_path, size, in_catalogue, ${imageColumns ? 'image_url, image_alt' : 'NULL AS image_url, NULL AS image_alt'} FROM products`).all() as any[];
+      const products = db.prepare(`SELECT product_id, retailer_product_id, name, brand, category_path, size, in_catalogue, ${imageColumns ? 'image_url, image_alt' : 'NULL AS image_url, NULL AS image_alt'} FROM products`).all() as any[];
       const lines = db.prepare(`
         SELECT l.product_id, l.quantity, o.delivered_at FROM order_lines l JOIN orders o ON o.order_id = l.order_id
         WHERE ?1 IS NULL OR o.delivered_at < ?1`).all(asOf) as any[];
@@ -631,7 +633,7 @@ export function openStore(path: string, opts: { readOnly?: boolean } = {}): Stor
         const units = op.map((g) => unitPriceGrosze(g, 1, p.size)).filter((u): u is number => u !== null);
         const med = median(units);
         return {
-          productId: p.product_id, name: p.name, brand: p.brand, categoryPath: JSON.parse(p.category_path), size: p.size,
+          productId: p.product_id, retailerProductId: p.retailer_product_id ?? null, name: p.name, brand: p.brand, categoryPath: JSON.parse(p.category_path), size: p.size,
           timesBought: q.length, lastBoughtAt: last.get(p.product_id) ?? null, usualQuantity: median(q),
           latestPriceGrosze: latestPrice.get(p.product_id) ?? null,
           offerText: offer.get(p.product_id)?.offerText ?? null, requiredQuantity: offer.get(p.product_id)?.requiredQuantity ?? null,
