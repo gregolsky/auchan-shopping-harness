@@ -3,7 +3,8 @@ export function categoryFor(categoryPath?: string[]): { key: string; label: stri
 export function categoryLabelText(categoryPath: string[] | undefined, groupKey?: string | null): string;
 export function groupByCategory<T extends { categoryPath?: string[] }>(items: T[]): { category: { key: string; label: string; icon: string }; items: T[] }[];
 export function iconPaths(key: string): string[];
-export function reportView(text: string, tripLines?: { name: string; categoryPath?: string[] }[]): { sections: { key: string; title: string; items: { title: string; detail: string; categoryPath?: string[]; category: { key: string; label: string; icon: string } }[] }[]; summary: string[] };
+export function reportView(text: string, tripLines?: { productId?: string; name: string; categoryPath?: string[] }[], structured?: any): { sections: { key: string; title: string; items: { title: string; detail: string; categoryPath?: string[]; category: { key: string; label: string; icon: string }; quantity?: number; unitPriceGrosze?: number | null; priceSource?: 'planned' | 'cart'; approvedGrosze?: number; nowGrosze?: number; risePercent?: number }[] }[]; summary: string[] };
+export function reportPriceText(item: { unitPriceGrosze?: number | null; priceSource?: 'planned' | 'cart'; approvedGrosze?: number; nowGrosze?: number; risePercent?: number }): string;
 export function progressLine(stepIndex: number): string;
 export function zl(grosze: number): string;
 export function viewModel(state: any): any;

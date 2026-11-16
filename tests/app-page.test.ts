@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionHelp, actionHelpEvent, actionNote, categoryFor, groupByCategory, categoryLabelText, iconPaths, reportView } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionHelp, actionHelpEvent, actionNote, categoryFor, groupByCategory, categoryLabelText, iconPaths, reportView, reportPriceText } from '../public/app.js';
 
 test('catalog category paths map to stable shopping sections and unknown paths stay in Inne', () => {
   assert.equal(categoryFor(['Artykuły spożywcze', 'Sery']).key, 'dairy');
@@ -41,6 +41,22 @@ test('payment report separates status sections, counts rows and keeps product ca
   assert.match(view.sections[1].items[0].detail, /zamiast tego/);
   assert.equal(view.summary[0], 'Dodano produktów: 3');
   assert.ok(view.sections.every((s) => s.items.every((item) => !item.title.startsWith('-'))));
+});
+
+test('new payment report uses structured fields instead of reading the old text', () => {
+  const data = { sections: [{ key: 'warning', title: 'Sprawdź przed zapłatą', items: [
+    { productId: 'a', name: 'Mleko', quantity: 2, approvedGrosze: 199, nowGrosze: 259, risePercent: 30.1 },
+  ] }, { key: 'missing', title: 'Brak w sklepie', items: [
+    { productId: 'b', name: 'Masło', quantity: 1, unitPriceGrosze: 599, priceSource: 'planned', substitutes: ['Masło B'] },
+  ] }], summary: { addedCount: 1, cartTotalGrosze: 1200 } };
+  const view = reportView('Nieprawidłowy stary tekst:\n - Tego nie pokazuj', [{ productId: 'a', name: 'Mleko', categoryPath: ['Artykuły spożywcze', 'Mleko, nabiał i jaja'] }], data);
+  assert.deepEqual(view.sections.map((s) => [s.title, s.items.length]), [['Sprawdź przed zapłatą', 1], ['Brak w sklepie', 1]]);
+  assert.equal(view.sections[0].items[0].quantity, 2);
+  assert.equal(view.sections[0].items[0].category.key, 'dairy');
+  assert.equal(reportPriceText(view.sections[0].items[0]), '1,99 zł → 2,59 zł (+30,1%)');
+  assert.equal(reportPriceText(view.sections[1].items[0]), 'Cena planowana: 5,99 zł/szt.');
+  assert.match(view.sections[1].items[0].detail, /Masło B/);
+  assert.deepEqual(view.summary, ['Dodano produktów: 1', 'Razem w koszyku: 12,00 zł']);
 });
 
 test('readability styles keep body copy at 15px and touch controls at 44px', () => {

@@ -95,6 +95,9 @@ button:disabled{opacity:1;cursor:not-allowed;border-color:var(--dis-line);backgr
 .report-item .category-tag{font-size:13px}
 .report-name{font-size:16px;font-weight:650;line-height:1.45;max-width:70ch}
 .report-detail{font-size:15px;line-height:1.5;color:var(--muted);max-width:70ch}
+.report-facts{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px;font-size:15px;font-variant-numeric:tabular-nums}
+.report-quantity{color:var(--muted)}
+.report-price{color:var(--text);font-weight:650}
 .report-category{margin-top:16px}.report-category:first-of-type{margin-top:0}
 .report-category-heading{display:flex;align-items:center;gap:8px;font-size:16px;margin:0 0 8px}
 .report-category-heading .category-icon{color:var(--green)}
@@ -122,6 +125,7 @@ h1{font-size:clamp(30px,4vw,38px)}
 .report-category .report-item .category-tag{grid-column:1;grid-row:1}
 .report-category .report-item .category-tag span{display:none}
 .report-category .report-item .report-name{grid-column:2;grid-row:1}
+.report-category .report-item .report-facts{grid-column:2}
 .report-category .report-item .report-detail{grid-column:2}
 .report-category .report-item .category-icon{width:20px;height:20px}
 .message.blocked,.blocked-product-name{display:flex;align-items:center;gap:8px}

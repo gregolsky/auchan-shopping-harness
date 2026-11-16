@@ -65,7 +65,20 @@ const REPORT_STATUS = {
 const REPORT_ORDER = ['warning', 'missing', 'action', 'info', 'increase'];
 
 /** Turns the saved CLI report into readable status groups; category comes only from an exact trip-product match. */
-export function reportView(reportText, tripLines = []) {
+export function reportView(reportText, tripLines = [], structured = null) {
+  if (structured) {
+    const known = new Map(tripLines.filter((line) => line.productId).map((line) => [line.productId, line.categoryPath]));
+    return {
+      sections: structured.sections.filter((section) => section.items.length).map((section) => ({ ...section, items: section.items.map((item) => {
+        const categoryPath = item.categoryPath ?? known.get(item.productId);
+        const details = [item.note];
+        if (item.limit) details.push(`Dodano ${item.limit.added} z ${item.limit.requested} (powód: ${item.limit.reason}).`);
+        if (item.substitutes?.length) details.push(`Zamienniki: ${item.substitutes.join('; ')}.`);
+        return { ...item, title: item.name, detail: details.filter(Boolean).join(' '), categoryPath, category: categoryFor(categoryPath) };
+      }) })),
+      summary: [`Dodano produktów: ${structured.summary.addedCount}`, `Razem w koszyku: ${structured.summary.cartTotalGrosze === null ? 'nieznana kwota' : zl(structured.summary.cartTotalGrosze)}`],
+    };
+  }
   const sections = [];
   const summary = [];
   let current = null;
@@ -88,6 +101,15 @@ export function reportView(reportText, tripLines = []) {
     current.items.push({ title: split ? split[1] : text, detail: split ? split[2].replace(/^— /, '') : '', categoryPath, category: categoryFor(categoryPath) });
   });
   return { sections: sections.filter((section) => section.items.length).sort((a, b) => REPORT_ORDER.indexOf(a.key) - REPORT_ORDER.indexOf(b.key)), summary };
+}
+
+export function reportPriceText(item) {
+  if (item.approvedGrosze !== undefined && item.nowGrosze !== undefined) {
+    const rise = item.risePercent === undefined ? '' : ` (+${item.risePercent.toFixed(1).replace('.', ',')}%)`;
+    return `${zl(item.approvedGrosze)} → ${zl(item.nowGrosze)}${rise}`;
+  }
+  if (item.unitPriceGrosze === undefined || item.unitPriceGrosze === null) return '';
+  return `${item.priceSource === 'cart' ? 'Cena w koszyku' : 'Cena planowana'}: ${zl(item.unitPriceGrosze)}/szt.`;
 }
 // The server keeps six steps; its 'szkic' is Lista without lines and Przegląd with lines (see stepIndexOf).
 const KEYS = ['dane', 'szkic', 'doprecyzowanie', 'zatwierdzenie', 'koszyk', 'platnosc'];
@@ -742,8 +764,9 @@ export function start() {
   function renderPayment() {
     const box = card('7. Płatność', 'Sprawdź raport, potem przejdź do Auchan. Aplikacja nie składa zamówienia ani nie płaci.');
     const reportText = report?.text || state.trip.reportText;
-    if (reportText) {
-      const view = reportView(reportText, state.trip.lines);
+    const structured = report?.structured || state.trip.reportData;
+    if (structured || reportText) {
+      const view = reportView(reportText, state.trip.lines, structured);
       view.sections.forEach((section) => {
         const group = element('section', `report-group report-${section.key}`);
         const heading = append(element('h3', 'report-heading'), iconNode(section.key), element('span', '', section.title), element('span', 'report-count', String(section.items.length)));
@@ -753,6 +776,11 @@ export function start() {
           items.forEach((item) => {
             const row = element('li', 'report-item');
             append(row, categoryTag(item.categoryPath), element('span', 'report-name', item.title));
+            const facts = element('div', 'report-facts');
+            if (item.quantity !== undefined) facts.append(element('span', 'report-quantity', `× ${String(item.quantity).replace('.', ',')}`));
+            const price = reportPriceText(item);
+            if (price) facts.append(element('span', 'report-price', price));
+            if (facts.childNodes.length) row.append(facts);
             if (item.detail) row.append(element('span', 'report-detail', item.detail));
             list.append(row);
           });
