@@ -160,3 +160,28 @@ test('changes applyQuantities would refuse are skipped up front and end in missi
   assert.deepEqual(r.missing.map((m) => m.productId).sort(), ['not-a-uuid', uid(3)].sort());
   assert.equal(r.sent, 2);
 });
+
+test('a WAF challenge from the real HTTP worker stops the fill without another cart read or send', async () => {
+  const { createHttpWorker } = await import('../src/http-worker.ts');
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { saveCookies } = await import('../src/worker.ts');
+  const dir = mkdtempSync(join(tmpdir(), 'waf-'));
+  const sessionFile = join(dir, 'session.json');
+  saveCookies(sessionFile, [{ name: 'a', value: '1' }]);
+  const urls: string[] = [];
+  const fetchFn = (async (url: string) => {
+    urls.push(url);
+    if (url.endsWith('/orders')) return new Response(`<script>window.__INITIAL_STATE__=${JSON.stringify({ session: { csrf: { token: 't' } } })}</script>`);
+    return new Response('', { status: 405 });
+  }) as unknown as typeof fetch;
+  const http = createHttpWorker({ sessionFile, login: async () => true, fetchFn, gapMs: 0 });
+  const inner = fakeCart({});
+  let reads = 0;
+  const cart = { readCart: () => { reads++; return inner.readCart(); }, applyQuantities: (c: any) => http.applyQuantities(c) };
+  await assert.rejects(fillCart(cart, [bl(uid(1), 1), bl(uid(2), 1)]), (e: Error) => e instanceof Blocked && !(e instanceof Rejected));
+  assert.equal(reads, 1);
+  assert.equal(urls.filter((u) => u.includes('apply-quantity')).length, 1);
+  rmSync(dir, { recursive: true });
+});

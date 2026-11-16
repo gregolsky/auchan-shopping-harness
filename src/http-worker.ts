@@ -117,6 +117,8 @@ export function createHttpWorker(o: HttpOptions): Worker & CartAccess {
       }
       const { status } = res;
       const retryAfter = res.headers.get('retry-after');
+      // AWS WAF answers a challenge it wants a browser to solve: stop, it is not a bad request and must not be retried.
+      if (status === 405 || res.headers.has('x-amzn-waf-action')) throw new Blocked(`blocked by site (HTTP ${status}, challenge); stopping, not retrying`);
       if (status === 429 || (status === 503 && retryAfter)) throw new RateLimited(status, retrySeconds(retryAfter));
       if (status === 403) throw new Blocked(`blocked by site (HTTP ${status}); stopping, not retrying`);
       if (status === 401 || (status >= 300 && status < 400)) throw new LoginRequired();

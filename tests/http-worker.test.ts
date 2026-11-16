@@ -347,3 +347,29 @@ test('the HTTP worker refuses the search page without sending a request', async 
   assert.equal(calls.length, 0);
   cleanup();
 });
+
+const WAF = { 'x-amzn-waf-action': 'challenge' };
+for (const [name, status, headers] of [
+  ['HTTP 405', 405, {}], ['a WAF header on a 200', 200, WAF], ['HTTP 202 with a WAF header', 202, WAF], ['a WAF header on a 400', 400, WAF], ['a WAF header on a 429', 429, WAF],
+] as const) {
+  test(`${name} is a block: one request, Blocked and never Rejected`, async () => {
+    const { worker, calls, cleanup } = setup(() => new Response('secret', { status, headers }));
+    await assert.rejects(() => worker.getJson('/orders'), (e: Error) => e instanceof Blocked && !(e instanceof Rejected) && !e.message.includes('secret'));
+    assert.equal(calls.length, 1);
+    cleanup();
+  });
+}
+
+test('a plain HTTP 202 without the WAF header is not a block', async () => {
+  const { worker, cleanup } = setup(() => new Response('{"a":1}', { status: 202 }));
+  assert.deepEqual(await worker.getJson('/orders'), { a: 1 });
+  cleanup();
+});
+
+test('a WAF challenge on the apply-quantity POST is Blocked, even as a 405', async () => {
+  for (const apply of [() => new Response('', { status: 405 }), () => new Response('{}', { status: 202, headers: WAF })]) {
+    const { worker, cleanup } = setup(cartServer(apply));
+    await assert.rejects(() => worker.applyQuantities([{ productId: P1, quantity: 1 }]), (e: Error) => e instanceof Blocked && !(e instanceof Rejected));
+    cleanup();
+  }
+});
