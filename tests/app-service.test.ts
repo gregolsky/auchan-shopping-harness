@@ -1052,7 +1052,7 @@ test('a fill that fails with an unknown error logs Polish, not the CLI English',
 });
 
 const D = '00000000-0000-4000-8000-000000000004';
-test('Claude\'s ask about a confident line without a note is dropped and counted; a noted line keeps its question', async () => {
+test('Claude\'s ask about a confident line without a note is silently omitted; a noted line keeps its question', async () => {
   const ops = [
     { op: 'ask', lineKey: 't:chleb', question: 'Który chleb?', options: [B, D] },
     { op: 'ask', lineKey: 't:mleko', question: 'Które mleko?', options: [A, C] },
@@ -1065,5 +1065,6 @@ test('Claude\'s ask about a confident line without a note is dropped and counted
   assert.equal(chleb.confidence, 'high');
   assert.equal(chleb.question, null);
   assert.equal(t.lines.find((l) => l.lineKey === 't:mleko')!.question?.text, 'Które mleko?', 'the user\'s note keeps the question');
-  assert.ok(t.messages.includes('pominięto 1 nieprawidłowych zmian'));
+  assert.ok(!t.messages.some((message) => message.includes('nieprawidłowych zmian')));
+  assert.equal(t.proposal?.dropped ?? 0, 0);
 });

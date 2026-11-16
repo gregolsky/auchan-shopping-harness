@@ -172,11 +172,9 @@ export function createService(d: ServiceDeps) {
 
   /** Asking and saying change nothing; everything else that changes something waits as a proposal. */
   function holdProposal(t: Trip, ops: Op[], drop: number, quiet = true): Trip {
-    // A question about a line that is confident and carries no note from the user only gets in the way: drop it and count it.
+    // A question about a line that is confident and carries no note from the user only gets in the way.
     const confident = (o: Op) => quiet && o.op === 'ask' && t.lines.some((l) => l.lineKey === o.lineKey && l.confidence === 'high' && l.note.trim() === '');
-    const kept = ops.filter((o) => !confident(o));
-    drop += ops.length - kept.length;
-    ops = kept;
+    ops = ops.filter((o) => !confident(o));
     const now = applyOps(t, ops.filter(isAskOrSay)).trip;
     const rest = ops.filter((o) => !isAskOrSay(o) && changesTrip(now, o));
     const messages = drop > 0 ? [...now.messages, dropped(drop)] : now.messages;
