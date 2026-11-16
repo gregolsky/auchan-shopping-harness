@@ -413,3 +413,10 @@ test('product names and brands are cut to 200 characters, offer texts to 300', (
   assert.equal(out.products.find((p) => p.productId === entity.productId)!.brand.length, 200);
   assert.equal(out.prices.find((p) => p.productId === entity.productId)!.offerText!.length, 300);
 });
+
+test('cleanText also strips direction marks, line separators and zero-width characters', () => {
+  for (const ch of ['‎', '‏', '؜', ' ', ' ', '​', '‌', '‍', '﻿', '⁠']) {
+    assert.equal(cleanText(`Mle${ch}ko`), 'Mleko', `U+${ch.codePointAt(0)!.toString(16)}`);
+  }
+  assert.equal(cleanText('Żółć 1 l – ok'), 'Żółć 1 l – ok');
+});

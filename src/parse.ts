@@ -6,7 +6,7 @@ type Obj = Record<string, any>;
 
 /** Auchan's text is untrusted: no terminal escapes, control characters or bidi overrides reach a screen. */
 export function cleanText(s: string): string {
-  return s.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '');
+  return s.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\ufeff]/g, '');
 }
 
 /** A category path as the app keeps it: at most 8 parts, each clean and at most 120 characters. */
