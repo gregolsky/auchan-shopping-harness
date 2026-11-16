@@ -203,10 +203,18 @@ export interface SessionCookie {
 }
 
 /** Written to a new file beside the target and renamed over it, so a symlink at the target is replaced, never followed. */
+/**
+ * The only Auchan cookies the harness keeps and sends: the login session and the load balancer's stickiness pair
+ * (so the CSRF token and the cart write reach the same backend). Trackers and the bot-protection token are never
+ * saved or replayed from Node (checked live 2026-11-16: orders, cart read and promotions work with global_sid alone).
+ */
+export const NEEDED_COOKIES: ReadonlySet<string> = new Set(['global_sid', 'AWSALB', 'AWSALBCORS']);
+export const onlyNeeded = <T extends { name: string }>(cookies: T[]): T[] => cookies.filter((c) => NEEDED_COOKIES.has(c.name));
+
 export function saveCookies(file: string, cookies: SessionCookie[]): void {
   const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
   try {
-    writeFileSync(temp, JSON.stringify(cookies.map(({ name, value }) => ({ name, value }))), { flag: 'wx', mode: 0o600 });
+    writeFileSync(temp, JSON.stringify(onlyNeeded(cookies).map(({ name, value }) => ({ name, value }))), { flag: 'wx', mode: 0o600 });
     renameSync(temp, file);
   } catch (e) {
     rmSync(temp, { force: true });

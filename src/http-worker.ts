@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { ShapeError } from './parse.ts';
-import { APPLY_QUANTITY_PATH, assertAllowed, assertGraphqlOperation, Blocked, CART_READ_PATH, checkGraphql, LoginRequired, normaliseGet, ORIGIN, RateLimited, type SessionCookie, type Worker } from './worker.ts';
+import { APPLY_QUANTITY_PATH, assertAllowed, assertGraphqlOperation, Blocked, CART_READ_PATH, checkGraphql, LoginRequired, normaliseGet, onlyNeeded, ORIGIN, RateLimited, type SessionCookie, type Worker } from './worker.ts';
 
 /** One request at a time, at most one per this many ms, enforced here so no caller can skip it. */
 const MIN_GAP_MS = 1500;
@@ -12,7 +12,8 @@ export function cookieHeader(file: string): string | undefined {
   try {
     const cookies = JSON.parse(raw) as SessionCookie[];
     if (!Array.isArray(cookies)) return undefined;
-    return cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+    // A session saved before the allowlist may still hold trackers and the WAF token: send only what is needed.
+    return onlyNeeded(cookies).map((c) => `${c.name}=${c.value}`).join('; ');
   } catch {
     return undefined; // the parser's message quotes the file; a damaged session just needs a new login
   }

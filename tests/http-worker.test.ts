@@ -12,7 +12,7 @@ const page = (state: unknown, extra = '') => `<html><script>window.__INITIAL_STA
 function setup(respond: (url: string, init: any) => Response | Promise<Response>, login = async () => true) {
   const dir = mkdtempSync(join(tmpdir(), 'http-'));
   const sessionFile = join(dir, 'session.json');
-  saveCookies(sessionFile, [{ name: 'a', value: '1' }, { name: 'b', value: '2' }]);
+  saveCookies(sessionFile, [{ name: 'global_sid', value: '1' }, { name: 'AWSALB', value: '2' }]);
   const calls: { url: string; init: any; at: number }[] = [];
   const fetchFn = (async (url: string, init: any) => {
     calls.push({ url, init, at: Date.now() });
@@ -23,10 +23,22 @@ function setup(respond: (url: string, init: any) => Response | Promise<Response>
 
 test('cookies are saved for the owner only and only name and value are kept', () => {
   const { sessionFile, cleanup } = setup(() => new Response(''));
-  saveCookies(sessionFile, [{ name: 'a', value: '1', domain: 'x' } as any]);
+  saveCookies(sessionFile, [{ name: 'global_sid', value: '1', domain: 'x' } as any]);
   assert.equal(statSync(sessionFile).mode & 0o777, 0o600);
-  assert.deepEqual(JSON.parse(readFileSync(sessionFile, 'utf8')), [{ name: 'a', value: '1' }]);
-  assert.equal(cookieHeader(sessionFile), 'a=1');
+  assert.deepEqual(JSON.parse(readFileSync(sessionFile, 'utf8')), [{ name: 'global_sid', value: '1' }]);
+  assert.equal(cookieHeader(sessionFile), 'global_sid=1');
+  cleanup();
+});
+
+test('only the session and load-balancer cookies are saved and sent; trackers and the WAF token never are', () => {
+  const { sessionFile, cleanup } = setup(() => new Response(''));
+  const browser = ['global_sid', 'AWSALB', 'AWSALBCORS', 'aws-waf-token', '_ga', '_fbp', '_uetvid', '_hjSessionUser_1', 'FPID', '']
+    .map((name, i) => ({ name, value: `v${i}` }));
+  saveCookies(sessionFile, browser);
+  assert.deepEqual(JSON.parse(readFileSync(sessionFile, 'utf8')).map((c: { name: string }) => c.name), ['global_sid', 'AWSALB', 'AWSALBCORS']);
+  // A session file written before the allowlist still sends only the needed ones.
+  writeFileSync(sessionFile, JSON.stringify(browser));
+  assert.equal(cookieHeader(sessionFile), 'global_sid=v0; AWSALB=v1; AWSALBCORS=v2');
   cleanup();
 });
 
@@ -63,7 +75,7 @@ test('getJson sends the cookie and version header and does not follow redirects'
   assert.deepEqual(await worker.getJson('/orders'), { ok: 1 });
   assert.equal(calls[0].url, 'https://zakupy.auchan.pl/orders');
   assert.equal(calls[0].init.redirect, 'manual');
-  assert.equal(calls[0].init.headers.cookie, 'a=1; b=2');
+  assert.equal(calls[0].init.headers.cookie, 'global_sid=1; AWSALB=2');
   assert.equal(calls[0].init.headers['ecom-request-source-version'], '2.0.0');
   cleanup();
 });
@@ -331,11 +343,11 @@ test('saveCookies replaces a symlink at the session path instead of following it
   writeFileSync(victim, 'untouched');
   const session = join(dir, 'session.json');
   symlinkSync(victim, session);
-  saveCookies(session, [{ name: 'a', value: '1' }]);
+  saveCookies(session, [{ name: 'global_sid', value: '1' }]);
   assert.equal(readFileSync(victim, 'utf8'), 'untouched');
   assert.equal(lstatSync(session).isSymbolicLink(), false);
   assert.equal(statSync(session).mode & 0o777, 0o600);
-  assert.equal(cookieHeader(session), 'a=1');
+  assert.equal(cookieHeader(session), 'global_sid=1');
   assert.deepEqual(readdirSync(dir).sort(), ['session.json', 'victim.txt']); // no temp file left
   rmSync(dir, { recursive: true });
 });

@@ -169,7 +169,7 @@ test('a WAF challenge from the real HTTP worker stops the fill without another c
   const { saveCookies } = await import('../src/worker.ts');
   const dir = mkdtempSync(join(tmpdir(), 'waf-'));
   const sessionFile = join(dir, 'session.json');
-  saveCookies(sessionFile, [{ name: 'a', value: '1' }]);
+  saveCookies(sessionFile, [{ name: 'global_sid', value: '1' }]);
   const urls: string[] = [];
   const fetchFn = (async (url: string) => {
     urls.push(url);
