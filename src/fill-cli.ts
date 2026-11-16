@@ -4,7 +4,7 @@ import { browserLogin, Blocked, type Worker } from './worker.ts';
 import { createHttpWorker, type CartAccess } from './http-worker.ts';
 import { describeFailure, ensureStateDir, liveDeps as syncDeps, withLogin } from './cli.ts';
 import { fillCart } from './fill.ts';
-import { cleanText } from './parse.ts';
+import { cleanText, clampCategoryPath } from './parse.ts';
 import { zl } from './money.ts';
 import { buildDraft } from './draft.ts';
 import { parseCart, type FillReport, type PriceNote, type PaymentReport, type PaymentRow, type BasketLine } from './cart.ts';
@@ -77,31 +77,32 @@ export function structuredReport(
   blockedInCart: { productId: string; name: string }[] = [], skippedBlocked: BasketLine[] = [], categoryPaths: Record<string, string[]> = {},
 ): PaymentReport {
   const sections: PaymentReport['sections'] = [];
-  const category = (id: string): Pick<PaymentRow, 'categoryPath'> => categoryPaths[id] ? { categoryPath: categoryPaths[id].slice(0, 8).map((part) => cleanText(part).slice(0, 120)) } : {};
-  const basketRow = (line: BasketLine): PaymentRow => ({ productId: line.productId, name: cleanText(line.name), quantity: line.quantity,
+  const category = (id: string): Pick<PaymentRow, 'categoryPath'> => categoryPaths[id] ? { categoryPath: clampCategoryPath(categoryPaths[id]) } : {};
+  const rowName = (name: string): string => cleanText(name).slice(0, 200);
+  const basketRow = (line: BasketLine): PaymentRow => ({ productId: line.productId, name: rowName(line.name), quantity: Math.min(line.quantity, 20),
     unitPriceGrosze: line.approvedPriceGrosze, priceSource: 'planned', ...category(line.productId),
     ...(r.limits[line.productId] ? { limit: { ...r.limits[line.productId], reason: cleanText(r.limits[line.productId]!.reason) } } : {}),
     ...(substitutes[line.productId]?.length ? { substitutes: substitutes[line.productId].slice(0, 2).map(cleanText) } : {}) });
   const priceRow = (price: PriceNote): PaymentRow => {
     const line = [...r.added, ...r.alreadyEnough, ...r.missing, ...r.outOfStock].find((item) => item.productId === price.productId);
-    return { productId: price.productId, name: cleanText(price.name), ...(line ? { quantity: line.quantity } : {}),
+    return { productId: price.productId, name: rowName(price.name), ...(line ? { quantity: Math.min(line.quantity, 20) } : {}),
       approvedGrosze: price.approvedGrosze, nowGrosze: price.nowGrosze, risePercent: price.risePercent, ...category(price.productId) };
   };
   const section = (key: PaymentReport['sections'][number]['key'], title: string, items: PaymentRow[]) => {
     if (items.length) sections.push({ key, title, items });
   };
   section('warning', 'Sprawdź przed zapłatą', [
-    ...blockedInCart.map((item) => ({ productId: item.productId, name: cleanText(item.name), ...category(item.productId), note: 'Zablokowany produkt w koszyku — usuń go na Auchan.' })),
+    ...blockedInCart.map((item) => ({ productId: item.productId, name: rowName(item.name), ...category(item.productId), note: 'Zablokowany produkt w koszyku — usuń go na Auchan.' })),
     ...r.checkBeforePaying.map(priceRow),
   ]);
   section('warning', 'Pominięto zablokowane produkty', skippedBlocked.map((line) => ({ ...basketRow(line), note: 'Nie dodano do koszyka.' })));
   section('missing', 'Brak w sklepie', r.outOfStock.map(basketRow));
   section('missing', 'Nie dodano', r.missing.map(basketRow));
-  section('action', 'Dodaj sam na Auchan', unmatched.map((name) => ({ name: cleanText(name) })));
+  section('action', 'Dodaj sam na Auchan', unmatched.map((name) => ({ name: rowName(name) })));
   section('info', 'Było już w koszyku', [
     ...r.alreadyEnough.map(basketRow),
-    ...r.extras.map((line): PaymentRow => ({ productId: line.productId, name: cleanText(names[line.productId] ?? `produkt spoza koszyka ${line.productId}`),
-      quantity: line.quantity, unitPriceGrosze: line.unitPriceGrosze, priceSource: 'cart', ...category(line.productId) })),
+    ...r.extras.map((line): PaymentRow => ({ productId: line.productId, name: rowName(names[line.productId] ?? `produkt spoza koszyka ${line.productId}`),
+      quantity: Math.min(line.quantity, 1000), unitPriceGrosze: line.unitPriceGrosze, priceSource: 'cart', ...category(line.productId) })),
   ]);
   section('increase', 'Niewielkie podwyżki', r.smallRises.map(priceRow));
   return { sections, summary: { addedCount: r.added.length, cartTotalGrosze: r.cartTotalGrosze } };

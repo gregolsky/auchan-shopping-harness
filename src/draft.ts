@@ -3,6 +3,7 @@ import type { Candidate, Confidence } from './candidates.ts';
 import { lineCost, parseOffer } from './pricing.ts';
 import { capQuantity, isUsual, lastBoughtText, perishableNote, stockUp } from './rules.ts';
 import { normaliseTerm } from './store.ts';
+import { clampCategoryPath } from './parse.ts';
 import { isBlockedProduct, type BlockedProduct } from './blacklist.ts';
 import type { IntentRule, ProductFacts } from './store.ts';
 
@@ -79,7 +80,7 @@ function line(f: Buyable, p: { term: string | null; quantity: number; reason: st
     term: p.term, productId: f.productId, name: f.name, quantity: p.quantity, lineCostGrosze: costAt(f, p.quantity),
     reason: p.reason, guess: p.guess ?? false, capped: p.capped ?? false, lastBought: lastBoughtText(f, now),
     confidence: p.confidence ?? 'high', confidenceReason: p.confidenceReason ?? '', alternatives: p.alternatives ?? [],
-    imageUrl: f.imageUrl, imageAlt: f.imageAlt, categoryPath: f.categoryPath,
+    imageUrl: f.imageUrl, imageAlt: f.imageAlt, categoryPath: clampCategoryPath(f.categoryPath),
     ...(f.retailerProductId ? { retailerProductId: f.retailerProductId } : {}),
     ...(f.latestPriceSeenAt ? { latestPriceSeenAt: f.latestPriceSeenAt } : {}),
   };
@@ -122,7 +123,7 @@ export function buildDraft(input: DraftInput, facts: ProductFacts[], rules: Inte
     let reason = basisReason(top, term) + savingNote(top);
     const note = perishableNote(top, quantity);
     if (note) reason += `; ${note}`;
-    const alternatives = ranked.slice(1, 4).filter(buyable).sort((a, b) => CONF_RANK[a.confidence] - CONF_RANK[b.confidence]).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, quantity), confidence: c.confidence, imageUrl: c.imageUrl, imageAlt: c.imageAlt, categoryPath: c.categoryPath, ...(c.retailerProductId ? { retailerProductId: c.retailerProductId } : {}), ...(c.latestPriceSeenAt ? { latestPriceSeenAt: c.latestPriceSeenAt } : {}) }));
+    const alternatives = ranked.slice(1, 4).filter(buyable).sort((a, b) => CONF_RANK[a.confidence] - CONF_RANK[b.confidence]).map((c) => ({ productId: c.productId, name: c.name, lineCostGrosze: costAt(c, quantity), confidence: c.confidence, imageUrl: c.imageUrl, imageAlt: c.imageAlt, categoryPath: clampCategoryPath(c.categoryPath), ...(c.retailerProductId ? { retailerProductId: c.retailerProductId } : {}), ...(c.latestPriceSeenAt ? { latestPriceSeenAt: c.latestPriceSeenAt } : {}) }));
     used.add(top.productId);
     items.push(line(top, { term, quantity, reason, guess: top.guess, alternatives, confidence: top.confidence, confidenceReason: top.confidenceReason }, now));
   }

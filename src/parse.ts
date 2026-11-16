@@ -9,6 +9,11 @@ export function cleanText(s: string): string {
   return s.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '');
 }
 
+/** A category path as the app keeps it: at most 8 parts, each clean and at most 120 characters. */
+export function clampCategoryPath(path: string[]): string[] {
+  return path.slice(0, 8).map((part) => cleanText(part).slice(0, 120));
+}
+
 function obj(v: unknown, path: string): Obj {
   if (v === null || typeof v !== 'object' || Array.isArray(v)) throw new ShapeError(`expected object at ${path}`);
   return v as Obj;

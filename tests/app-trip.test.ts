@@ -532,3 +532,51 @@ test('latestPriceSeenAt flows from the draft to the line and its candidates, and
     assert.equal(loaded.lines[0].candidates[0].latestPriceSeenAt, undefined);
   }
 });
+
+function savedWith(mutate: (t: any) => void): ReturnType<typeof loadTrip> {
+  const file = join(mkdtempSync(join(tmpdir(), 'trip-bad-optional-')), 'trip.json');
+  const t: any = structuredClone(base());
+  t.lines[0].categoryPath = ['Artykuły spożywcze', 'Sery'];
+  t.lines[0].candidates[0].categoryPath = ['Artykuły spożywcze', 'Sery'];
+  t.reportData = { sections: [{ key: 'missing', title: 'Brak', items: [{ productId: 'M', name: 'Mąka', quantity: 1 }] }], summary: { addedCount: 0, cartTotalGrosze: 1 } };
+  mutate(t);
+  writeFileSync(file, JSON.stringify(t));
+  return loadTrip(file);
+}
+
+test('a bad optional part is dropped on load; the trip itself survives', () => {
+  const longName = savedWith((t) => { t.reportData.sections[0].items[0].name = 'x'.repeat(2001); });
+  assert.ok(longName); assert.equal(longName.reportData, null); assert.equal(longName.lines.length, base().lines.length);
+  const qty = savedWith((t) => { t.reportData.sections[0].items[0].quantity = 1500; });
+  assert.ok(qty); assert.equal(qty.reportData, null);
+  const part = savedWith((t) => { t.lines[0].categoryPath = ['a', 'b'.repeat(150)]; t.lines[0].candidates[0].categoryPath = ['a', 'b'.repeat(150)]; });
+  assert.ok(part); assert.equal(part.lines[0]!.categoryPath, undefined); assert.equal(part.lines[0]!.candidates[0]!.categoryPath, undefined);
+  assert.equal(part.reportData?.sections.length, 1);
+  const deep = savedWith((t) => { t.lines[0].categoryPath = Array.from({ length: 9 }, () => 'a'); });
+  assert.ok(deep); assert.equal(deep.lines[0]!.categoryPath, undefined); assert.deepEqual(deep.lines[0]!.candidates[0]!.categoryPath, ['Artykuły spożywcze', 'Sery']);
+});
+
+test('payment report validation rejects a bad section key, negative money and a row without a name', () => {
+  assert.equal(savedWith((t) => { t.reportData.sections[0].key = 'nope'; })!.reportData, null);
+  assert.equal(savedWith((t) => { t.reportData.summary.cartTotalGrosze = -5; })!.reportData, null);
+  assert.equal(savedWith((t) => { t.reportData.sections[0].items[0].unitPriceGrosze = -1; })!.reportData, null);
+  assert.equal(savedWith((t) => { delete t.reportData.sections[0].items[0].name; })!.reportData, null);
+  assert.ok(savedWith(() => {})!.reportData);
+});
+
+test('saveTrip drops an invalid or oversized reportData instead of failing', () => {
+  const file = join(mkdtempSync(join(tmpdir(), 'trip-cap-')), 'trip.json');
+  const item = (name: string) => ({ productId: 'M', name, quantity: 1, note: 'n'.repeat(500), substitutes: ['s'.repeat(500), 's'.repeat(500)] });
+  const big = { sections: [{ key: 'missing' as const, title: 'Brak', items: Array.from({ length: 500 }, () => item('x'.repeat(200))) }], summary: { addedCount: 0, cartTotalGrosze: 1 } };
+  saveTrip(file, { ...base(), reportData: big });
+  assert.equal(loadTrip(file)?.reportData, null);
+  saveTrip(file, { ...base(), reportData: { sections: [{ key: 'missing' as const, title: 'Brak', items: [item('x'.repeat(2001))] }], summary: { addedCount: 0, cartTotalGrosze: 1 } } });
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).reportData, null);
+});
+
+test('choosing a candidate without a category clears the old category', () => {
+  const d = draft();
+  d.items[0] = { ...d.items[0], categoryPath: ['Artykuły spożywcze', 'Sery'], alternatives: [{ productId: 'B', name: 'Ser B', lineCostGrosze: 800, confidence: 'high' }] };
+  const t = tripFromDraft(emptyTrip(NOW), d, {});
+  assert.equal(chooseProduct(t, CHEESE, 'B').trip.lines[0]!.categoryPath, undefined);
+});

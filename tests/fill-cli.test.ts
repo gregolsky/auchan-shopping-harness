@@ -383,3 +383,20 @@ test('a fill records the cart order id on its run', async (t) => {
   assert.equal(await main([], deps), 0);
   assert.deepEqual(store.fillOrderIdsNotInOrders(), ['1000000000123']);
 });
+
+test('structured report rows are clamped: names to 200, plan quantities to 20, cart quantities to 1000, control characters removed', () => {
+  const line = { term: 'x', productId: A, name: `Mleko\u0007${'a'.repeat(300)}`, quantity: 50, approvedPriceGrosze: 199 };
+  const report: any = { added: [], alreadyEnough: [line], extras: [{ productId: B, quantity: 5000, unitPriceGrosze: 350, lineTotalGrosze: 350 }], missing: [], outOfStock: [],
+    checkBeforePaying: [], smallRises: [], cartTotalGrosze: 869, sent: 1, limits: {} };
+  const deep = Array.from({ length: 12 }, (_, i) => `Poziom\u0007${i}${'k'.repeat(150)}`);
+  const data = structuredReport(report, ['n'.repeat(300)], {}, { [B]: `Ser\u001b[31m${'b'.repeat(300)}` }, [], [], { [A]: deep, [B]: deep });
+  const rows = data.sections.flatMap((s) => s.items);
+  for (const row of rows) {
+    assert.ok(row.name.length <= 200);
+    assert.doesNotMatch(row.name, /[\u0000-\u001f]/);
+    assert.ok((row.quantity ?? 0) <= 1000);
+    if (row.categoryPath) { assert.equal(row.categoryPath.length, 8); assert.ok(row.categoryPath.every((p) => p.length <= 120 && !/[\u0000-\u001f]/.test(p))); }
+  }
+  assert.equal(rows.find((r) => r.productId === A)!.quantity, 20);
+  assert.equal(rows.find((r) => r.productId === B)!.quantity, 1000);
+});

@@ -267,7 +267,7 @@ const MAX_STRUCTURED_REPORT = 200_000;
 export function saveTrip(file: string, trip: Trip): void {
   // A long report is cut rather than making the saved trip unloadable.
   if (typeof trip.reportText === 'string' && trip.reportText.length > MAX_REPORT) trip = { ...trip, reportText: trip.reportText.slice(0, MAX_REPORT) };
-  if (trip.reportData && JSON.stringify(trip.reportData).length > MAX_STRUCTURED_REPORT) trip = { ...trip, reportData: null };
+  if (trip.reportData && (!validPaymentReport(trip.reportData) || JSON.stringify(trip.reportData).length > MAX_STRUCTURED_REPORT)) trip = { ...trip, reportData: null };
   const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
   try {
     mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
@@ -290,7 +290,7 @@ const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInt
 const isArr = <T>(v: unknown, ok: (x: unknown) => x is T): v is T[] => Array.isArray(v) && v.every(ok);
 const validCategoryPath = (v: unknown): v is string[] => isArr(v, isStr) && v.length <= 8 && v.every((part) => part.length <= 120);
 const validMoney = (v: unknown): v is number => isInt(v) && v >= 0 && v <= 10_000_000_000;
-const validPaymentRow = (v: unknown): v is PaymentRow => isRec(v) && isStr(v.name) && v.name.length <= 2000
+const validPaymentRow = (v: unknown): v is PaymentRow => isRec(v) && isStr(v.name) && v.name.length <= 200
   && (v.productId === undefined || (isStr(v.productId) && v.productId.length <= 200))
   && (v.categoryPath === undefined || validCategoryPath(v.categoryPath))
   && (v.quantity === undefined || (typeof v.quantity === 'number' && Number.isFinite(v.quantity) && v.quantity >= 0 && v.quantity <= 1000))
@@ -310,8 +310,7 @@ const validPaymentReport = (v: unknown): v is PaymentReport => isRec(v) && isArr
 function validCandidate(v: unknown): v is TripCandidate {
   return isRec(v) && isStr(v.productId) && isStr(v.name) && isInt(v.lineCostGrosze) && v.lineCostGrosze >= 0 && v.lineCostGrosze <= MAX_COST && isStr(v.confidence) && CONFS.includes(v.confidence)
     && (v.baseCostGrosze === undefined || (isInt(v.baseCostGrosze) && v.baseCostGrosze >= 0 && v.baseCostGrosze <= MAX_COST))
-    && (v.baseQuantity === undefined || (isInt(v.baseQuantity) && v.baseQuantity >= 1))
-    && (v.categoryPath === undefined || validCategoryPath(v.categoryPath));
+    && (v.baseQuantity === undefined || (isInt(v.baseQuantity) && v.baseQuantity >= 1));
 }
 
 function validLine(v: unknown): v is TripLine {
@@ -321,8 +320,7 @@ function validLine(v: unknown): v is TripLine {
     && v.candidates.some((c) => c.productId === v.productId) && v.candidates.some((c) => c.productId === v.proposedProductId)
     && (v.question === null || (isRec(v.question) && isStr(v.question.text) && isArr(v.question.options, isStr) && v.question.options.length <= 3
       && v.question.options.every((o) => (v.candidates as TripCandidate[]).some((c) => c.productId === o))))
-    && typeof v.included === 'boolean' && (v.held === undefined || typeof v.held === 'boolean') && (v.kind === 'item' || v.kind === 'suggestion')
-    && (v.categoryPath === undefined || validCategoryPath(v.categoryPath));
+    && typeof v.included === 'boolean' && (v.held === undefined || typeof v.held === 'boolean') && (v.kind === 'item' || v.kind === 'suggestion');
 }
 
 function validProposal(v: unknown): boolean {
@@ -337,10 +335,9 @@ function validTrip(v: unknown): v is Trip {
     && isArr(v.messages, isStr) && v.messages.length <= 200 && v.messages.every((m) => m.length <= 2000)
     && validProposal(v.proposal) && isStr(v.updatedAt) && (v.blocked === undefined || typeof v.blocked === 'boolean')
     && (v.reportText === undefined || v.reportText === null || (isStr(v.reportText) && v.reportText.length <= MAX_REPORT))
-    && (v.reportData === undefined || v.reportData === null || validPaymentReport(v.reportData));
+    && (v.reportData === undefined || v.reportData === null || isRec(v.reportData));
 }
 
-/** An image that is not an Auchan image URL (or has an odd description) is dropped; the trip stays usable. */
 /** Auchan's product id as its pages use it: digits only. Anything else is dropped. */
 const RETAILER_ID = /^\d{4,14}$/;
 function cleanRetailerId<T extends { retailerProductId?: unknown }>(x: T): T {
@@ -357,6 +354,14 @@ function cleanSeenAt<T extends { latestPriceSeenAt?: unknown }>(x: T): T {
   return rest as T;
 }
 
+/** An optional category that is not a short clean path is dropped; the line stays. */
+function cleanCategory<T extends { categoryPath?: unknown }>(x: T): T {
+  if (x.categoryPath === undefined || validCategoryPath(x.categoryPath)) return x;
+  const { categoryPath: _drop, ...rest } = x;
+  return rest as T;
+}
+
+/** An image that is not an Auchan image URL (or has an odd description) is dropped; the trip stays usable. */
 function cleanImages<T extends { imageUrl?: string | null; imageAlt?: string | null }>(x: T): T {
   if (x.imageUrl === undefined && x.imageAlt === undefined) return x;
   const imageUrl = validImageUrl(x.imageUrl);
@@ -368,7 +373,9 @@ export function loadTrip(file: string): Trip | null {
     if (statSync(file).size > MAX_BYTES) return null;
     const parsed: unknown = JSON.parse(readFileSync(file, 'utf8'));
     if (!validTrip(parsed)) return null;
-    parsed.lines = parsed.lines.map((l) => ({ ...cleanSeenAt(cleanRetailerId(cleanImages(l))), candidates: l.candidates.map((c) => cleanSeenAt(cleanRetailerId(cleanImages(c)))) }));
+    const clean = <T extends TripLine | TripCandidate>(x: T): T => cleanCategory(cleanSeenAt(cleanRetailerId(cleanImages(x))));
+    parsed.lines = parsed.lines.map((l) => ({ ...clean(l), candidates: l.candidates.map(clean) }));
+    if (parsed.reportData != null && !validPaymentReport(parsed.reportData)) parsed.reportData = null;
     if (parsed.proposal !== null) {
       const { ops } = validateOps({ ops: parsed.proposal.ops }, lineViews(parsed));
       parsed.proposal = { ...parsed.proposal, ops };
