@@ -3,7 +3,10 @@
     "PreToolUse": [
       {
         "matcher": "mcp__chrome-devtools__.*",
-        "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/tools/fill-guard.ts\"" }]
+        "hooks": [
+          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/tools/fill-guard.ts\"" },
+          { "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/tools/checkout-guard.ts\"" }
+        ]
       }
     ]
   }
