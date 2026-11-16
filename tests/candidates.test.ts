@@ -463,3 +463,7 @@ test('a rule\'s preferred product survives a merge with a more recently bought t
   const r = rankCandidates('mleko', 1, [milkA(), milkB()], rule({ preferredProductId: '00475176' }));
   assert.deepEqual(ids(r), ['00475176']);
 });
+
+test('an adjective term does not meet a flour', () => {
+  assert.equal(matchesTerm('makowy', { name: 'Mąka pszenna', brand: '' }), false);
+});

@@ -170,11 +170,13 @@ export function createService(d: ServiceDeps) {
     }
   }
 
+  /** A question about a line that is confident and carries no note from the user only gets in the way. */
+  function withoutConfidentAsks(t: Trip, ops: Op[]): Op[] {
+    return ops.filter((o) => !(o.op === 'ask' && t.lines.some((l) => l.lineKey === o.lineKey && l.confidence === 'high' && l.note.trim() === '')));
+  }
+
   /** Asking and saying change nothing; everything else that changes something waits as a proposal. */
-  function holdProposal(t: Trip, ops: Op[], drop: number, quiet = true): Trip {
-    // A question about a line that is confident and carries no note from the user only gets in the way.
-    const confident = (o: Op) => quiet && o.op === 'ask' && t.lines.some((l) => l.lineKey === o.lineKey && l.confidence === 'high' && l.note.trim() === '');
-    ops = ops.filter((o) => !confident(o));
+  function holdProposal(t: Trip, ops: Op[], drop: number): Trip {
     const now = applyOps(t, ops.filter(isAskOrSay)).trip;
     const rest = ops.filter((o) => !isAskOrSay(o) && changesTrip(now, o));
     const messages = drop > 0 ? [...now.messages, dropped(drop)] : now.messages;
@@ -289,7 +291,7 @@ export function createService(d: ServiceDeps) {
         if (chosen === null) {
           t = { ...t, mode: 'fallback', messages: [...t.messages, FALLBACK_MESSAGE] };
         } else {
-          t = holdProposal(t, chosen.ops, drop + chosen.dropped);
+          t = holdProposal(t, withoutConfidentAsks(t, chosen.ops), drop + chosen.dropped);
           drop = 0;
         }
       }
@@ -308,7 +310,7 @@ export function createService(d: ServiceDeps) {
       if (frozen()) return hold();
       if (before !== generation) return trip;
       if (r === null) return commit({ ...trip, messages: [...trip.messages, 'Claude jest niedostępny — nie mogę wykonać polecenia.'] });
-      return commit(settle(holdProposal(trip, r.ops, r.dropped, false)));
+      return commit(settle(holdProposal(trip, r.ops, r.dropped)));
     },
 
     apply(proposalId: string): Trip {
@@ -599,7 +601,7 @@ export function createService(d: ServiceDeps) {
           if (stopped) return;
           if (chosen === null) next = askEveryDoubtfulLine({ ...next, mode: 'fallback', messages: next.mode === 'claude' ? [...next.messages, FALLBACK_MESSAGE] : next.messages });
           else {
-            const held = holdProposal(next, chosen.ops, chosen.dropped);
+            const held = holdProposal(next, withoutConfidentAsks(next, chosen.ops), chosen.dropped);
             const before = next.proposal;
             next = before !== null && held.proposal !== null && held.proposal !== before ? { ...held, proposal: { ...held.proposal, ops: [...before.ops, ...held.proposal.ops] } } : held;
           }

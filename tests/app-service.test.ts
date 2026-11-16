@@ -1069,3 +1069,28 @@ test('Claude\'s ask about a confident line without a note is silently omitted; a
   assert.ok(!t.messages.some((message) => message.includes('nieprawidłowych zmian')));
   assert.equal(t.proposal?.dropped ?? 0, 0);
 });
+
+function seedConfident(store: Store): void {
+  store.savePromotions({ regionId: 'r1', products: [mk(D, 'Chleb tostowy')], prices: [price(D, 300)] });
+  store.saveOrder({ order: { orderId: 'o2', deliveredAt: '2026-11-02T10:00:00Z', totalGrosze: 450, regionId: REGION }, lines: [{ orderId: 'o2', productId: B, quantity: 1, pricePerItemGrosze: 250 }, { orderId: 'o2', productId: A, quantity: 1, pricePerItemGrosze: 199 }], products: [], prices: [] });
+}
+const askChleb = [{ op: 'ask', lineKey: 't:chleb', question: 'Który chleb?', options: [B, D] }];
+
+test('svc.ask keeps Claude\'s question about a confident line: only the first draft is quiet', async () => {
+  const { svc, store } = setup({ claude: { parse: { ops: [{ op: 'add', term: 'chleb', quantity: 1 }] }, choose: { ops: [] }, adhoc: { ops: askChleb } } });
+  seedConfident(store);
+  const first = await svc.note({ note: 'chleb', includeUsual: false });
+  assert.equal(first.lines[0]!.confidence, 'high');
+  assert.equal(first.lines[0]!.question, null);
+  const t = await svc.ask('zapytaj o chleb');
+  assert.equal(t.lines[0]!.question?.text, 'Który chleb?');
+});
+
+test('a medium line with no note keeps Claude\'s question; only a high line loses it', async () => {
+  const { svc } = setup({ claude: { parse: { ops: [{ op: 'add', term: 'mleko', quantity: 1 }] }, choose: { ops: [{ op: 'ask', lineKey: 't:mleko', question: 'Które mleko?', options: [A, C] }] } } });
+  const t = await svc.note({ note: 'mleko', includeUsual: false });
+  const line = t.lines[0]!;
+  assert.equal(line.confidence, 'medium');
+  assert.equal(line.note, '');
+  assert.equal(line.question?.text, 'Które mleko?');
+});
