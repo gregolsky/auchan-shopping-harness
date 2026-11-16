@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
-import { appPort, createAppServer, createBroadcaster, createStop, DEFAULT_PORT, loadOrCreateToken } from '../src/app/server.ts';
+import { appPort, createAppServer, createBroadcaster, createStop, DEFAULT_PORT, loadOrCreateToken, portBusyMessage } from '../src/app/server.ts';
 
 const TOKEN = 'a'.repeat(32);
 type Call = [string, unknown[]];
@@ -416,5 +416,11 @@ test('the app port is fixed by default and APP_PORT overrides it only with a val
   assert.equal(appPort({ APP_PORT: '5000' }), 5000);
   assert.equal(appPort({ APP_PORT: '0' }), 0);
   assert.equal(appPort({ APP_PORT: 'abc' }), DEFAULT_PORT);
+  assert.equal(appPort({ APP_PORT: '' }), DEFAULT_PORT);
+  assert.equal(appPort({ APP_PORT: '  ' }), DEFAULT_PORT);
   assert.equal(appPort({ APP_PORT: '99999' }), DEFAULT_PORT);
+});
+
+test('a busy port is explained in Polish with the address of the running app', () => {
+  assert.equal(portBusyMessage(47474, 'http://127.0.0.1:47474/?t=x'), 'Port 47474 jest zajęty — aplikacja już działa pod: http://127.0.0.1:47474/?t=x (albo port zajmuje inny program)');
 });

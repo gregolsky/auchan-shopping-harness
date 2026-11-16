@@ -286,8 +286,11 @@ export function loadOrCreateToken(file: string): string {
 
 export function appPort(env: Record<string, string | undefined>): number {
   const n = Number(env.APP_PORT);
-  return env.APP_PORT !== undefined && Number.isInteger(n) && n >= 0 && n <= 65535 ? n : DEFAULT_PORT;
+  return env.APP_PORT !== undefined && env.APP_PORT.trim() !== '' && Number.isInteger(n) && n >= 0 && n <= 65535 ? n : DEFAULT_PORT;
 }
+
+export const portBusyMessage = (port: number, url: string): string =>
+  `Port ${port} jest zajęty — aplikacja już działa pod: ${url} (albo port zajmuje inny program)`;
 
 export async function main(): Promise<void> {
   const token = loadOrCreateToken('.state/app-token');
@@ -314,10 +317,11 @@ export async function main(): Promise<void> {
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e;
     // Another copy already serves this port: one app at a time, so just point at it.
-    console.log(`Aplikacja już działa: ${url(port)}`);
+    console.log(portBusyMessage(port, url(port)));
     service.shutdown();
     process.exit(0);
   }
+  service.recover();
   console.log(`Zakupy: ${url((server.address() as AddressInfo).port)}`);
   const stop = createStop(service, server);
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(sig, stop);

@@ -285,7 +285,11 @@ test('startup resumes the trip but not a fill', async () => {
   const saved = svc.state().trip;
   assert.equal(make().state().trip.note, 'chleb');
   saveTrip(tripFile, { ...saved, step: 'koszyk' });
-  const resumed = make().state().trip;
+  const restarted = make();
+  assert.equal(restarted.state().trip.step, 'koszyk', 'creating the service changes nothing by itself');
+  assert.equal(JSON.parse(readFileSync(tripFile, 'utf8')).step, 'koszyk');
+  restarted.recover();
+  const resumed = restarted.state().trip;
   assert.equal(resumed.step, 'zatwierdzenie');
   assert.equal(resumed.messages.at(-1), 'Wypełnianie przerwane — uruchom ponownie; doda tylko brakujące.');
   assert.equal(resumed.lines.length, saved.lines.length);

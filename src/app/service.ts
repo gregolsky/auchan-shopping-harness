@@ -147,8 +147,6 @@ export function createService(d: ServiceDeps) {
     return trip;
   }
 
-  if (trip.step === 'koszyk') commit({ ...trip, step: 'zatwierdzenie', messages: [...trip.messages, INTERRUPTED] });
-
   const draftTerms = (store: Store, items: { term: string; quantity: number }[], includeUsual: boolean, budgetGrosze?: number): Draft =>
     buildDraft({ items, includeUsual, budgetGrosze, searched: store.searchResults() }, store.productFacts(), store.intentRules(), d.now(), store.blockedProducts());
 
@@ -504,6 +502,11 @@ export function createService(d: ServiceDeps) {
     },
     clearBrand(term: string): void {
       withStore((s) => s.setBrandFixed(term, null));
+    },
+
+    /** A fill that was cut off by a restart is no longer running: the wizard goes back to the approval step. Called once the app owns its port. */
+    recover(): void {
+      if (trip.step === 'koszyk') commit({ ...trip, step: 'zatwierdzenie', messages: [...trip.messages, INTERRUPTED] });
     },
 
     shutdown(): void {
