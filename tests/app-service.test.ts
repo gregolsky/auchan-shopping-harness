@@ -1050,3 +1050,20 @@ test('a fill that fails with an unknown error logs Polish, not the CLI English',
   assert.ok(logs.some((l) => /nieoczekiwany błąd \(boom\)/.test(l)), logs.join('|'));
   assert.ok(!logs.some((l) => /Fill failed/.test(l)));
 });
+
+const D = '00000000-0000-4000-8000-000000000004';
+test('Claude\'s ask about a confident line without a note is dropped and counted; a noted line keeps its question', async () => {
+  const ops = [
+    { op: 'ask', lineKey: 't:chleb', question: 'Który chleb?', options: [B, D] },
+    { op: 'ask', lineKey: 't:mleko', question: 'Które mleko?', options: [A, C] },
+  ];
+  const { svc, store } = setup({ claude: { parse: parseMilk, choose: { ops } } });
+  store.savePromotions({ regionId: 'r1', products: [mk(D, 'Chleb tostowy')], prices: [price(D, 300)] });
+  store.saveOrder({ order: { orderId: 'o2', deliveredAt: '2026-11-02T10:00:00Z', totalGrosze: 450, regionId: REGION }, lines: [{ orderId: 'o2', productId: B, quantity: 1, pricePerItemGrosze: 250 }, { orderId: 'o2', productId: A, quantity: 1, pricePerItemGrosze: 199 }], products: [], prices: [] });
+  const t = await svc.note({ note: 'mleko x2, chleb', includeUsual: false });
+  const chleb = t.lines.find((l) => l.lineKey === 't:chleb')!;
+  assert.equal(chleb.confidence, 'high');
+  assert.equal(chleb.question, null);
+  assert.equal(t.lines.find((l) => l.lineKey === 't:mleko')!.question?.text, 'Które mleko?', 'the user\'s note keeps the question');
+  assert.ok(t.messages.includes('pominięto 1 nieprawidłowych zmian'));
+});
