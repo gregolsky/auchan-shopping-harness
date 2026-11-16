@@ -361,6 +361,21 @@ export function actionHelp(actions, activeId) {
   return actions.find((action) => action.id === activeId)?.consequence || '';
 }
 
+/** The last pointer or keyboard event wins; leaving it restores the other active interaction. */
+export function actionHelpEvent(state = { hovered: null, focused: null, active: null }, kind, id) {
+  const next = { ...state };
+  if (kind === 'mouseenter') { next.hovered = id; next.active = id; }
+  else if (kind === 'focus') { next.focused = id; next.active = id; }
+  else if (kind === 'mouseleave' && next.hovered === id) {
+    next.hovered = null;
+    if (next.active === id) next.active = next.focused;
+  } else if (kind === 'blur' && next.focused === id) {
+    next.focused = null;
+    if (next.active === id) next.active = next.hovered;
+  }
+  return next;
+}
+
 /** The item's new state in words, shown after an action. */
 export function actionNote(id, name) {
   return {
@@ -612,12 +627,12 @@ export function start() {
     const consequence = element('p', 'meta consequence', '');
     consequence.id = `action-help-${++nextActionHelpId}`;
     consequence.hidden = true;
-    let hovered = null;
-    let focused = null;
+    let helpState;
     const showHelp = () => {
-      consequence.textContent = actionHelp(actions, hovered ?? focused);
+      consequence.textContent = actionHelp(actions, helpState?.active);
       consequence.hidden = !consequence.textContent;
     };
+    const handleHelp = (kind, id) => { helpState = actionHelpEvent(helpState, kind, id); showHelp(); };
     const handlers = {
       other: () => { const first = box.parentElement?.querySelector('.options .option'); if (first) { first.scrollIntoView({ block: 'nearest' }); first.focus(); } },
       search: () => { if (state.search?.block) window.open(auchanSearchUrl(line.term), '_blank', 'noopener,noreferrer'); else { searchEvent = null; void run('/api/search', { terms: [line.term] }).then(showSearch); } },
@@ -629,10 +644,10 @@ export function start() {
       const b = button(a.label, () => { void handlers[a.id](); }, a.id === 'remove' ? 'small danger' : 'small quiet', a.id === 'search' && Boolean(state.busy));
       b.title = a.consequence;
       b.setAttribute('aria-describedby', consequence.id);
-      b.addEventListener('focus', () => { focused = a.id; showHelp(); });
-      b.addEventListener('blur', () => { if (focused === a.id) focused = null; showHelp(); });
-      b.addEventListener('mouseenter', () => { hovered = a.id; showHelp(); });
-      b.addEventListener('mouseleave', () => { if (hovered === a.id) hovered = null; showHelp(); });
+      b.addEventListener('focus', () => handleHelp('focus', a.id));
+      b.addEventListener('blur', () => handleHelp('blur', a.id));
+      b.addEventListener('mouseenter', () => handleHelp('mouseenter', a.id));
+      b.addEventListener('mouseleave', () => handleHelp('mouseleave', a.id));
       row.append(b);
     });
     return append(box, row, consequence);

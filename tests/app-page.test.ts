@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionHelp, actionNote, categoryFor, groupByCategory, categoryLabelText, iconPaths, reportView } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionHelp, actionHelpEvent, actionNote, categoryFor, groupByCategory, categoryLabelText, iconPaths, reportView } from '../public/app.js';
 
 test('catalog category paths map to stable shopping sections and unknown paths stay in Inne', () => {
   assert.equal(categoryFor(['Artykuły spożywcze', 'Sery']).key, 'dairy');
@@ -608,6 +608,19 @@ test('action help is empty by default and describes only the hovered or focused 
   assert.equal(actionHelp(actions, 'search'), 'Pozycja zostaje na liście; szukasz innego produktu w Auchan.');
   assert.equal(actionHelp(actions, 'remove'), 'Pozycja znika z tych zakupów całkiem.');
   assert.equal(actionHelp(actions, 'unknown'), '');
+});
+
+test('the latest hover or focus event chooses action help, with a remaining interaction restored on leave', () => {
+  const first = actionHelpEvent(undefined, 'mouseenter', 'other');
+  assert.equal(first.active, 'other');
+  const focused = actionHelpEvent(first, 'focus', 'search');
+  assert.equal(focused.active, 'search', 'focus after hover wins');
+  assert.equal(actionHelpEvent(focused, 'mouseleave', 'other').active, 'search');
+  assert.equal(actionHelpEvent(focused, 'blur', 'search').active, 'other');
+  const hovered = actionHelpEvent(focused, 'mouseenter', 'remove');
+  assert.equal(hovered.active, 'remove', 'hover after focus wins');
+  assert.equal(actionHelpEvent(hovered, 'mouseleave', 'remove').active, 'search');
+  assert.equal(actionHelpEvent(actionHelpEvent(first, 'mouseleave', 'other'), 'blur', 'search').active, null);
 });
 
 test('after an action the page says the new state of the item in words', () => {
