@@ -36,3 +36,17 @@ test('fill-guard fails closed when the lock file exists but cannot be read', () 
   assert.equal(r.status, 2);
   assert.match(r.stderr, /browser tools are blocked/);
 });
+
+test('fill-guard fails closed when its own imports break while a lock file exists', async () => {
+  const { copyFileSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'guard-'));
+  mkdirSync(join(dir, 'tools'));
+  copyFileSync(guard, join(dir, 'tools', 'fill-guard.ts')); // no ../src beside it: the import fails
+  const lock = join(dir, 'fill.lock');
+  const broken = () => spawnSync('node', [join(dir, 'tools', 'fill-guard.ts'), lock], { input: '{}', encoding: 'utf8' });
+  assert.equal(broken().status, 0, 'no lock, nothing to protect');
+  writeFileSync(lock, 'garbage');
+  const r = broken();
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /browser tools are blocked/);
+});

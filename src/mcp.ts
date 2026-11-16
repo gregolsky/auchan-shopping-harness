@@ -4,7 +4,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { openStore, type Store, type SyncKind } from './store.ts';
-import { DB_PATH } from './dbpath.ts';
+import { DB_PATH, LOCK_PATH } from './dbpath.ts';
+import { FILL_BUSY, lockHeld } from './lock.ts';
 import { logDetail, shownText, UserError } from './errors.ts';
 import { buildDraft } from './draft.ts';
 
@@ -59,7 +60,7 @@ function ensureSchema(dbPath: string): boolean {
   try { openStore(dbPath).close(); return true; } catch { return false; /* the read path reports it */ }
 }
 
-export function createServer(dbPath: string = DB_PATH): McpServer {
+export function createServer(dbPath: string = DB_PATH, lockFile: string = LOCK_PATH): McpServer {
   const server = new McpServer({ name: 'auchan-data', version: '1.0.0' });
 
   server.registerTool(
@@ -187,7 +188,11 @@ export function createServer(dbPath: string = DB_PATH): McpServer {
         unmatched: z.array(z.string().max(100)).max(100).default([]),
       },
     },
-    ({ lines, unmatched }) => withWritable(dbPath, (s) => s.approveBasket(lines, unmatched)),
+    ({ lines, unmatched }) => {
+      // A running fill reads the approved basket: it must not change under it.
+      try { if (lockHeld(lockFile)) return fail(FILL_BUSY); } catch (e) { return DB_ERROR(e); }
+      return withWritable(dbPath, (s) => s.approveBasket(lines, unmatched));
+    },
   );
 
   return server;

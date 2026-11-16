@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { createServer } from '../src/mcp.ts';
+import { FILL_BUSY } from '../src/lock.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { openStore } from '../src/store.ts';
 import { parseDecoratedOrder } from '../src/parse.ts';
@@ -15,8 +16,10 @@ import type { Product, PriceObservation } from '../src/types.ts';
 const fx = (n: string) => JSON.parse(readFileSync(new URL(`./fixtures/${n}`, import.meta.url), 'utf8'));
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src');
 
-async function withClient<T>(dbPath: string, fn: (c: Client) => Promise<T>): Promise<T> {
-  const server = createServer(dbPath);
+const NO_LOCK = join(tmpdir(), `mcp-no-lock-${process.pid}`, 'fill.lock');
+
+async function withClient<T>(dbPath: string, fn: (c: Client) => Promise<T>, lockFile = NO_LOCK): Promise<T> {
+  const server = createServer(dbPath, lockFile);
   const client = new Client({ name: 'test', version: '0' });
   const [a, b] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(a), client.connect(b)]);
@@ -393,4 +396,22 @@ test('draft_basket input quantity is a whole number from 1 to 20', async () => {
       JSON.parse(await call(c, 'draft_basket', { items: [{ term: 'mleko', quantity: 20 }], includeUsual: false }));
     }),
   );
+});
+
+test('approve_basket refuses with the fill-busy text while the fill lock is held, and stores nothing', async () => {
+  await withDb(seedPlanner, async (path) => {
+    const lock = join(dirname(path), 'fill.lock');
+    writeFileSync(lock, JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
+    await withClient(path, async (c) => {
+      const r = (await c.callTool({ name: 'approve_basket', arguments: { lines: [{ term: null, productId: 'm1', quantity: 1 }] } })) as { isError?: boolean; content: { text: string }[] };
+      assert.equal(r.isError, true);
+      assert.equal(r.content[0].text, FILL_BUSY);
+      const s = openStore(path, { readOnly: true });
+      assert.equal(s.latestApprovedBasket(), null);
+      s.close();
+      rmSync(lock);
+      const ok = JSON.parse(await call(c, 'approve_basket', { lines: [{ term: null, productId: 'm1', quantity: 1 }] }));
+      assert.ok(ok.basketId);
+    }, lock);
+  });
 });

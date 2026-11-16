@@ -2,6 +2,9 @@ import { linkSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } 
 import { randomBytes } from 'node:crypto';
 import { dirname } from 'node:path';
 
+/** What a refused second fill, search or approval says while the lock is held. */
+export const FILL_BUSY = 'Inny fill już trwa: poczekaj, aż się skończy. Jeśli żaden nie działa, usuń plik .state/fill.lock i uruchom ponownie';
+
 /** A lock older than this is stale whatever its pid says: the pid may have been reused after a reboot. */
 export const LOCK_MAX_AGE_MS = 6 * 3600_000;
 
