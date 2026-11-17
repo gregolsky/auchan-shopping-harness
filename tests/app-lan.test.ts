@@ -40,11 +40,20 @@ test('lanAddresses keeps only private IPv4 addresses of real interfaces', () => 
     lo: [a('127.0.0.1', 'IPv4', true)],
     wlan0: [a('192.168.1.23'), a('fe80::1', 'IPv6')],
     eth0: [a('10.0.0.5')],
-    docker0: [a('172.17.0.1')],
     wan: [a('83.12.1.1')],
     odd: [a('172.32.0.1'), a('192.169.0.1')],
+    usb0: [a('172.20.10.2')],
   } as never);
-  assert.deepEqual(got, ['192.168.1.23', '10.0.0.5', '172.17.0.1']);
+  assert.deepEqual(got, ['192.168.1.23', '10.0.0.5', '172.20.10.2']);
+});
+
+test('lanAddresses puts the home Wi-Fi range first and skips container and VPN interfaces', () => {
+  const a = (address: string) => ({ address, family: 'IPv4', internal: false, netmask: '', mac: '', cidr: null });
+  const got = lanAddresses({
+    docker0: [a('172.17.0.1')], 'br-1a2b': [a('172.18.0.1')], veth0: [a('10.1.0.1')], virbr0: [a('192.168.122.1')], wg0: [a('10.8.0.2')],
+    eth1: [a('10.0.0.5')], wlp0s20f3: [a('192.168.60.122')],
+  } as never);
+  assert.deepEqual(got, ['192.168.60.122', '10.0.0.5']);
 });
 
 test('the page answers on a LAN address the server was given, and on nothing else', async () => {
@@ -87,6 +96,8 @@ test('/api/phone gives the phone link, /phone-qr.svg its QR code; both need the 
     assert.equal(qr.type, 'image/svg+xml');
     assert.match(qr.body, /^<svg[^>]*viewBox/);
     for (const p of ['/api/phone', '/phone-qr.svg', '/api/phone?t=wrong']) assert.equal((await request(s.port, local, p)).status, 403, p);
+    const post = await request(s.port, local, `/api/phone?t=${TOKEN}`, { method: 'POST', headers: { 'x-app-token': TOKEN, 'content-type': 'application/json', origin: `http://${local}` }, body: '{}' });
+    assert.notEqual(post.status, 200, 'the phone link is only for GET');
   } finally { s.close(); }
 });
 

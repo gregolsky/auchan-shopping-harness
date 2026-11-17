@@ -192,10 +192,17 @@ function readBody(req: http.IncomingMessage): Promise<Body> {
   });
 }
 
-/** Private IPv4 addresses of this machine: the ones a phone on the same Wi-Fi can reach. */
+const PRIVATE_RANGES = [/^192\.168\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./]; // home Wi-Fi first
+const VIRTUAL_IFACE = /^(docker|br-|veth|virbr|vmnet|vboxnet|podman|cni|flannel|lxc|tun|tap|wg)/;
+/** Private IPv4 addresses of this machine a phone on the same Wi-Fi can reach, the likeliest first; container and VPN interfaces are skipped. */
 export function lanAddresses(ifaces: ReturnType<typeof networkInterfaces> = networkInterfaces()): string[] {
-  const priv = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/;
-  return Object.values(ifaces).flat().filter((a) => a !== undefined && a.family === 'IPv4' && !a.internal && priv.test(a.address)).map((a) => a!.address);
+  const rank = (ip: string) => PRIVATE_RANGES.findIndex((r) => r.test(ip));
+  return Object.entries(ifaces)
+    .filter(([name]) => !VIRTUAL_IFACE.test(name))
+    .flatMap(([, list]) => list ?? [])
+    .filter((a) => a.family === 'IPv4' && !a.internal && rank(a.address) >= 0)
+    .map((a) => a.address)
+    .sort((x, y) => rank(x) - rank(y));
 }
 
 function qrCode(text: string) {
