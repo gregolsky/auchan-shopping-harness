@@ -512,6 +512,12 @@ function card(title, description = '') {
   if (description) append(node, element('p', 'subtle', description));
   return node;
 }
+function stateIllustration(variant, text) {
+  const box = element('div', 'state-illustration');
+  const token = new URL(location.href).searchParams.get('t') || '';
+  const image = element('img'); image.src = `/shopping.svg?t=${encodeURIComponent(token)}#${variant}`; image.alt = ''; image.width = 280; image.height = 180;
+  return append(box, image, element('p', 'empty', text));
+}
 export function badgeText(line) {
   if (line.held) return 'Czeka na Twój wybór';
   return { high: 'Pewne', medium: 'Sprawdź wybór', low: 'Niepewne' }[line.confidence] || 'Sprawdź';
@@ -603,6 +609,8 @@ export function start() {
       steps.append(tab);
     });
     steps.append(button('⚙  Moje reguły', () => { rulesOpen = true; render(); }, `step ${rulesOpen ? 'active' : ''}`));
+    const active = steps.querySelector('.step.active');
+    if (active) steps.scrollLeft = active.offsetLeft - steps.offsetLeft - (steps.clientWidth - active.clientWidth) / 2;
     document.querySelector('#progress-line').textContent = progressLine(model.stepIndex);
     document.querySelector('#step-help').textContent = rulesOpen ? 'Zobacz zapamiętane wybory i zablokowane produkty.' : HELP[selected];
   }
@@ -660,12 +668,16 @@ export function start() {
       node.append(ask);
     } else if (view.alternatives.length) {
       const others = element('div', 'others');
+      others.hidden = true;
+      others.id = `alternatives-${++nextActionHelpId}`;
       others.append(element('div', 'meta', 'Inne pasujące:'));
       const options = element('div', 'options');
       view.alternatives.forEach((o) => options.append(option(o, () => run('/api/line', { lineKey: line.lineKey, productId: o.productId }))));
       node.append(append(others, options));
     }
     node.append(actionsNode(line, view));
+    const reveal = node.querySelector('[data-show-alternatives]');
+    if (reveal) reveal.setAttribute('aria-controls', node.querySelector('.others').id);
     return node;
   }
   function appendGroupedProducts(parent, lines, heading = 'h3') {
@@ -694,7 +706,7 @@ export function start() {
     };
     const handleHelp = (kind, id) => { helpState = actionHelpEvent(helpState, kind, id); showHelp(); };
     const handlers = {
-      other: () => { const first = box.parentElement?.querySelector('.options .option'); if (first) { first.scrollIntoView({ block: 'nearest' }); first.focus(); } },
+      other: () => { const others = box.parentElement?.querySelector('.others'); if (!others) return; others.hidden = false; box.querySelector('[data-show-alternatives]')?.setAttribute('aria-expanded', 'true'); const first = others.querySelector('.option'); if (first) { first.scrollIntoView({ block: 'nearest' }); first.focus(); } },
       search: () => { if (state.search?.block) window.open(auchanSearchUrl(line.term), '_blank', 'noopener,noreferrer'); else { searchEvent = null; void run('/api/search', { terms: [line.term] }).then(showSearch); } },
       byHand: async () => { if (await run('/api/line/by-hand', { lineKey: line.lineKey })) tell(actionNote('byHand', name)); },
       remove: async () => { const r = line.question ? await run('/api/answer', { lineKey: line.lineKey, productId: null }) : await run('/api/line', { lineKey: line.lineKey, remove: true }); if (r) tell(actionNote('remove', name)); },
@@ -703,6 +715,7 @@ export function start() {
     actions.forEach((a) => {
       const b = button(a.label, () => { void handlers[a.id](); }, a.id === 'remove' ? 'small danger' : 'small quiet', a.id === 'search' && Boolean(state.busy));
       b.title = a.consequence;
+      if (a.id === 'other') { b.dataset.showAlternatives = ''; b.setAttribute('aria-expanded', 'false'); }
       b.setAttribute('aria-describedby', consequence.id);
       b.addEventListener('focus', () => handleHelp('focus', a.id));
       b.addEventListener('blur', () => handleHelp('blur', a.id));
@@ -752,7 +765,7 @@ export function start() {
     const model = viewModel(state);
     const blockedNotice = state.trip.messages?.find((m) => m.startsWith('Pominięto zablokowane produkty:'));
     if (blockedNotice) results.append(append(element('p', 'message blocked'), iconNode('warning'), element('span', '', blockedNotice)));
-    if (!model.lines.length) results.append(element('p', 'empty', 'Produkty pojawią się tu po ułożeniu szkicu.'));
+    if (!model.lines.length) results.append(stateIllustration('empty', 'Produkty pojawią się tu po ułożeniu szkicu.'));
     appendGroupedProducts(results, model.lines);
     if (model.suggestions.length) {
       results.append(element('h3', '', 'Propozycje · dodawane tylko po Twoim kliknięciu'));
@@ -772,7 +785,7 @@ export function start() {
     const info = describeQuestions(model);
     const box = card('4. Doprecyzowanie', 'Wybierz produkt tam, gdzie dopasowanie wymaga Twojej decyzji.');
     if (info.intro) box.append(element('p', 'message', info.intro));
-    if (info.empty) box.append(element('p', 'empty', info.empty));
+    if (info.empty) box.append(stateIllustration('empty', info.empty));
     target.append(box);
     const view = proposalView(state.trip);
     state.trip.lines.filter((l) => ((l.included || l.held) && l.question) || view.byLine[l.lineKey]).forEach((l) => target.append(lineCardNode(l, opsFor(l))));
@@ -786,7 +799,7 @@ export function start() {
     const box = card('5. Zatwierdzenie', 'Ostatnia kontrola przed dodaniem produktów do koszyka Auchan.');
     const included = state.trip.lines.filter((l) => l.included);
     appendGroupedProducts(box, included);
-    if (!included.length) box.append(element('p', 'empty', 'Lista jest pusta. Wróć do listy.'));
+    if (!included.length) box.append(stateIllustration('empty', 'Lista jest pusta. Wróć do listy.'));
     if (model.unmatched.length) append(box, element('h3', '', 'Do dodania ręcznie w Auchan'), ...model.unmatched.flatMap((u) => [element('p', 'meta', unmatchedText(u)), searchLink(u.term)]), element('p', 'meta', MANUAL_HINT));
     append(box, element('div', 'total', `Szacowana kwota: ${zl(model.total)}`), ...(model.staleNote ? [element('p', 'meta stale-note', model.staleNote)] : []), model.inCart ? element('p', 'meta', 'Te zakupy są już w koszyku. Zacznij nowe zakupy, żeby dodać coś jeszcze.') : button('✓ Zatwierdź i dodaj do koszyka', async () => { const result = await run('/api/approve', {}); if (result?.started) { selected = 5; render(); } }, 'button', !model.canApprove));
     if (!model.canApprove && !model.inCart && model.approveHint) box.append(element('p', 'meta', model.approveHint));
@@ -801,6 +814,7 @@ export function start() {
   }
   function renderPayment() {
     const box = card('7. Płatność', 'Sprawdź raport, potem przejdź do Auchan. Aplikacja nie składa zamówienia ani nie płaci.');
+    box.append(stateIllustration('success', 'Zakupy są gotowe do sprawdzenia w Auchan.'));
     const reportText = report?.text || state.trip.reportText;
     const structured = report?.structured || state.trip.reportData;
     if (structured || reportText) {
@@ -940,6 +954,7 @@ export function start() {
     const version = ++renderVersion;
     const model = viewModel(state);
     document.querySelector('#mode').textContent = state.trip.mode === 'fallback' ? 'Tryb bez Claude' : 'Z pomocą Claude';
+    document.querySelector('#hero-art').src = `/shopping.svg?t=${encodeURIComponent(token)}#step-${rulesOpen ? 0 : selected}`;
     document.querySelector('#new-trip').disabled = state.busy === 'fill' || state.busy === 'search' || state.trip.step === 'koszyk';
     showSearch(); renderSteps(model); target.replaceChildren();
     if (rulesOpen) { void renderRules(version); return; }

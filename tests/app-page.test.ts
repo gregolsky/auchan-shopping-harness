@@ -536,6 +536,14 @@ test('the header has a three-button theme switch with aria-pressed', () => {
   assert.match(html, /role="group"[^>]*aria-label="Motyw"/);
 });
 
+test('the local artwork contains a distinct illustration for every stage and both state panels', () => {
+  const svg = readFileSync('public/shopping.svg', 'utf8');
+  for (let i = 0; i < 7; i++) assert.match(svg, new RegExp(`<view id="step-${i}"`));
+  for (const state of ['empty', 'success']) assert.match(svg, new RegExp(`<view id="${state}"`));
+  const js = readFileSync('public/app.js', 'utf8');
+  assert.match(js, /shopping\.svg\?t=\$\{encodeURIComponent\(token\)\}#step-/);
+});
+
 test('dark palette is defined twice and no hard-coded colour sits outside the token blocks', () => {
   const css = readFileSync('public/app.css', 'utf8');
   assert.match(css, /@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*:root:not\(\[data-theme="light"\]\)/);
