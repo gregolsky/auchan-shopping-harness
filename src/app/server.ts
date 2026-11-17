@@ -4,6 +4,8 @@ import { closeSync, constants, fchmodSync, fstatSync, mkdirSync, openSync, readF
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AddressInfo } from 'node:net';
+import { networkInterfaces } from 'node:os';
+import qrcode from 'qrcode-generator';
 import { liveDeps as syncDeps } from '../cli.ts';
 import { liveDeps as fillDeps } from '../fill-cli.ts';
 import { openSearchPage } from '../search-browser.ts';
@@ -190,7 +192,28 @@ function readBody(req: http.IncomingMessage): Promise<Body> {
   });
 }
 
-export function createAppServer(o: { service: AppService; token: string; publicDir: string; broadcaster: Broadcaster }): http.Server {
+/** Private IPv4 addresses of this machine: the ones a phone on the same Wi-Fi can reach. */
+export function lanAddresses(ifaces: ReturnType<typeof networkInterfaces> = networkInterfaces()): string[] {
+  const priv = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/;
+  return Object.values(ifaces).flat().filter((a) => a !== undefined && a.family === 'IPv4' && !a.internal && priv.test(a.address)).map((a) => a!.address);
+}
+
+function qrCode(text: string) {
+  const q = qrcode(0, 'M');
+  q.addData(text);
+  q.make();
+  return q;
+}
+/** The QR code of text as a self-contained, scalable SVG. */
+export const qrSvg = (text: string): string => qrCode(text).createSvgTag({ cellSize: 4, margin: 4, scalable: true });
+/** The QR code of text drawn with block characters, for the terminal. */
+export const qrTerminal = (text: string): string => qrCode(text).createASCII(1, 2);
+
+/**
+ * lanHosts: this machine's LAN addresses the page may also be opened on (a phone on the same Wi-Fi).
+ * The token stays the guard; the Host and Origin checks still stop DNS rebinding and other sites.
+ */
+export function createAppServer(o: { service: AppService; token: string; publicDir: string; broadcaster: Broadcaster; lanHosts?: string[] }): http.Server {
   const server = http.createServer((req, res) => {
     for (const [k, v] of Object.entries(HEADERS)) res.setHeader(k, v);
     const json = (status: number, body: unknown) => {
@@ -208,13 +231,17 @@ export function createAppServer(o: { service: AppService; token: string; publicD
 
   async function handle(req: http.IncomingMessage, res: http.ServerResponse, json: (s: number, b: unknown) => void): Promise<void> {
     const port = (server.address() as AddressInfo | null)?.port;
-    const base = `http://127.0.0.1:${port}`;
-    if (req.headers.host !== `127.0.0.1:${port}`) return json(403, { error: 'Brak dostępu' });
+    const hosts = ['127.0.0.1', ...(o.lanHosts ?? [])].map((h) => `${h}:${port}`);
+    const host = req.headers.host;
+    if (host === undefined || !hosts.includes(host)) return json(403, { error: 'Brak dostępu' });
+    const base = `http://${host}`;
+    const phoneUrl = o.lanHosts?.length ? `http://${o.lanHosts[0]}:${port}/?t=${o.token}` : null;
     if (req.method !== 'GET' && req.method !== 'POST') return json(405, { error: 'Niedozwolona metoda' });
     const url = new URL(req.url ?? '/', base);
     const stat = req.method === 'GET' ? STATIC[url.pathname] : undefined;
     const route = Object.hasOwn(ROUTES, url.pathname) ? ROUTES[url.pathname] : undefined;
-    const fromQuery = stat !== undefined || route?.query === true;
+    const phone = req.method === 'GET' && (url.pathname === '/api/phone' || url.pathname === '/phone-qr.svg');
+    const fromQuery = stat !== undefined || phone || route?.query === true;
     const given = fromQuery ? url.searchParams.get('t') : (req.headers['x-app-token'] as string | undefined);
     if (!sameToken(given, o.token)) return json(403, { error: 'Brak dostępu' });
 
@@ -228,6 +255,13 @@ export function createAppServer(o: { service: AppService; token: string; publicD
       const content = url.pathname === '/' ? Buffer.from(data.toString('utf8').replaceAll('__APP_TOKEN__', o.token)) : data;
       res.writeHead(200, { 'Content-Type': stat.type, 'Content-Length': content.length });
       return void res.end(content);
+    }
+    if (url.pathname === '/api/phone' && phone) return json(200, { url: phoneUrl });
+    if (url.pathname === '/phone-qr.svg' && phone) {
+      if (phoneUrl === null) return json(404, { error: 'Nie znaleziono' });
+      const svg = Buffer.from(qrSvg(phoneUrl));
+      res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Content-Length': svg.length });
+      return void res.end(svg);
     }
     if (!route) return json(404, { error: 'Nie znaleziono' });
     if ((req.method === 'GET') !== (route.get === true)) return json(405, { error: 'Niedozwolona metoda' });
@@ -322,11 +356,13 @@ export async function main(): Promise<void> {
     openSearchPage,
   });
   const publicDir = fileURLToPath(new URL('../../public', import.meta.url));
-  const server = createAppServer({ service, token, publicDir, broadcaster });
+  // shortcut: LAN addresses are read once at start; restart the app after changing networks.
+  const lanHosts = lanAddresses();
+  const server = createAppServer({ service, token, publicDir, broadcaster, lanHosts });
   try {
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
-      server.listen(port, '127.0.0.1', resolve);
+      server.listen(port, lanHosts.length > 0 ? '0.0.0.0' : '127.0.0.1', resolve);
     });
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e;
@@ -336,7 +372,12 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
   service.recover();
-  console.log(`Zakupy: ${url((server.address() as AddressInfo).port)}`);
+  const bound = (server.address() as AddressInfo).port;
+  console.log(`Zakupy: ${url(bound)}`);
+  if (lanHosts.length > 0) {
+    const phone = `http://${lanHosts[0]}:${bound}/?t=${token}`;
+    console.log(`Na telefonie (ta sama sieć Wi-Fi): ${phone}\n${qrTerminal(phone)}`);
+  }
   const stop = createStop(service, server);
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(sig, stop);
 }
