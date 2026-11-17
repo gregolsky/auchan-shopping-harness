@@ -745,7 +745,13 @@ export function start() {
     };
     const handleHelp = (kind, id) => { helpState = actionHelpEvent(helpState, kind, id); showHelp(); };
     const handlers = {
-      other: () => { const others = box.parentElement?.querySelector('.others'); if (!others) return; others.hidden = false; box.querySelector('[data-show-alternatives]')?.setAttribute('aria-expanded', 'true'); const first = others.querySelector('.option'); if (first) { first.scrollIntoView({ block: 'nearest' }); first.focus(); } },
+      other: () => {
+        const card = box.parentElement;
+        const others = card?.querySelector('.others');
+        if (others) { others.hidden = false; box.querySelector('[data-show-alternatives]')?.setAttribute('aria-expanded', 'true'); }
+        const first = card?.querySelector('.others .option, .ask .option'); // a line with a question offers its candidates there
+        if (first) { first.scrollIntoView({ block: 'nearest' }); first.focus(); }
+      },
       search: () => { if (state.search?.block) window.open(auchanSearchUrl(line.term), '_blank', 'noopener,noreferrer'); else { searchEvent = null; void run('/api/search', { terms: [line.term] }).then(showSearch); } },
       byHand: async () => { if (await run('/api/line/by-hand', { lineKey: line.lineKey })) tell(actionNote('byHand', name)); },
       remove: async () => { const r = line.question ? await run('/api/answer', { lineKey: line.lineKey, productId: null }) : await run('/api/line', { lineKey: line.lineKey, remove: true }); if (r) tell(actionNote('remove', name)); },
