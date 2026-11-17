@@ -72,7 +72,7 @@ function setup(opts: { claude?: { parse?: Reply; choose?: Reply; adhoc?: Reply }
   const shared = (): Store => ({ ...store, close() {} });
   const make = () => createService({
     openStore: shared, spawn, tripFile, now: () => new Date('2026-11-15T10:00:00Z'), emit: (e) => { opts.emit?.(e); events.push(e); },
-    fillDeps: { lockFile, openWorker: async () => worker, openStore: () => ({ ...store, close() {}, finishFill: (id: number, r: any) => (finished.push(r), store.finishFill(id, r)) }) },
+    fillDeps: { lockFile, openWorker: async () => worker, openStore: () => ({ ...store, close() {}, latestApprovedBasket: () => store.latestApprovedBasket(new Date('2026-11-15T10:00:00Z')), finishFill: (id: number, r: any) => (finished.push(r), store.finishFill(id, r)) }) },
     syncDeps: { openStore: shared, openWorker: async () => worker, paceMs: 0 },
     openSearchPage: async () => (opts.page ?? (() => fakeSearchPage()))(),
     searchTuning: { paceMs: 0, sleep: async () => {} },
@@ -262,7 +262,7 @@ test('approve fills the fake cart and emits progress then report then done; a se
   assert.equal(make().state().trip.reportText, rep.report.text, 'the report survives a service restart');
   assert.deepEqual(make().state().trip.reportData, rep.report.structured, 'structured rows survive a service restart');
   assert.equal(svc.state().busy, null);
-  assert.ok(store.latestApprovedBasket());
+  assert.ok(store.latestApprovedBasket(new Date('2026-11-15T10:00:00Z')));
 });
 
 test('a fill without a report goes back to zatwierdzenie with the failure in messages', async () => {
