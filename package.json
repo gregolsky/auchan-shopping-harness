@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/",
+    "test:e2e": "node --test --test-concurrency=1 e2e/",
     "typecheck": "tsc --noEmit",
     "sync": "node src/cli.ts",
     "fill": "node src/fill-cli.ts",

@@ -117,6 +117,7 @@ Then log out on Auchan if you also want the session ended there.
 | `npm run fill` | 🛒 Fill the cart from a basket approved in the chat |
 | `/zakupy` in Claude Code | 💬 Do the whole shopping in a chat instead of the app |
 | `npm test` | ✅ Run the tests |
+| `npm run test:e2e` | 🎭 Run the browser tests (Playwright + Chromium, fully offline: scripted Claude, fake Auchan and cart) |
 
 <details>
 <summary>🛠️ For developers</summary>
