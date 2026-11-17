@@ -44,7 +44,7 @@ button:disabled{opacity:1;cursor:not-allowed;border-color:var(--dis-line);backgr
 .proposal-title{font-weight:750;color:var(--alert-text)}
 .proposal .actions{margin:0;margin-left:auto}
 .options{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px;margin-top:6px}
-.option{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:8px;align-items:center;text-align:left;padding:6px 8px;border:1px solid var(--field);border-radius:10px;background:var(--surface);color:inherit;min-height:56px}
+.option{display:grid;grid-template-columns:44px minmax(0,1fr);grid-template-rows:auto auto;column-gap:8px;row-gap:2px;align-items:center;text-align:left;padding:6px 8px;border:1px solid var(--field);border-radius:10px;background:var(--surface);color:inherit;min-height:56px}.option>.thumb{grid-row:span 2}.option>.price{grid-column:2;white-space:normal}
 .option-item{display:flex;flex-direction:column;gap:3px;min-width:0}
 .option-item .option{flex:1}
 .price-age{font-weight:400;font-size:13px;color:var(--muted)}
