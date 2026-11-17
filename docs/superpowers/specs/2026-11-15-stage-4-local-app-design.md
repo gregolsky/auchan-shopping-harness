@@ -4,14 +4,14 @@ Parent spec: `docs/superpowers/specs/2026-10-31-auchan-harness-design.md` (its R
 
 ## Intent
 
-One local page that runs a whole shopping trip as a six-step wizard: **Dane → Szkic → Doprecyzowanie → Zatwierdzenie → Koszyk → Płatność**. Claude helps with the whole trip in context (it sees the note, the draft and the answers), through `claude -p`, but only proposes; the app validates every proposal and the user clicks to apply. The chat wizard (`auchan-plan` skill) stays as the fallback.
+One local page that runs a whole shopping trip as a seven-step wizard: **Dane → Lista → Przegląd → Doprecyzowanie → Zatwierdzenie → Koszyk → Płatność** (Szkic was split into Lista and Przegląd on 2026-11-16). Claude helps with the whole trip in context (it sees the note, the draft and the answers), through `claude -p`, but only proposes; the app validates every proposal and the user clicks to apply. The chat wizard (`auchan-plan` skill) stays as the fallback.
 
 Success: the user pastes a list like the 2026-11-15 one, answers one round of questions, approves once, watches the cart fill, and gets the report with the pay link — without opening a terminal chat.
 
 ## Decisions
 
 1. **Stack:** `node:http` server and one page of plain HTML, CSS and JS served by the same process. No new dependencies, no build step. `npm run app` starts it and prints the URL.
-2. **Access:** listens on `127.0.0.1` only. A random token (32 hex chars, new each start) is part of the printed URL; every request without it gets 403. Requests must also have `Host: 127.0.0.1:<port>` (DNS rebinding) and, for POST, `Origin` equal to the app's origin or absent with `Sec-Fetch-Site: same-origin`. JSON bodies only, max 64 KB.
+2. **Access:** listens on `127.0.0.1` only. Default port 47474 (`APP_PORT` overrides it). A random token (32 hex chars) is created once, kept in `.state/app-token` (mode 600) and reused on every start; it is part of the printed URL; every request without it gets 403. Requests must also have `Host: 127.0.0.1:<port>` (DNS rebinding) and, for POST, `Origin` equal to the app's origin or absent with `Sec-Fetch-Site: same-origin`. JSON bodies only, max 64 KB.
 3. **Claude with whole-trip context:** each call is `claude -p` with `--output-format json`, `--json-schema <schema>`, `--tools ""`, `--strict-mcp-config`, `--setting-sources ""`, `--disable-slash-commands`, `--no-session-persistence`, `--model sonnet`, spawned with no shell in a fresh empty temporary directory (never `--bare`, which breaks the user's login; the isolation flags matter because the repo's MCP servers include a logged-in browser), a fixed system prompt, and the full trip state in the prompt (note, current lines with candidate ids, names, prices, confidence, the user's answers). No session is resumed; the state is passed in every time. Product names and offer texts are marked as data in the prompt. The call has a 60 s timeout.
 4. **Claude only proposes.** Output is a list of operations from a closed set:
    - `add { term, quantity, note? }` — run the planner for a new term
@@ -33,7 +33,7 @@ Success: the user pastes a list like the 2026-11-15 one, answers one round of qu
 
 ## Pages and API
 
-One page, six step tabs (later steps disabled until reached), a progress line like the chat wizard, the "Powiedz, co zmienić" box on steps 2–4, and a Rules tab.
+One page, seven step tabs (later steps disabled until reached), a progress line like the chat wizard, the "Powiedz, co zmienić" box on steps 2–4, and a Rules tab.
 
 API (all JSON, all need the token):
 - `GET /api/state` — trip state, data freshness, mode (claude/fallback)
@@ -43,6 +43,10 @@ API (all JSON, all need the token):
 - `POST /api/apply { proposalId }` / `POST /api/reject { proposalId }`
 - `POST /api/answer { lineKey, productId | null }` — a clarification answer (null = skip/remove)
 - `POST /api/line { lineKey, quantity | remove | included }` — manual edits
+- `POST /api/line/by-hand { lineKey }` — move a line to the add-by-hand list
+- `POST /api/unmatched/remove { term }` — drop an add-by-hand term
+- `POST /api/proposal/op { proposalId, index, accept }` — include or leave out one operation of a proposal
+- `POST /api/search { terms?, force? }` (≤10 terms) — search Auchan for terms the local data does not know (SSE progress), with the same pacing and 24 h block as `npm run search-auchan`
 - `POST /api/approve` — approve and start the fill (SSE progress)
 - `GET /api/rules`, `POST /api/rules/delete { term }`, `POST /api/rules/brand { term, brand: null }`
 - `GET /api/blocked` — the blocked products, `[{ productId, name }]`
@@ -57,8 +61,8 @@ The Szymanowska flour rule is a brand rule tied to its seeded blacklist row ("Ws
 - Same rules as the CLI: no checkout request, only the existing worker POSTs, 403 stops with no rerun advice, cookies and the CSRF token never reach the page, logs or errors.
 - Claude has no tools; its output is data validated against the trip; it can't approve or fill.
 - Auchan text is passed through `cleanText` and rendered with `textContent` only (no `innerHTML` with data).
-- The page sets `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`.
-- The token never appears in logs other than the one startup line; `.state/trip.json` holds no cookies.
+- The page sets `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' https://zakupy.auchan.pl; frame-ancestors 'none'`, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`.
+- The token never appears in logs other than the one startup line (and the "already running" line); `.state/trip.json` holds no cookies.
 
 ## Testing
 
@@ -72,4 +76,4 @@ Everything is tested offline (the user asked for tests for everything):
 
 ## Out of scope
 
-Searching Auchan (403), editing the cart beyond adding, multiple users, remote access, mobile layout polish beyond a usable narrow view.
+Searching Auchan without the user (it runs only on the user's click, in a visible window), editing the cart beyond adding, multiple users, remote access, mobile layout polish beyond a usable narrow view.

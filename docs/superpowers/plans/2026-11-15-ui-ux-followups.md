@@ -1,6 +1,6 @@
 # UI review and follow-ups
 
-The first browser review covered the six-step local app at desktop and 375 px width. A separate agent reviewed the source against the stage-4 mockup and spec.
+The first browser review covered the then six-step local app (seven steps since 2026-11-16) at desktop and 375 px width. A separate agent reviewed the source against the stage-4 mockup and spec.
 
 ## Resolved in this pass
 
@@ -24,7 +24,7 @@ The first browser review covered the six-step local app at desktop and 375 px wi
 ## From the pre-merge review (2026-11-15)
 
 - **Placed orders without a status check:** `syncPlaced` stores any order body with lines as 'placed'. Read the order's `status` and store only in-progress statuses (confirm the real values on the next order); skip cancelled/cart statuses; consider dropping placed rows that never became delivered after ~14 days. Placed-order prices use the future delivery date as `seen_at` and win "latest price" until then — use the import time instead.
-- **Docs:** README lacks placed-order learning and `npm run sync placed <id>`, the app's "Szukaj w Auchan" button, the 24 h block after 403/429, and search results as medium-confidence candidates; the stage-4 spec still shows the old CSP (no `img-src https://zakupy.auchan.pl`) and misses `/api/search`, `/api/proposal/op`, `/api/unmatched/remove`, `/api/line/by-hand`.
+- ~~**Docs:** README and the stage-4 spec missed placed orders, search, the 24 h block, the CSP `img-src` and four API routes.~~ Done 2026-11-17.
 - **Read-only store on an unmigrated DB** throws (write statements prepared unconditionally) — prepare them lazily.
 - **Search rank** relies on `productEntities` key order; use `data.search.catalogue.data.productGroups[].products` and check `query.searchTerm`.
 - **Cleanup:** duplicated `failureText` (service vs messages.ts), `BLOCKED_TEXT`, `searchBlockText`, three Polish `plural` helpers; redundant checks in `searchAuchan`/`searchPlan`; misplaced comments (fill-cli.ts:122, candidates.ts:78, app.js:443).
