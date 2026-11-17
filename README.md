@@ -1,4 +1,4 @@
-# domestic-ai
+# auchan-shopping-harness
 
 Local Claude Code commands for household automation, scoped to this working directory.
 Invoke any skill by typing `/<name>` inside a Claude Code session started from this directory.
