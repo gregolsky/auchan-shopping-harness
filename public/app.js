@@ -715,7 +715,8 @@ export function start() {
     }
     node.append(actionsNode(line, view));
     const reveal = node.querySelector('[data-show-alternatives]');
-    if (reveal) reveal.setAttribute('aria-controls', node.querySelector('.others').id);
+    const others = node.querySelector('.others'); // absent when the line asks a question or has no other candidates
+    if (reveal && others) reveal.setAttribute('aria-controls', others.id);
     return node;
   }
   function appendGroupedProducts(parent, lines, heading = 'h3') {
