@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
-import { createAppServer, createBroadcaster, lanAddresses, qrSvg } from '../src/app/server.ts';
+import { createAppServer, createBroadcaster, lanAddresses, listenAlso, qrSvg } from '../src/app/server.ts';
 
 const TOKEN = 'b'.repeat(32);
 const LAN = '192.168.1.23';
@@ -114,4 +114,23 @@ test('qrSvg makes one scalable SVG and nothing else', () => {
   const svg = qrSvg('http://192.168.1.23:47474/?t=' + TOKEN);
   assert.match(svg, /^<svg[^>]*xmlns="http:\/\/www.w3.org\/2000\/svg"[^>]*>[\s\S]*<\/svg>$/);
   assert.doesNotMatch(svg, /<script|on\w+=/i);
+});
+
+test('listenAlso serves the same app on one more address and port, and only there', async () => {
+  const publicDir = mkdtempSync(join(tmpdir(), 'pub-'));
+  writeFileSync(join(publicDir, 'index.html'), '<html>hi</html>');
+  const lanHost = '127.0.0.2'; // a second loopback address stands in for the Wi-Fi one
+  const app = createAppServer({ service: {} as never, token: TOKEN, publicDir, broadcaster: createBroadcaster(), lanHosts: [lanHost] });
+  await new Promise<void>((r) => app.listen(0, '127.0.0.1', r));
+  const port = (app.address() as AddressInfo).port;
+  const extra = await listenAlso(app, port, lanHost);
+  try {
+    assert.equal((extra.address() as AddressInfo).address, lanHost);
+    const r = await fetch(`http://${lanHost}:${port}/?t=${TOKEN}`);
+    assert.equal(r.status, 200);
+    assert.equal(await r.text(), '<html>hi</html>');
+    await assert.rejects(fetch(`http://127.0.0.3:${port}/?t=${TOKEN}`), 'nothing listens on other addresses');
+  } finally {
+    extra.closeAllConnections(); extra.close(); app.closeAllConnections(); app.close();
+  }
 });

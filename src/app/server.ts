@@ -309,6 +309,16 @@ export function createStop(service: Pick<AppService, 'shutdown'>, server: http.S
   };
 }
 
+/** Serves app's requests on one more address (the Wi-Fi one), so the app never listens on every interface. */
+export async function listenAlso(app: http.Server, port: number, host: string): Promise<http.Server> {
+  const extra = http.createServer((req, res) => app.emit('request', req, res));
+  await new Promise<void>((resolve, reject) => {
+    extra.once('error', reject);
+    extra.listen(port, host, resolve);
+  });
+  return extra;
+}
+
 export const DEFAULT_PORT = 47474;
 const TOKEN_RE = /^[0-9a-f]{32}$/;
 
@@ -363,13 +373,14 @@ export async function main(): Promise<void> {
     openSearchPage,
   });
   const publicDir = fileURLToPath(new URL('../../public', import.meta.url));
-  // shortcut: LAN addresses are read once at start; restart the app after changing networks.
-  const lanHosts = lanAddresses();
+  // shortcut: the LAN address is read once at start; restart the app after changing networks.
+  // Only the likeliest Wi-Fi address: not every interface (containers, VPN, a public address).
+  const lanHosts = lanAddresses().slice(0, 1);
   const server = createAppServer({ service, token, publicDir, broadcaster, lanHosts });
   try {
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
-      server.listen(port, lanHosts.length > 0 ? '0.0.0.0' : '127.0.0.1', resolve);
+      server.listen(port, '127.0.0.1', resolve);
     });
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw e;
@@ -381,6 +392,14 @@ export async function main(): Promise<void> {
   service.recover();
   const bound = (server.address() as AddressInfo).port;
   console.log(`Zakupy: ${url(bound)}`);
+  if (lanHosts.length > 0) {
+    try {
+      await listenAlso(server, bound, lanHosts[0]!);
+    } catch {
+      console.log('Telefon: nie udało się otworzyć adresu w sieci Wi-Fi; aplikacja działa tylko na tym komputerze.');
+      lanHosts.length = 0; // the server reads this list per request: no phone link, no LAN Host
+    }
+  }
   if (lanHosts.length > 0) {
     const phone = `http://${lanHosts[0]}:${bound}/?t=${token}`;
     console.log(`Na telefonie (ta sama sieć Wi-Fi): ${phone}\n${qrTerminal(phone)}`);
