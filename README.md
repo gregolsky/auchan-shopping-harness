@@ -6,11 +6,16 @@
 📝 your list  →  🔎 matched products  →  ❓ a few questions  →  ✅ approve  →  🛒 cart filled  →  💳 you pay on Auchan
 ```
 
+<p align="center">
+  <img src="docs/screenshots/przeglad.png" alt="The review step: products grouped by category, each with a photo, price, confidence badge and four action buttons" width="49%">
+  <img src="docs/screenshots/przeglad-dark.png" alt="The same review step in dark mode" width="49%">
+</p>
+
 ---
 
 ## 🚀 First time: set up (5 minutes)
 
-**You need:** [Node.js](https://nodejs.org) 26+, Chromium, an Auchan account with at least a few past orders and, optionally, the [Claude Code](https://claude.com/claude-code) CLI. Claude helps read the list; without it the app still works, it just asks more questions.
+**You need:** [Node.js](https://nodejs.org) 26+, Chromium, an Auchan account with at least a few past orders and, optionally, the [Claude Code](https://claude.com/claude-code) CLI. Claude reads free-form lists and handles **Powiedz, co zmienić**. Without it the app still works: write one product per line (`mleko 2`) and it asks about every doubtful match.
 
 1. **Install:**
    ```bash
@@ -35,6 +40,16 @@ npm run app
 ```
 
 Open the link it prints (`http://127.0.0.1:47474/?t=…`). 💡 **Bookmark it.** The link stays the same every time you start the app.
+
+### 📱 Continue on your phone
+
+Click **📱 Kontynuuj na telefonie** in the top bar and scan the QR code with the phone's camera (the terminal shows the same code at start-up). The phone must be on the same Wi-Fi. It opens the same trip at the same step, so you can make the list at the desk and finish it in the kitchen.
+
+<p align="center">
+  <img src="docs/screenshots/telefon.png" alt="The Kontynuuj na telefonie dialog with a QR code, the phone link and a copy button" width="40%">
+  <img src="docs/screenshots/mobile.png" alt="The review step on a phone" width="30%">
+</p>
+
 
 Then follow the steps at the top of the page:
 
@@ -78,6 +93,7 @@ Each time you pick a different product, the app remembers it for next time. Open
 - 🏠 **Everything stays on your computer** in `.state/`. Only your list, product names and prices go to Anthropic when Claude reads the list. Order numbers, your address and your login never do.
 - 💳 **The app never pays.** It can't open the payment pages, even by mistake.
 - 🍪 **It keeps only the login cookie** for Auchan, nothing else.
+- 📶 **On your Wi-Fi, the link is the key.** The app answers on this computer and on its home-network address only, and every request needs the token in the link. The Wi-Fi traffic is plain HTTP, so don't run the app on public Wi-Fi. To change the key, stop the app, run `rm .state/app-token` and start it again; old links and bookmarks stop working.
 - 🛑 **If Auchan says no, it stops.** No retries and no getting around Auchan's bot protection.
 
 🗑️ **Delete everything:**
@@ -109,7 +125,7 @@ Then log out on Auchan if you also want the session ended there.
 - **Data:** `.state/harness.db` (orders, prices, promotions, learned rules) and `.state/trip.json` (the current trip).
 - **Talking to Auchan:** plain HTTP with the saved session (`src/http-worker.ts`). Every path is allowlisted (`src/worker.ts`) and requests are paced. The cart is only added to, in batches of 10, and never lowered or emptied.
 - **Claude:** `claude -p` with no tools, MCP servers, settings or saved session, in an empty temporary directory. Its output is a closed set of operations that the server validates (`src/app/`).
-- **App server:** 127.0.0.1 only, with a token in `.state/app-token`. It checks the Host and Origin headers and sets a strict CSP. The design is in `docs/superpowers/specs/`.
+- **App server:** listens on 127.0.0.1 and on one private Wi-Fi address (`lanAddresses()` skips container and VPN interfaces), with a token in `.state/app-token`. It checks the Host and Origin headers and sets a strict CSP. `GET /api/phone` and `/phone-qr.svg` serve the phone link and its QR code (`qrcode-generator`, no dependencies). The design is in `docs/superpowers/specs/`.
 - **MCP server** `auchan-data` (`.mcp.json`): reads and writes the local database only, for the `/zakupy` chat flow.
 - **Hooks** (`.claude/settings.json`): `tools/fill-guard.ts` blocks the browser tools while a fill runs. `tools/checkout-guard.ts` always blocks checkout and payment pages.
 - `npm run replay` measures how well the "usual" list predicts your last 5 orders.
