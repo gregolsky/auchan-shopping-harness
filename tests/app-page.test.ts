@@ -1,7 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionHelp, actionHelpEvent, actionNote, categoryFor, groupByCategory, categoryLabelText, iconPaths, reportView, reportPriceText, auchanProductUrl, priceAgeText } from '../public/app.js';
+import { STEPS, progressLine, zl, viewModel, describeOp, parseBudget, describeQuestions, unmatchedText, nextSelected, claudeStatus, approveHint, badgeText, confidenceReasonText, lineLabel, workingPanel, doneSummary, failureText, START_TEXT, lineCard, proposalView, unmatchedCard, acceptAllText, proposalNote, proposalButtons, acceptAllSummary, auchanSearchUrl, searchPanel, searchButton, searchBlockText, MANUAL_HINT, THEMES, normalizeTheme, readTheme, saveTheme, applyTheme, afterNote, reviewNext, listNotice, lineActions, actionHelp, actionHelpEvent, actionNote, categoryFor, groupByCategory, categoryLabelText, iconPaths, reportView, reportPriceText, auchanProductUrl, priceAgeText, phoneEntryVisible } from '../public/app.js';
+
+test('phone handoff is offered only on the computer when a LAN link exists', () => {
+  const link = 'http://192.168.1.20:47475/?t=secret';
+  assert.equal(phoneEntryVisible('127.0.0.1', link), true);
+  assert.equal(phoneEntryVisible('localhost', link), true);
+  assert.equal(phoneEntryVisible('127.0.0.1', null), false);
+  assert.equal(phoneEntryVisible('192.168.1.20', link), false);
+  assert.equal(phoneEntryVisible('127.0.0.1', 'javascript:alert(1)'), false);
+});
+
+test('phone handoff has a labelled dialog, QR image and copy feedback', () => {
+  const html = readFileSync('public/index.html', 'utf8');
+  assert.match(html, /id="phone-trigger"[^>]*hidden/);
+  assert.match(html, /<dialog[^>]*id="phone-dialog"[^>]*aria-labelledby="phone-title"/);
+  assert.match(html, /<img[^>]*id="phone-qr"/);
+  assert.match(html, /id="phone-copy-status"[^>]*aria-live="polite"/);
+});
 
 test('catalog category paths map to stable shopping sections and unknown paths stay in Inne', () => {
   assert.equal(categoryFor(['Artykuły spożywcze', 'Sery']).key, 'dairy');

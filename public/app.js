@@ -155,6 +155,13 @@ export function progressLine(index) {
 }
 export function zl(grosze) { return `${(Number(grosze || 0) / 100).toFixed(2).replace('.', ',')} zł`; }
 
+/** Only the computer's local page offers a handoff, and only for a tokenized HTTP link. */
+export function phoneEntryVisible(hostname, url) {
+  if (!['127.0.0.1', 'localhost'].includes(hostname) || typeof url !== 'string') return false;
+  try { const parsed = new URL(url); return parsed.protocol === 'http:' && Boolean(parsed.searchParams.get('t')); }
+  catch { return false; }
+}
+
 const BLOCKED_TEXT = 'Auchan odrzucił zapytanie. Nie zatwierdzaj ponownie — sprawdź koszyk na Auchan i zacznij nowe zakupy.';
 
 /** Which tab to show after the trip moved: a tab beyond the trip's step (cart, payment) follows the trip back. */
@@ -549,6 +556,37 @@ export function start() {
     if (!response.ok) throw new Error(data.error || 'Nie udało się wykonać operacji.');
     return data;
   }
+  const phoneTrigger = document.querySelector('#phone-trigger');
+  const phoneDialog = document.querySelector('#phone-dialog');
+  const phoneLink = document.querySelector('#phone-link');
+  const phoneQr = document.querySelector('#phone-qr');
+  const phoneCopyStatus = document.querySelector('#phone-copy-status');
+  let phoneUrl = null;
+  if (['127.0.0.1', 'localhost'].includes(location.hostname)) {
+    void api(`/api/phone?t=${encodeURIComponent(token)}`).then((result) => {
+      if (phoneEntryVisible(location.hostname, result.url)) { phoneUrl = result.url; phoneTrigger.hidden = false; }
+    }).catch(() => { /* The handoff is optional when the LAN is unavailable. */ });
+  }
+  phoneTrigger.addEventListener('click', () => {
+    if (!phoneUrl) return;
+    phoneLink.href = phoneUrl;
+    phoneLink.target = '_blank'; phoneLink.rel = 'noopener noreferrer'; phoneLink.referrerPolicy = 'no-referrer';
+    phoneLink.textContent = phoneUrl;
+    phoneQr.src = `/phone-qr.svg?t=${encodeURIComponent(token)}`;
+    phoneCopyStatus.textContent = '';
+    phoneDialog.showModal();
+  });
+  document.querySelector('#phone-close').addEventListener('click', () => phoneDialog.close());
+  phoneDialog.addEventListener('close', () => phoneTrigger.focus());
+  document.querySelector('#phone-copy').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(phoneUrl);
+      phoneCopyStatus.textContent = 'Link skopiowany.';
+    } catch {
+      phoneCopyStatus.textContent = 'Nie udało się skopiować. Skopiuj link ręcznie.';
+      phoneLink.focus();
+    }
+  });
   async function run(path, body, failure) {
     try {
       tell('');

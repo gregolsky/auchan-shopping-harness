@@ -9,6 +9,7 @@ export function reportView(text: string, tripLines?: { productId?: string; retai
 export function reportPriceText(item: { unitPriceGrosze?: number | null; priceSource?: 'planned' | 'cart'; approvedGrosze?: number; nowGrosze?: number; risePercent?: number }): string;
 export function progressLine(stepIndex: number): string;
 export function zl(grosze: number): string;
+export function phoneEntryVisible(hostname: string, url: unknown): boolean;
 export function viewModel(state: any, now?: Date): any;
 export function describeOp(op: any, linesByKey: Map<string, any>): string;
 export function start(): void;

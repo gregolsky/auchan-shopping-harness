@@ -10,7 +10,15 @@
   <script type="module" src="/app.js?t=__APP_TOKEN__"></script>
 </head>
 <body>
-  <header class="topbar"><div class="brand"><img class="brand-mark" src="/icon.svg?t=__APP_TOKEN__" alt=""><div><strong>Zakupy</strong><small>Twój lokalny asystent</small></div></div><div class="topbar-actions"><div class="theme-switch" role="group" aria-label="Motyw"><button type="button" class="quiet small" data-theme-choice="system" aria-pressed="false">Systemowy</button><button type="button" class="quiet small" data-theme-choice="light" aria-pressed="false">Jasny</button><button type="button" class="quiet small" data-theme-choice="dark" aria-pressed="false">Ciemny</button></div><button id="new-trip" class="quiet">＋ Nowe zakupy</button></div></header>
+  <header class="topbar"><div class="brand"><img class="brand-mark" src="/icon.svg?t=__APP_TOKEN__" alt=""><div><strong>Zakupy</strong><small>Twój lokalny asystent</small></div></div><div class="topbar-actions"><div class="theme-switch" role="group" aria-label="Motyw"><button type="button" class="quiet small" data-theme-choice="system" aria-pressed="false">Systemowy</button><button type="button" class="quiet small" data-theme-choice="light" aria-pressed="false">Jasny</button><button type="button" class="quiet small" data-theme-choice="dark" aria-pressed="false">Ciemny</button></div><button id="phone-trigger" type="button" class="quiet phone-trigger" hidden>📱 Kontynuuj na telefonie</button><button id="new-trip" class="quiet">＋ Nowe zakupy</button></div></header>
+  <dialog id="phone-dialog" class="phone-dialog" aria-labelledby="phone-title" aria-describedby="phone-hint">
+    <div class="phone-heading"><div><p class="eyebrow">ZAKUPY W DRODZE</p><h2 id="phone-title">Kontynuuj na telefonie</h2></div><button id="phone-close" type="button" class="quiet small">Zamknij</button></div>
+    <p id="phone-hint">Zeskanuj aparatem telefonu — telefon musi być w tej samej sieci Wi-Fi.</p>
+    <div class="phone-qr-frame"><img id="phone-qr" alt="Kod QR z adresem zakupów na telefon" width="220" height="220" referrerpolicy="no-referrer"></div>
+    <p class="phone-continuity">Na telefonie otworzy się ta sama lista i etap zakupów.</p>
+    <div class="phone-link-row"><a id="phone-link"></a><button id="phone-copy" type="button" class="button">Kopiuj link</button></div>
+    <p id="phone-copy-status" role="status" aria-live="polite"></p>
+  </dialog>
   <main class="shell">
     <div class="intro"><div class="intro-copy"><p class="eyebrow">AUCHAN · PLANOWANIE</p><h1>Zakupy krok po kroku</h1><p class="subtle">Sprawdź wybór produktów przed dodaniem ich do koszyka.</p><span id="mode" class="mode"></span></div><img id="hero-art" class="hero-art" src="/shopping.svg?t=__APP_TOKEN__" alt="" width="280" height="180"></div>
     <nav id="steps" class="steps" aria-label="Etapy zakupów"></nav>
