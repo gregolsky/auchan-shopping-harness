@@ -21,7 +21,9 @@ test('grouping keeps a stable category order and original order within each cate
 });
 
 test('every shopping category and the empty thumbnail has a vector icon', () => {
-  for (const key of ['produce', 'dairy', 'meat', 'bread', 'drink', 'snack', 'frozen', 'pantry', 'care', 'pet', 'other', 'cart', 'warning', 'missing', 'action', 'info', 'increase']) {
+  const categories = ['produce', 'dairy', 'meat', 'bread', 'drink', 'snack', 'frozen', 'pantry', 'care', 'pet', 'other'];
+  assert.equal(new Set(categories.map((key) => iconPaths(key).join('|'))).size, categories.length);
+  for (const key of [...categories, 'cart', 'warning', 'missing', 'action', 'info', 'increase']) {
     assert.ok(iconPaths(key).length > 0, key);
     assert.ok(iconPaths(key).every((path) => /^[MmLlHhVvCcSsQqTtAaZz0-9 .,\-]+$/.test(path)), key);
   }
