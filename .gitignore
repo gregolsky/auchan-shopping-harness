@@ -50,3 +50,4 @@ playwright-report/
 *.db
 *.sqlite*
 *.png
+!docs/screenshots/*.png
